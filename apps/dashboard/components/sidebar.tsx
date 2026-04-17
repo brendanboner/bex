@@ -9,7 +9,11 @@ import {
   Clock,
   Key,
   LayoutDashboard,
+  MessageSquare,
+  Monitor,
   Network,
+  Package,
+  Settings,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,6 +27,10 @@ const navItems = [
   { href: '/endpoints', label: 'Endpoints', icon: Network },
   { href: '/scheduled-jobs', label: 'Scheduled Jobs', icon: Calendar },
   { href: '/users', label: 'Users', icon: Users },
+  { href: '/targets', label: 'Targets', icon: Monitor },
+  { href: '/marketplace', label: 'Marketplace', icon: Package },
+  { href: '/chat', label: 'Chat', icon: MessageSquare },
+  { href: '/setup', label: 'Setup', icon: Settings },
 ];
 
 export function Sidebar() {

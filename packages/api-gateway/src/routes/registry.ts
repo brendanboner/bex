@@ -8,22 +8,42 @@ import type { SkillManifest } from '@bclaw/shared';
 export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const client = new SkillRegistryClient();
 
-  // GET /registry/skills — list skills in the remote registry
+  // GET /registry/skills — list skills (local registry + remote if configured)
   app.get('/registry/skills', async (request, reply) => {
     const query = (request.query as Record<string, string>)['domain'];
-    try {
-      const skills = await client.list(query);
-      return reply.send(ok(skills));
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      return reply.status(502).send(err(ErrorCodes.INTERNAL, msg));
+
+    // Always serve locally published skills (this instance acts as registry)
+    const localEntries = await prisma.skillRegistryEntry.findMany({
+      where: query ? { domain: { contains: query } } : {},
+      select: { domain: true, version: true, name: true, description: true, publishedAt: true },
+      orderBy: { publishedAt: 'desc' },
+    });
+
+    // Optionally supplement with remote registry if configured
+    let remoteSkills: unknown[] = [];
+    if (client.isConfigured) {
+      try {
+        remoteSkills = await client.list(query);
+      } catch {
+        // Non-fatal: serve local skills even if remote is unavailable
+        app.log.warn('Remote registry unavailable');
+      }
     }
+
+    return reply.send(ok([...localEntries, ...remoteSkills]));
   });
 
-  // GET /registry/skills/:domain/:version — fetch a specific skill manifest
+  // GET /registry/skills/:domain/:version — fetch from local registry first, then remote
   app.get<{ Params: { domain: string; version: string } }>(
     '/registry/skills/:domain/:version',
     async (request, reply) => {
+      // Check local first
+      const local = await prisma.skillRegistryEntry.findUnique({
+        where: { domain_version: { domain: request.params.domain, version: request.params.version } },
+      });
+      if (local) return reply.send(ok(local.manifest));
+
+      // Fall back to remote registry
       try {
         const manifest = await client.fetch(request.params.domain, request.params.version);
         return reply.send(ok(manifest));
