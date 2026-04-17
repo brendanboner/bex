@@ -143,6 +143,63 @@ export class TeamsAdapter implements NotificationAdapter {
   }
 }
 
+// ─── WhatsApp adapter (Twilio) ────────────────────────────────────────────────
+
+export class WhatsAppAdapter implements NotificationAdapter {
+  private readonly callbackBaseUrl: string;
+  private readonly fromNumber: string;
+  private readonly toNumber: string;
+
+  constructor() {
+    this.callbackBaseUrl = requireEnv('PERMISSION_GATEWAY_CALLBACK_URL');
+    this.fromNumber = requireEnv('TWILIO_WHATSAPP_FROM');
+    this.toNumber = requireEnv('WHATSAPP_APPROVAL_TO');
+  }
+
+  async sendApprovalRequest(payload: ApprovalPayload): Promise<string | null> {
+    const twilio = (await import('twilio')).default;
+    const client = twilio(requireEnv('TWILIO_ACCOUNT_SID'), requireEnv('TWILIO_AUTH_TOKEN'));
+
+    const approveUrl = `${this.callbackBaseUrl}/approvals/${payload.requestId}/approve`;
+    const denyUrl = `${this.callbackBaseUrl}/approvals/${payload.requestId}/deny`;
+
+    const body = [
+      `🔐 *Approval Required*`,
+      ``,
+      `*Agent:* ${payload.agentName}`,
+      `*Reason:* ${payload.reason}`,
+      `*Expires:* ${payload.expiresAt.toISOString()}`,
+      ``,
+      `✅ Approve: ${approveUrl}`,
+      `❌ Deny: ${denyUrl}`,
+      ``,
+      `Or reply *APPROVE ${payload.requestId}* or *DENY ${payload.requestId}* to this message.`,
+    ].join('\n');
+
+    const message = await client.messages.create({
+      from: this.fromNumber,
+      to: this.toNumber,
+      body,
+    });
+
+    return message.sid;
+  }
+
+  async updateApprovalStatus(channelRef: string, status: 'APPROVED' | 'DENIED' | 'EXPIRED'): Promise<void> {
+    const twilio = (await import('twilio')).default;
+    const client = twilio(requireEnv('TWILIO_ACCOUNT_SID'), requireEnv('TWILIO_AUTH_TOKEN'));
+
+    const emoji = status === 'APPROVED' ? '✅' : status === 'DENIED' ? '❌' : '⏰';
+    const label = status === 'APPROVED' ? 'Approved' : status === 'DENIED' ? 'Denied' : 'Expired';
+
+    await client.messages.create({
+      from: this.fromNumber,
+      to: this.toNumber,
+      body: `${emoji} Approval request ${channelRef} has been *${label}*.`,
+    });
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function requireEnv(key: string): string {

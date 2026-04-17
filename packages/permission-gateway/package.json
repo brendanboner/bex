@@ -23,6 +23,7 @@
   "dependencies": {
     "@bclaw/shared": "*",
     "@prisma/client": "^5.17.0",
+    "twilio": "^5.3.3",
     "undici": "^6.20.0",
     "zod": "^3.23.8"
   },

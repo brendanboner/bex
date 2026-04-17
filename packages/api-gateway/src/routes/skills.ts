@@ -2,10 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
 import { CreateSkillSchema, ok, err, ErrorCodes } from '@bclaw/shared';
-import { SkillRegistryService } from '@bclaw/skill-engine';
+import { SkillBuilderService, SkillRegistryService, SkillTestRunner } from '@bclaw/skill-engine';
+import type { BuildSkillSource } from '@bclaw/skill-engine';
 
 export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const registry = new SkillRegistryService(prisma);
+  const builder = new SkillBuilderService(prisma);
+  const testRunner = new SkillTestRunner(prisma);
 
   // GET /skills
   app.get('/skills', async (_request, reply) => {
@@ -49,6 +52,47 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
     return reply.status(202).send(ok({ skillId: skill.id, status: 'DRAFT' }));
   });
 
+  // POST /skills/build — build a comprehensive skill from typed knowledge sources
+  app.post<{ Body: unknown }>('/skills/build', async (request, reply) => {
+    const body = request.body as {
+      domain?: string;
+      intent?: string;
+      sources?: Array<{ type?: string; url?: string; content?: string; label?: string }>;
+    };
+
+    if (!body?.domain || !body.intent || !Array.isArray(body.sources) || body.sources.length === 0) {
+      return reply.status(400).send(
+        err(ErrorCodes.VALIDATION_ERROR, 'domain, intent, and at least one source are required'),
+      );
+    }
+
+    const validSourceTypes = new Set(['openapi_url', 'pdf_url', 'markdown_url', 'raw_markdown']);
+    for (const s of body.sources) {
+      if (!s.type || !validSourceTypes.has(s.type) || !s.label) {
+        return reply.status(400).send(
+          err(ErrorCodes.VALIDATION_ERROR, `Each source must have a valid type (${[...validSourceTypes].join(', ')}) and label`),
+        );
+      }
+    }
+
+    const result = await builder.build({
+      domain: body.domain,
+      intent: body.intent,
+      sources: body.sources as BuildSkillSource[],
+    });
+
+    return reply.status(201).send(ok(result));
+  });
+
+  // POST /skills/:id/test — run the test suite for a skill
+  app.post<{ Params: { id: string } }>('/skills/:id/test', async (request, reply) => {
+    const skill = await prisma.skill.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
+
+    const report = await testRunner.run(request.params.id);
+    return reply.send(ok(report));
+  });
+
   // POST /skills/:id/publish — publish a draft skill (system users only)
   app.post<{ Params: { id: string } }>(
     '/skills/:id/publish',
@@ -56,6 +100,26 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
     async (request, reply) => {
       await registry.publish(request.params.id);
       return reply.send(ok({ published: true }));
+    },
+  );
+
+  // POST /skills/:id/publish-to-registry — publish skill to the central registry (system users only)
+  app.post<{ Params: { id: string } }>(
+    '/skills/:id/publish-to-registry',
+    { onRequest: [app.requireSystemUser] },
+    async (request, reply) => {
+      const skill = await prisma.skill.findUnique({ where: { id: request.params.id } });
+      if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
+
+      await prisma.skill.update({
+        where: { id: request.params.id },
+        data: { status: 'PUBLISHED' },
+      });
+
+      app.log.info({ skillId: request.params.id, domain: skill.domain, version: skill.version },
+        'Skill published to registry');
+
+      return reply.send(ok({ published: true, skillId: request.params.id }));
     },
   );
 }

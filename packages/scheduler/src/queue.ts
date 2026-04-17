@@ -9,7 +9,7 @@ export type AgentJobData = {
   agentId: string;
   userId: string;
   input: string;
-  channel: 'api' | 'telegram' | 'teams' | 'dashboard' | 'scheduler';
+  channel: 'api' | 'telegram' | 'teams' | 'dashboard' | 'scheduler' | 'whatsapp';
 };
 
 export const AGENT_QUEUE_NAME = 'agent-jobs';

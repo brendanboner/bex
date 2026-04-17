@@ -126,6 +126,42 @@ services:
     profiles:
       - telegram
 
+  teams-bot:
+    build:
+      context: integrations/teams
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TEAMS_BOT_ID: ${TEAMS_BOT_ID}
+      TEAMS_BOT_PASSWORD: ${TEAMS_BOT_PASSWORD}
+      TEAMS_DEFAULT_AGENT_ID: ${TEAMS_DEFAULT_AGENT_ID:-}
+      BCLAW_BOT_API_KEY: ${BCLAW_BOT_API_KEY}
+      API_GATEWAY_URL: http://api-gateway:4000
+    ports:
+      - "3978:3978"
+    depends_on:
+      - api-gateway
+    profiles:
+      - teams
+
+  whatsapp-bot:
+    build:
+      context: integrations/whatsapp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_WHATSAPP_FROM: ${TWILIO_WHATSAPP_FROM}
+      WHATSAPP_APPROVAL_TO: ${WHATSAPP_APPROVAL_TO}
+      BCLAW_API_URL: http://api-gateway:4000
+    ports:
+      - "3980:3980"
+    depends_on:
+      - api-gateway
+    profiles:
+      - whatsapp
+
 volumes:
   postgres_data:
   redis_data:

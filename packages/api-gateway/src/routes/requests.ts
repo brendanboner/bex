@@ -97,4 +97,47 @@ export async function requestRoutes(
     await gateway.recordDecision(request.params.requestId, 'DENIED');
     return reply.send(ok({ status: 'DENIED' }));
   });
+
+  // POST /requests/:id/escalate — spawn a remediation agent for a monitoring result
+  app.post<{ Params: { id: string }; Body: unknown }>('/requests/:id/escalate', async (request, reply) => {
+    const parent = await prisma.agentRequest.findUnique({ where: { id: request.params.id } });
+    if (!parent) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Parent request not found'));
+
+    const body = request.body as {
+      remediationAgentId?: string;
+      input?: string;
+      channel?: string;
+    };
+
+    const remediationAgentId = body.remediationAgentId ?? parent.agentId;
+    const escalationInput = body.input ?? `[ESCALATION from ${request.params.id}] ${parent.output ?? parent.input}`;
+    const channel = (body.channel ?? parent.channel) as 'api' | 'telegram' | 'teams' | 'dashboard' | 'whatsapp' | 'scheduler';
+
+    const userId = (request.user as { sub: string }).sub;
+
+    const remediation = await prisma.agentRequest.create({
+      data: {
+        agentId: remediationAgentId,
+        userId,
+        status: 'QUEUED',
+        input: escalationInput,
+        channel,
+      },
+      select: { id: true },
+    });
+
+    await queue.add(remediation.id, {
+      requestId: remediation.id,
+      agentId: remediationAgentId,
+      userId,
+      input: escalationInput,
+      channel,
+    });
+
+    return reply.status(202).send(ok({
+      requestId: remediation.id,
+      parentRequestId: request.params.id,
+      status: 'QUEUED',
+    }));
+  });
 }

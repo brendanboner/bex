@@ -5,13 +5,38 @@
     "rootDir": "./src"
   },
   "references": [
-    { "path": "../shared" },
-    { "path": "../orchestrator" },
-    { "path": "../credential-vault" },
-    { "path": "../permission-gateway" },
-    { "path": "../skill-engine" },
-    { "path": "../scheduler" }
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../orchestrator"
+    },
+    {
+      "path": "../credential-vault"
+    },
+    {
+      "path": "../permission-gateway"
+    },
+    {
+      "path": "../skill-engine"
+    },
+    {
+      "path": "../scheduler"
+    },
+    {
+      "path": "../ssh-executor"
+    },
+    {
+      "path": "../skill-registry-client"
+    }
   ],
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.spec.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
+  ]
 }

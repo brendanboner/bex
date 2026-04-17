@@ -6,11 +6,29 @@
     "composite": true
   },
   "references": [
-    { "path": "../shared" },
-    { "path": "../credential-vault" },
-    { "path": "../skill-engine" },
-    { "path": "../permission-gateway" }
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../credential-vault"
+    },
+    {
+      "path": "../skill-engine"
+    },
+    {
+      "path": "../permission-gateway"
+    },
+    {
+      "path": "../ssh-executor"
+    }
   ],
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/*.spec.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
+  ]
 }

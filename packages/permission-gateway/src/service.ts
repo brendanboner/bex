@@ -4,7 +4,7 @@ import type { ApprovalChannel, ApprovalPayload } from '@bclaw/shared';
 import { ErrorCodes } from '@bclaw/shared';
 
 import type { NotificationAdapter } from './adapters.js';
-import { TelegramAdapter, TeamsAdapter } from './adapters.js';
+import { TelegramAdapter, TeamsAdapter, WhatsAppAdapter } from './adapters.js';
 
 const DEFAULT_APPROVAL_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -15,6 +15,7 @@ export class PermissionGatewayService {
     this.adapters = new Map<ApprovalChannel, NotificationAdapter>([
       ['telegram', new TelegramAdapter() as NotificationAdapter],
       ['teams', new TeamsAdapter() as NotificationAdapter],
+      ['whatsapp', new WhatsAppAdapter() as NotificationAdapter],
     ]);
   }
 

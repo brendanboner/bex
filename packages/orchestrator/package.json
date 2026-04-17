@@ -30,7 +30,8 @@
     "@ai-sdk/azure": "^0.0.28",
     "@prisma/client": "^5.17.0",
     "ai": "^3.4.7",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@bclaw/ssh-executor": "*"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

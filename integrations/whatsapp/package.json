@@ -1,0 +1,25 @@
+{
+  "name": "@bclaw/integration-whatsapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsApp integration via Twilio — approval notifications and webhook callbacks",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@bclaw/shared": "*",
+    "fastify": "^4.28.1",
+    "twilio": "^5.3.3",
+    "undici": "^6.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "tsx": "^4.19.0",
+    "typescript": "*"
+  }
+}

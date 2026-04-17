@@ -295,3 +295,50 @@ model ScheduledJob {
   @@index([agentId])
   @@index([enabled])
 }
+
+// ─── Targets (network devices, servers) ──────────────────────────────────────
+// Targets represent managed devices/hosts. Credentials are stored in the vault.
+
+model Target {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  description  String?
+  hostname     String   // FQDN or IP address
+  sshPort      Int      @default(22)
+  // Tags for grouping/discovery (e.g. ["xco", "core-switch", "site:london"])
+  tags         String[] @default([])
+  // Notes / connection hints
+  notes        String?
+  // Reference to the credential in the vault (username + password/key)
+  credentialId String?
+  // Whether SSH access has been verified
+  sshVerified  Boolean  @default(false)
+  // Whether REST API access has been verified
+  apiVerified  Boolean  @default(false)
+  // Base URL for the target's REST API (if applicable)
+  apiBaseUrl   String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tags])
+}
+
+// ─── Skill Registry Manifest ──────────────────────────────────────────────────
+// Tracks skills published to / pulled from the central skill registry.
+
+model SkillRegistryEntry {
+  id          String   @id @default(cuid())
+  domain      String
+  version     String
+  name        String
+  description String?
+  // JSON manifest payload (tools, systemPrompt, capabilities, checksum)
+  manifest    Json
+  // Registry URL this was pulled from (null = locally published)
+  registryUrl String?
+  publishedAt DateTime @default(now())
+
+  @@unique([domain, version])
+  @@index([domain])
+}

@@ -2,7 +2,7 @@
   "name": "@bclaw/api-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "Unified Fastify API gateway — auth, routing, audit logging",
+  "description": "Unified Fastify API gateway \u2014 auth, routing, audit logging",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
@@ -27,7 +27,9 @@
     "@fastify/sensible": "^5.6.0",
     "@prisma/client": "^5.17.0",
     "fastify": "^4.28.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@bclaw/ssh-executor": "*",
+    "@bclaw/skill-registry-client": "*"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

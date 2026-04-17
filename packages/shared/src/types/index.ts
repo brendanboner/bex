@@ -65,7 +65,7 @@ export type ExecutionContext = {
   requestId: string;
   agentId: string;
   userId: string;
-  channel: 'api' | 'telegram' | 'teams' | 'dashboard';
+  channel: 'api' | 'telegram' | 'teams' | 'whatsapp' | 'dashboard' | 'scheduler';
   input: string;
 };
 
@@ -78,7 +78,7 @@ export type ToolCallResult = {
 
 // ─── Approval ─────────────────────────────────────────────────────────────────
 
-export type ApprovalChannel = 'telegram' | 'teams';
+export type ApprovalChannel = 'telegram' | 'teams' | 'whatsapp';
 
 export type ApprovalPayload = {
   requestId: string;
@@ -128,4 +128,46 @@ export type SkillDiscoveryResult = {
   skill: CreateSkillInput;
   confidence: number;      // 0-1
   sourcesUsed: string[];
+};
+
+// ─── Monitoring ───────────────────────────────────────────────────────────────
+
+export type AlarmSeverity = 'CRITICAL' | 'MAJOR' | 'MINOR' | 'WARNING' | 'INFO';
+
+export type Alarm = {
+  id: string;
+  severity: AlarmSeverity;
+  description: string;
+  source?: string;
+  raisedAt?: string;
+};
+
+export type DriftItem = {
+  component: string;
+  expected: string;
+  actual: string;
+};
+
+export type MonitoringResult = {
+  healthy: boolean;
+  alarms: Alarm[];
+  drift: boolean;
+  driftItems: DriftItem[];
+  summary: string;
+  checkedAt: string;
+};
+
+// ─── Skill Registry ───────────────────────────────────────────────────────────
+
+export type SkillManifest = {
+  name: string;
+  domain: string;
+  version: string;
+  description?: string;
+  capabilities: string[];
+  tools: unknown[];
+  systemPrompt?: string;
+  checksum: string;
+  publishedBy?: string;
+  publishedAt: string;
 };

@@ -6,10 +6,15 @@ import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import { PrismaClient } from '@prisma/client';
 
+import { CredentialVaultService } from '@bclaw/credential-vault';
+import { SshExecutorService } from '@bclaw/ssh-executor';
+
 import { agentRoutes } from './routes/agents.js';
 import { credentialRoutes } from './routes/credentials.js';
 import { requestRoutes } from './routes/requests.js';
 import { skillRoutes } from './routes/skills.js';
+import { targetRoutes } from './routes/targets.js';
+import { registryRoutes } from './routes/registry.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -25,6 +30,8 @@ async function buildApp() {
   });
 
   const prisma = new PrismaClient();
+  const vault = new CredentialVaultService(prisma);
+  const sshExecutor = new SshExecutorService(prisma, vault);
 
   // ─── Plugins ──────────────────────────────────────────────────────────────
   await app.register(helmet);
@@ -76,6 +83,8 @@ async function buildApp() {
   await credentialRoutes(app, prisma);
   await requestRoutes(app, prisma);
   await skillRoutes(app, prisma);
+  await targetRoutes(app, prisma, sshExecutor);
+  await registryRoutes(app, prisma);
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = async () => {

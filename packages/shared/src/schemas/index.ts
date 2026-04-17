@@ -85,7 +85,7 @@ export const CreateCredentialSchema = z.object({
 export const CreateAgentRequestSchema = z.object({
   agentId: z.string().cuid(),
   input: z.string().min(1).max(32_000),
-  channel: z.enum(['api', 'telegram', 'teams', 'dashboard']).default('api'),
+  channel: z.enum(['api', 'telegram', 'teams', 'dashboard', 'whatsapp', 'scheduler']).default('api'),
 });
 
 // ─── Endpoint ─────────────────────────────────────────────────────────────────
@@ -110,3 +110,18 @@ export const CreateScheduledJobSchema = z.object({
   input: z.string().min(1),
   enabled: z.boolean().default(true),
 });
+
+// ─── Target ───────────────────────────────────────────────────────────────────
+
+export const CreateTargetSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  hostname: z.string().min(1),
+  sshPort: z.number().int().min(1).max(65535).default(22),
+  tags: z.array(z.string()).default([]),
+  notes: z.string().optional(),
+  credentialId: z.string().optional(),
+  apiBaseUrl: z.string().url().optional(),
+});
+
+export const UpdateTargetSchema = CreateTargetSchema.partial();
