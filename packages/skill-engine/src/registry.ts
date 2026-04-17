@@ -40,14 +40,16 @@ export class SkillRegistryService {
       },
     });
 
+    type SkillRow = (typeof skills)[number];
+    type ScoredSkill = { skill: SkillRow; score: number };
     const intentWords = intent.toLowerCase().split(/\s+/);
-    const scored = skills.map((skill) => {
+    const scored: ScoredSkill[] = skills.map((skill: SkillRow) => {
       const capText = skill.capabilities.join(' ').toLowerCase();
       const matches = intentWords.filter((w) => capText.includes(w)).length;
       return { skill, score: matches };
     });
 
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a: ScoredSkill, b: ScoredSkill) => b.score - a.score);
     const best = scored[0];
     return best && best.score > 0 ? best.skill : null;
   }

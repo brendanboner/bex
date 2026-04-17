@@ -38,11 +38,14 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
   // POST /skills/discover — trigger skill discovery from knowledge sources
   app.post<{ Body: unknown }>('/skills/discover', async (request, reply) => {
-    const body = request.body as { intent: string; domain?: string };
+    const body = request.body as { intent?: string; domain?: string };
     if (!body?.intent) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'intent is required'));
     }
-    const skill = await registry.createFromDiscovery({ intent: body.intent, domain: body.domain });
+    const discoveryReq = body.domain
+      ? { intent: body.intent, domain: body.domain }
+      : { intent: body.intent };
+    const skill = await registry.createFromDiscovery(discoveryReq);
     return reply.status(202).send(ok({ skillId: skill.id, status: 'DRAFT' }));
   });
 

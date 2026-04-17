@@ -26,16 +26,22 @@ For tools, follow the JSON Schema convention for parameters.
 Generate only what is described in the knowledge sources. Do not invent endpoints.`;
 
 function buildModel(provider: LlmProvider) {
+  const openaiKey = process.env['OPENAI_API_KEY'];
+  const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+  const azureKey = process.env['AZURE_OPENAI_API_KEY'];
+  const azureEndpoint = process.env['AZURE_OPENAI_ENDPOINT'];
+  const azureDeployment = process.env['AZURE_OPENAI_DEPLOYMENT'] ?? 'gpt-4o';
+
   switch (provider) {
     case 'openai':
-      return createOpenAI({ apiKey: process.env['OPENAI_API_KEY'] })('gpt-4o');
+      if (!openaiKey) throw new Error('OPENAI_API_KEY not set');
+      return createOpenAI({ apiKey: openaiKey })('gpt-4o');
     case 'anthropic':
-      return createAnthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] })('claude-3-5-sonnet-20241022');
+      if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
+      return createAnthropic({ apiKey: anthropicKey })('claude-3-5-sonnet-20241022');
     case 'azure-openai':
-      return createOpenAI({
-        apiKey: process.env['AZURE_OPENAI_API_KEY'],
-        baseURL: process.env['AZURE_OPENAI_ENDPOINT'],
-      })(process.env['AZURE_OPENAI_DEPLOYMENT'] ?? 'gpt-4o');
+      if (!azureKey || !azureEndpoint) throw new Error('AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT must be set');
+      return createOpenAI({ apiKey: azureKey, baseURL: azureEndpoint })(azureDeployment);
     default:
       throw new Error(`Unknown LLM provider: ${String(provider)}`);
   }

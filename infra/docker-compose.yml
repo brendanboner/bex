@@ -77,6 +77,26 @@ services:
       redis:
         condition: service_healthy
 
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: packages/dashboard-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://bclaw:${POSTGRES_PASSWORD}@postgres:5432/bclaw
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "4001"
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   dashboard:
     build:
       context: apps/dashboard
@@ -84,10 +104,12 @@ services:
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_ADMIN_API_URL: ${NEXT_PUBLIC_ADMIN_API_URL:-http://localhost:4001}
     ports:
       - "3000:3000"
     depends_on:
       - api-gateway
+      - dashboard-api
 
   telegram-bot:
     build:

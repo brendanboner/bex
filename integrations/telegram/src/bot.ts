@@ -1,17 +1,19 @@
-import { Bot, session } from 'grammy';
+import { Bot, Context, session } from 'grammy';
+import type { SessionFlavor } from 'grammy';
 import { fetch } from 'undici';
 
 const BOT_TOKEN = requireEnv('TELEGRAM_BOT_TOKEN');
 const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
 const DEFAULT_AGENT_ID = requireEnv('TELEGRAM_DEFAULT_AGENT_ID');
-// Bot-level API key used when the Telegram user hasn't linked an account
 const BOT_API_KEY = requireEnv('BCLAW_BOT_API_KEY');
 
 interface SessionData {
   pendingRequestId?: string;
 }
 
-const bot = new Bot<{ session: SessionData }>(BOT_TOKEN);
+type BotContext = Context & SessionFlavor<SessionData>;
+
+const bot = new Bot<BotContext>(BOT_TOKEN);
 
 bot.use(session({ initial: (): SessionData => ({}) }));
 
@@ -48,14 +50,13 @@ bot.on('message:text', async (ctx) => {
   const input = ctx.message.text;
   const telegramUserId = String(ctx.from.id);
 
-  await ctx.sendChatAction('typing');
+  await ctx.replyWithChatAction('typing');
 
   try {
     const res = await fetch(`${API_GATEWAY_URL}/requests`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // The API gateway accepts a pre-issued bot JWT that sets sub=telegramUserId
         Authorization: `Bearer ${BOT_API_KEY}`,
         'X-Bclaw-User-External-Id': telegramUserId,
       },

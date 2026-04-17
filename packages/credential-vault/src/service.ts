@@ -100,10 +100,7 @@ export class CredentialVaultService {
     const response = await fetch(url, {
       method: config.method,
       headers,
-      body:
-        config.body !== undefined
-          ? JSON.stringify(config.body)
-          : undefined,
+      ...(config.body !== undefined ? { body: JSON.stringify(config.body) } : {}),
     });
 
     const responseHeaders: Record<string, string> = {};

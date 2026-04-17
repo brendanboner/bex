@@ -91,8 +91,12 @@ async function buildApp() {
 }
 
 // Start the server
-const app = await buildApp();
-await app.listen({
-  port: Number(process.env['PORT'] ?? '4000'),
-  host: '0.0.0.0',
-});
+async function main() {
+  const app = await buildApp();
+  await app.listen({
+    port: Number(process.env['PORT'] ?? '4000'),
+    host: '0.0.0.0',
+  });
+}
+
+void main();

@@ -12,9 +12,9 @@ export class PermissionGatewayService {
   private readonly adapters: Map<ApprovalChannel, NotificationAdapter>;
 
   constructor(private readonly prisma: PrismaClient) {
-    this.adapters = new Map([
-      ['telegram', new TelegramAdapter()],
-      ['teams', new TeamsAdapter()],
+    this.adapters = new Map<ApprovalChannel, NotificationAdapter>([
+      ['telegram', new TelegramAdapter() as NotificationAdapter],
+      ['teams', new TeamsAdapter() as NotificationAdapter],
     ]);
   }
 

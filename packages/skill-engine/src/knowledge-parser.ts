@@ -32,7 +32,11 @@ export function parseOpenApi(json: Record<string, unknown>): ParsedKnowledge {
     ...operations.map((op) => `  ${op}`),
   ].join('\n');
 
-  return { type: 'openapi', content, title: info['title'] };
+  return {
+    type: 'openapi',
+    content,
+    ...(info['title'] ? { title: info['title'] } : {}),
+  };
 }
 
 /**
@@ -40,10 +44,11 @@ export function parseOpenApi(json: Record<string, unknown>): ParsedKnowledge {
  */
 export async function parsePdf(buffer: Buffer): Promise<ParsedKnowledge> {
   const data = await pdfParse(buffer);
+  const title = data.info?.Title as string | undefined;
   return {
     type: 'pdf',
-    content: data.text.slice(0, 50_000), // cap to avoid token overflow
-    title: data.info?.Title as string | undefined,
+    content: data.text.slice(0, 50_000),
+    ...(title ? { title } : {}),
   };
 }
 

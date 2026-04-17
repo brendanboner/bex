@@ -1,24 +1,29 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAzure } from '@ai-sdk/azure';
-import type { CoreMessage, LanguageModel, Tool } from 'ai';
+import type { CoreMessage, CoreTool, LanguageModel } from 'ai';
 import { generateText } from 'ai';
 import { z } from 'zod';
 
 import type { LlmProvider, SkillTool, ToolCallResult } from '@bclaw/shared';
-import { CredentialVaultService } from '@bclaw/credential-vault';
+import type { CredentialVaultService } from '@bclaw/credential-vault';
 
 export function buildLlmModel(provider: LlmProvider, model: string): LanguageModel {
+  const openaiKey = process.env['OPENAI_API_KEY'];
+  const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+  const azureKey = process.env['AZURE_OPENAI_API_KEY'];
+  const azureResource = process.env['AZURE_OPENAI_RESOURCE_NAME'];
+
   switch (provider) {
     case 'openai':
-      return createOpenAI({ apiKey: process.env['OPENAI_API_KEY'] })(model);
+      if (!openaiKey) throw new Error('OPENAI_API_KEY not set');
+      return createOpenAI({ apiKey: openaiKey })(model);
     case 'anthropic':
-      return createAnthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] })(model);
+      if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
+      return createAnthropic({ apiKey: anthropicKey })(model);
     case 'azure-openai':
-      return createAzure({
-        apiKey: process.env['AZURE_OPENAI_API_KEY'],
-        resourceName: process.env['AZURE_OPENAI_RESOURCE_NAME'],
-      })(model);
+      if (!azureKey || !azureResource) throw new Error('AZURE_OPENAI_API_KEY and AZURE_OPENAI_RESOURCE_NAME must be set');
+      return createAzure({ apiKey: azureKey, resourceName: azureResource })(model);
     default:
       throw new Error(`Unknown LLM provider: ${String(provider)}`);
   }
@@ -26,17 +31,14 @@ export function buildLlmModel(provider: LlmProvider, model: string): LanguageMod
 
 /**
  * Converts a skill's tool definitions into Vercel AI SDK tool objects.
- * Each tool that has an `endpoint` will call the credential-vault proxy;
- * tools without an endpoint return a placeholder asking the agent to describe
- * what it would do (useful for dry-run / planner mode).
  */
 export function buildTools(
   skillTools: SkillTool[],
   vault: CredentialVaultService,
   agentPermissions: string[],
   credentialId: string | undefined,
-): Record<string, Tool> {
-  const tools: Record<string, Tool> = {};
+): Record<string, CoreTool> {
+  const tools: Record<string, CoreTool> = {};
 
   for (const skillTool of skillTools) {
     const paramSchema = z.object(
@@ -87,7 +89,7 @@ export function buildTools(
 export type RunLlmOptions = {
   model: LanguageModel;
   messages: CoreMessage[];
-  tools?: Record<string, Tool>;
+  tools?: Record<string, CoreTool>;
   systemPrompt?: string;
   maxSteps?: number;
 };
@@ -101,9 +103,9 @@ export type RunLlmResult = {
 export async function runLlm(options: RunLlmOptions): Promise<RunLlmResult> {
   const { text, toolCalls, usage } = await generateText({
     model: options.model,
-    system: options.systemPrompt,
+    ...(options.systemPrompt !== undefined ? { system: options.systemPrompt } : {}),
     messages: options.messages,
-    tools: options.tools,
+    ...(options.tools !== undefined ? { tools: options.tools } : {}),
     maxSteps: options.maxSteps ?? 10,
   });
 
@@ -111,7 +113,6 @@ export async function runLlm(options: RunLlmOptions): Promise<RunLlmResult> {
     toolCallId: tc.toolCallId,
     toolName: tc.toolName,
     result: undefined,
-    error: undefined,
   }));
 
   return {
