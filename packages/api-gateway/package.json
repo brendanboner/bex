@@ -29,7 +29,10 @@
     "fastify": "^4.28.0",
     "zod": "^3.23.8",
     "@bclaw/ssh-executor": "*",
-    "@bclaw/skill-registry-client": "*"
+    "@bclaw/skill-registry-client": "*",
+    "@bclaw/coordinator": "*",
+    "@bclaw/agent-mesh": "*",
+    "@bclaw/knowledge-store": "*"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

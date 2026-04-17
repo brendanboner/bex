@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { SshExecutorService } from '@bclaw/ssh-executor';
 
 import { CreateTargetSchema, UpdateTargetSchema, ok, err, ErrorCodes } from '@bclaw/shared';
@@ -43,7 +44,7 @@ export async function targetRoutes(
     if (!parsed.success) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
     }
-    const target = await prisma.target.create({ data: parsed.data });
+    const target = await prisma.target.create({ data: parsed.data as Prisma.TargetUncheckedCreateInput });
     return reply.status(201).send(ok(target));
   });
 
@@ -58,7 +59,7 @@ export async function targetRoutes(
 
     const target = await prisma.target.update({
       where: { id: request.params.id },
-      data: parsed.data,
+      data: parsed.data as Prisma.TargetUncheckedUpdateInput,
     });
     return reply.send(ok(target));
   });

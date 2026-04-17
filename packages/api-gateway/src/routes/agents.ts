@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 import { CreateAgentSchema, UpdateAgentSchema, ok, err, ErrorCodes } from '@bclaw/shared';
 
@@ -35,12 +35,13 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
     const agent = await prisma.agent.create({
       data: {
         ...data,
-        persona: data.persona ?? {},
-        llmConfig: data.llmConfig ?? {},
+        description: data.description ?? null,
+        persona: (data.persona ?? {}) as Prisma.InputJsonValue,
+        llmConfig: (data.llmConfig ?? {}) as Prisma.InputJsonValue,
         ownerId: userId,
-        agentSkills: skillIds.length > 0
-          ? { create: skillIds.map((skillId) => ({ skillId })) }
-          : undefined,
+        ...(skillIds.length > 0
+          ? { agentSkills: { create: skillIds.map((skillId) => ({ skillId })) } }
+          : {}),
       },
       select: { id: true, name: true, status: true },
     });
@@ -59,7 +60,7 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
     const agent = await prisma.agent.update({
       where: { id: request.params.id },
       data: {
-        ...data,
+        ...(data as Prisma.AgentUncheckedUpdateInput),
         ...(skillIds !== undefined
           ? {
               agentSkills: {

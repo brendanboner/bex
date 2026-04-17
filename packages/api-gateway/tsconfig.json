@@ -28,6 +28,15 @@
     },
     {
       "path": "../skill-registry-client"
+    },
+    {
+      "path": "../coordinator"
+    },
+    {
+      "path": "../knowledge-store"
+    },
+    {
+      "path": "../agent-mesh"
     }
   ],
   "include": [

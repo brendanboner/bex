@@ -1,0 +1,35 @@
+{
+  "name": "@bclaw/coordinator",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@bclaw/shared": "*",
+    "@bclaw/credential-vault": "*",
+    "@bclaw/skill-engine": "*",
+    "@ai-sdk/openai": "^0.0.66",
+    "@ai-sdk/anthropic": "^0.0.53",
+    "@ai-sdk/azure": "^0.0.38",
+    "@prisma/client": "^5.17.0",
+    "ai": "^3.4.33",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

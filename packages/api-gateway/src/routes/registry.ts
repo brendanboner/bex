@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
 import { ok, err, ErrorCodes } from '@bclaw/shared';
@@ -69,14 +70,14 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
           domain: body.domain,
           version: body.version,
           name: body.name,
-          description: body.description,
-          manifest: body as object,
+          description: body.description ?? null,
+          manifest: body as Prisma.InputJsonValue,
           registryUrl: null,
         },
         update: {
           name: body.name,
-          description: body.description,
-          manifest: body as object,
+          description: body.description ?? null,
+          manifest: body as Prisma.InputJsonValue,
         },
       });
 
@@ -136,17 +137,17 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
             name: manifest.name,
             domain: manifest.domain,
             version: manifest.version,
-            description: manifest.description,
+            description: manifest.description ?? null,
             capabilities: manifest.capabilities,
-            tools: manifest.tools as object[],
-            systemPrompt: manifest.systemPrompt,
+            tools: manifest.tools as Prisma.InputJsonValue,
+            systemPrompt: manifest.systemPrompt ?? null,
             status: 'PUBLISHED',
           },
           update: {
             name: manifest.name,
-            description: manifest.description,
-            tools: manifest.tools as object[],
-            systemPrompt: manifest.systemPrompt,
+            description: manifest.description ?? null,
+            tools: manifest.tools as Prisma.InputJsonValue,
+            systemPrompt: manifest.systemPrompt ?? null,
             capabilities: manifest.capabilities,
             status: 'PUBLISHED',
           },
@@ -159,12 +160,12 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
             domain: manifest.domain,
             version: manifest.version,
             name: manifest.name,
-            description: manifest.description,
-            manifest: manifest as object,
+            description: manifest.description ?? null,
+            manifest: manifest as Prisma.InputJsonValue,
             registryUrl: client['baseUrl'] as string,
           },
           update: {
-            manifest: manifest as object,
+            manifest: manifest as Prisma.InputJsonValue,
           },
         });
 

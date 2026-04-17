@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 import type { CreateSkillInput, LlmProvider, SkillDiscoveryRequest } from '@bclaw/shared';
 import { ErrorCodes } from '@bclaw/shared';
@@ -76,12 +76,12 @@ export class SkillRegistryService {
       data: {
         name: input.name,
         domain: input.domain,
-        description: input.description,
+        description: input.description ?? null,
         version: input.version,
         status: 'DRAFT',
         capabilities: input.capabilities,
-        tools: input.tools,
-        systemPrompt: input.systemPrompt,
+        tools: input.tools as Prisma.InputJsonValue,
+        systemPrompt: input.systemPrompt ?? null,
       },
       select: { id: true },
     });
@@ -114,8 +114,8 @@ export class SkillRegistryService {
         skillId,
         type: source.type,
         label: source.label,
-        url: source.url,
-        rawContent: source.rawContent,
+        url: source.url ?? null,
+        rawContent: source.rawContent ?? null,
         parsedAt: new Date(),
       },
       select: { id: true },

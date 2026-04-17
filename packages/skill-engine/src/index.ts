@@ -6,3 +6,6 @@ export { SkillTestRunner } from './test-runner.js';
 export type { SkillTestReport, TestCase, TestResult } from './test-runner.js';
 export { parseMarkdown, parseOpenApi, parsePdf, parseUrl } from './knowledge-parser.js';
 export type { ParsedKnowledge } from './knowledge-parser.js';
+export { buildModel } from './model.js';
+export { ToolRegistry } from './tool-registry.js';
+export type { ToolDefinition } from './tool-registry.js';

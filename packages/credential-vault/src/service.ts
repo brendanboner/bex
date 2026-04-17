@@ -17,13 +17,13 @@ export class CredentialVaultService {
     const credential = await this.prisma.credential.create({
       data: {
         name: input.name,
-        description: input.description,
+        ...(input.description !== undefined ? { description: input.description } : {}),
         scope: input.scope,
         encryptedValue: blob.encryptedValue,
         iv: blob.iv,
         authTag: blob.authTag,
         allowedAgentPermissions: input.allowedAgentPermissions,
-        userId: input.scope === 'USER' ? userId : null,
+        userId: input.scope === 'USER' && userId != null ? userId : null,
       },
       select: { id: true, name: true },
     });

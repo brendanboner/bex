@@ -1,0 +1,170 @@
+import type { CoreMessage } from 'ai';
+import { generateText } from 'ai';
+import type { PrismaClient } from '@prisma/client';
+
+import { buildModel } from './model.js';
+import { SessionManager } from './session-manager.js';
+import { WorkflowPlanner } from './planner.js';
+import type { WorkflowPlan } from './planner.js';
+import {
+  makeListAgentsTool,
+  makeSpawnAgentTool,
+  makeDelegateTaskTool,
+  makeCheckConstraintTool,
+  makePlanWorkflowTool,
+  makeReadKnowledgeTool,
+  makeWriteKnowledgeTool,
+  makeListKnowledgeTopicsTool,
+  makeCreateSkillTool,
+} from './meta-tools.js';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export type CoordinatorConfig = {
+  llmProvider?: string;
+  llmModel?: string;
+  knowledgeDir?: string;
+  skillBuilderEndpoint?: string;
+};
+
+export type ChatResult = {
+  sessionId: string;
+  output: string;
+  subTaskIds?: string[];
+};
+
+// ─── System prompt ────────────────────────────────────────────────────────────
+
+const COORDINATOR_SYSTEM_PROMPT = `You are the Coordinator Gateway Node for an enterprise agentic framework.
+
+When a user asks a multi-domain question (e.g. comparing XIQ + XCO + K8s data), you MUST:
+1. Call check_domain_constraint to verify compatibility between the domains involved.
+2. Call plan_workflow to decompose the goal into ordered sub-tasks with a dependency graph.
+3. Call list_agents to discover which agents can handle each sub-task.
+4. Call delegate_task to send each sub-task to the right agent and collect results.
+5. Synthesise all results into a coherent final answer for the user.
+
+When you detect a capability gap (no agent can handle a sub-task):
+6. Call create_skill to trigger skill creation, then retry with spawn_agent.
+
+You have access to a knowledge base via read_knowledge, write_knowledge, and list_knowledge_topics.
+Use these to store and retrieve context that improves future multi-domain reasoning.
+
+Always be concise, structured, and cite which agent produced each piece of data.`;
+
+// ─── CoordinatorAgent ─────────────────────────────────────────────────────────
+
+export class CoordinatorAgent {
+  private readonly sessionManager: SessionManager;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly config: CoordinatorConfig = {},
+  ) {
+    this.sessionManager = new SessionManager(prisma);
+  }
+
+  async chat(
+    sessionId: string | null,
+    userId: string,
+    message: string,
+    channel: string,
+  ): Promise<ChatResult> {
+    // 1. Load or create session
+    let session = sessionId !== null ? await this.sessionManager.get(sessionId) : null;
+    if (session === null) {
+      session = await this.sessionManager.create(userId, channel);
+    }
+
+    // 2. Append incoming user turn
+    await this.sessionManager.appendTurn(session.id, {
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    });
+
+    // 3. Reconstruct message history for the LLM
+    const historyMessages: CoreMessage[] = session.turns
+      .filter((t) => t.role === 'user' || t.role === 'assistant')
+      .map((t) => ({ role: t.role as 'user' | 'assistant', content: t.content }));
+
+    const messages: CoreMessage[] = [...historyMessages, { role: 'user', content: message }];
+
+    // 4. Build tools
+    const knowledgeDir = this.config.knowledgeDir ?? process.env['KNOWLEDGE_DIR'] ?? './knowledge';
+    const skillBuilderEndpoint =
+      this.config.skillBuilderEndpoint ??
+      process.env['SKILL_BUILDER_ENDPOINT'] ??
+      'http://localhost:4001/skills/build';
+
+    const tools = {
+      list_agents: makeListAgentsTool(this.prisma),
+      spawn_agent: makeSpawnAgentTool(this.prisma),
+      delegate_task: makeDelegateTaskTool(this.prisma),
+      check_domain_constraint: makeCheckConstraintTool(this.prisma),
+      plan_workflow: makePlanWorkflowTool(this.prisma),
+      read_knowledge: makeReadKnowledgeTool(knowledgeDir),
+      write_knowledge: makeWriteKnowledgeTool(knowledgeDir),
+      list_knowledge_topics: makeListKnowledgeTopicsTool(knowledgeDir),
+      create_skill: makeCreateSkillTool(this.prisma, skillBuilderEndpoint),
+    };
+
+    // 5. Run the LLM with multi-step tool calling
+    const provider = this.config.llmProvider ?? process.env['LLM_PROVIDER'] ?? 'openai';
+    const model = this.config.llmModel ?? process.env['LLM_MODEL'] ?? 'gpt-4o';
+    const llmModel = buildModel(provider, model);
+
+    const result = await generateText({
+      model: llmModel,
+      system: COORDINATOR_SYSTEM_PROMPT,
+      messages,
+      tools,
+      maxSteps: 10,
+    });
+
+    // 6. Collect any sub-task request IDs from tool results
+    const subTaskIds: string[] = result.steps
+      .flatMap((step) => step.toolResults ?? [])
+      .filter(
+        (tr) =>
+          (tr as { toolName?: string }).toolName === 'delegate_task' ||
+          (tr as { toolName?: string }).toolName === 'spawn_agent',
+      )
+      .map((tr) => {
+        const r = (tr as { result?: { requestId?: string } }).result;
+        return r?.requestId;
+      })
+      .filter((id): id is string => typeof id === 'string');
+
+    // 7. Persist assistant turn and complete session
+    await this.sessionManager.appendTurn(session.id, {
+      role: 'assistant',
+      content: result.text,
+      timestamp: new Date().toISOString(),
+    });
+
+    await this.sessionManager.complete(session.id, result.text);
+
+    const chatResult: ChatResult = {
+      sessionId: session.id,
+      output: result.text,
+      ...(subTaskIds.length > 0 ? { subTaskIds } : {}),
+    };
+
+    return chatResult;
+  }
+
+  async plan(userId: string, goal: string): Promise<WorkflowPlan> {
+    const skills = await this.prisma.skill.findMany({
+      where: { status: 'PUBLISHED' },
+      select: { capabilities: true },
+    });
+    const availableCapabilities = skills.flatMap((s) => s.capabilities);
+
+    const provider = this.config.llmProvider ?? process.env['LLM_PROVIDER'] ?? 'openai';
+    const model = this.config.llmModel ?? process.env['LLM_MODEL'] ?? 'gpt-4o';
+    const planner = new WorkflowPlanner(provider, model);
+
+    return planner.plan(goal, availableCapabilities);
+  }
+}

@@ -9,12 +9,17 @@ import { PrismaClient } from '@prisma/client';
 import { CredentialVaultService } from '@bclaw/credential-vault';
 import { SshExecutorService } from '@bclaw/ssh-executor';
 
+import { knowledgeRoutes } from './routes/knowledge.js';
+
 import { agentRoutes } from './routes/agents.js';
+import { constraintRoutes } from './routes/constraints.js';
 import { credentialRoutes } from './routes/credentials.js';
 import { requestRoutes } from './routes/requests.js';
 import { skillRoutes } from './routes/skills.js';
 import { targetRoutes } from './routes/targets.js';
 import { registryRoutes } from './routes/registry.js';
+import { coordinatorRoutes } from './routes/coordinator.js';
+import { toolRoutes } from './routes/tools.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -80,11 +85,15 @@ async function buildApp() {
 
   // ─── Routes ───────────────────────────────────────────────────────────────
   await agentRoutes(app, prisma);
+  await constraintRoutes(app, prisma);
   await credentialRoutes(app, prisma);
   await requestRoutes(app, prisma);
   await skillRoutes(app, prisma);
   await targetRoutes(app, prisma, sshExecutor);
   await registryRoutes(app, prisma);
+  await coordinatorRoutes(app, prisma);
+  await toolRoutes(app, prisma);
+  await knowledgeRoutes(app);
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = async () => {

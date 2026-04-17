@@ -53,6 +53,21 @@ enum AgentStatus {
   DRAFT
 }
 
+enum CompatibilityLevel {
+  FULL
+  PARTIAL
+  NONE
+}
+
+enum MeshTaskStatus {
+  PENDING
+  ROUTING
+  RUNNING
+  AGGREGATING
+  COMPLETED
+  FAILED
+}
+
 // ─── Users & Access Control ───────────────────────────────────────────────────
 
 model User {
@@ -95,6 +110,10 @@ model Agent {
 
   ownerId     String
   owner       User         @relation(fields: [ownerId], references: [id])
+
+  // Optional persona template this agent was spawned from
+  personaId   String?
+  persona_ref Persona?     @relation(fields: [personaId], references: [id])
 
   requests    AgentRequest[]
 
@@ -341,4 +360,156 @@ model SkillRegistryEntry {
 
   @@unique([domain, version])
   @@index([domain])
+}
+
+// ─── Personas ─────────────────────────────────────────────────────────────────
+// Reusable agent templates generated from a goal description by the PersonaFactory.
+// Agents can be spawned directly from a Persona.
+
+model Persona {
+  id           String   @id @default(cuid())
+  name         String
+  goal         String   // Natural-language goal that drove persona creation
+  domain       String?  // Optional domain hint (e.g. "networking.extreme-xco")
+
+  // LLM-generated system prompt for agents spawned from this persona
+  systemPrompt String
+
+  // Required skill domains (resolved at spawn time)
+  requiredSkills String[] @default([])
+
+  // Suggested permissions
+  suggestedPermissions String[] @default([])
+
+  // Optional cron expression if this persona should run on a schedule
+  schedule     String?
+
+  // Tags for discovery
+  tags         String[] @default([])
+
+  agents       Agent[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([domain])
+}
+
+// ─── Domain Constraints ───────────────────────────────────────────────────────
+// Records compatibility between two domain skill sets.
+// The Coordinator checks this before composing multi-domain agent tasks.
+
+model DomainConstraint {
+  id           String             @id @default(cuid())
+  sourceDomain String             // e.g. "networking.extreme-xiq"
+  targetDomain String             // e.g. "networking.extreme-xco"
+  compatible   CompatibilityLevel // FULL | PARTIAL | NONE
+
+  // Human-readable explanation of the constraint
+  notes        String?
+
+  // Optional structured conditions (JSON). E.g. { "minXcoVersion": "3.0", "excludedModels": ["X435"] }
+  conditions   Json?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([sourceDomain, targetDomain])
+  @@index([sourceDomain])
+  @@index([targetDomain])
+}
+
+// ─── Dynamic Tools ────────────────────────────────────────────────────────────
+// Runtime-generated tools stored in DB so they survive restarts.
+// Created by ToolFactory.generate() or via skill builder.
+
+model DynamicTool {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+
+  // JSON Schema for tool parameters
+  parameters  Json
+
+  // How this tool is executed: http_call | skill_invoke | agent_delegate | ssh_exec
+  handlerType String
+
+  // Handler-specific configuration (URL template, skillId, agentId, targetId etc.)
+  config      Json
+
+  // Optional skill this tool was generated from
+  skillId     String?
+
+  // Domain this tool belongs to (for capability routing)
+  domain      String?
+
+  enabled     Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([domain])
+  @@index([handlerType])
+}
+
+// ─── Coordinator Sessions ────────────────────────────────────────────────────
+// A CoordinatorSession tracks a multi-turn, potentially multi-agent conversation
+// routed through the Coordinator Agent (smart gateway node).
+
+model CoordinatorSession {
+  id              String         @id @default(cuid())
+  userId          String
+
+  // Serialised conversation turns (coordinator + user + sub-agent results)
+  turns           Json           @default("[]")
+
+  // IDs of AgentRequests spawned by this session
+  agentRequestIds String[]       @default([])
+
+  // Current high-level status
+  status          RequestStatus  @default(RUNNING)
+
+  // Channel this session came in on
+  channel         String         @default("api")
+
+  // Final synthesised answer (once COMPLETED)
+  output          String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ─── Agent Mesh Events ────────────────────────────────────────────────────────
+// Observability log of inter-agent tasks routed through the mesh.
+
+model MeshEvent {
+  id              String         @id @default(cuid())
+
+  // The coordinator session that triggered this
+  sessionId       String?
+
+  // Task type / description
+  taskType        String
+  taskPayload     Json
+
+  // Which agent capabilities were required
+  requiredCapabilities String[]  @default([])
+
+  // Which agent was selected to handle this
+  assignedAgentId String?
+
+  status          MeshTaskStatus @default(PENDING)
+
+  result          Json?
+  errorMsg        String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([assignedAgentId])
 }

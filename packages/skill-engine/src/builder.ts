@@ -1,6 +1,6 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 import type { LlmProvider, SkillDiscoveryResult } from '@bclaw/shared';
 import { CreateSkillSchema } from '@bclaw/shared';
@@ -138,12 +138,12 @@ export class SkillBuilderService {
       data: {
         name: object.skill.name,
         domain: object.skill.domain,
-        description: object.skill.description,
+        description: object.skill.description ?? null,
         version: object.skill.version,
         status: 'DRAFT',
         capabilities: object.skill.capabilities,
-        tools: object.skill.tools,
-        systemPrompt: object.skill.systemPrompt,
+        tools: object.skill.tools as Prisma.InputJsonValue,
+        systemPrompt: object.skill.systemPrompt ?? null,
       },
       select: { id: true },
     });
@@ -154,7 +154,7 @@ export class SkillBuilderService {
           skillId: skill.id,
           type: toKnowledgeSourceType(p.source.type),
           label: p.source.label,
-          url: p.source.url,
+          url: p.source.url ?? null,
           parsedAt: new Date(),
         },
       });
