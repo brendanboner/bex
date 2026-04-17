@@ -150,6 +150,7 @@ export async function initCommand(): Promise<void> {
     REDIS_URL: 'redis://localhost:6379',
     JWT_SECRET: jwtSecret,
     VAULT_ENCRYPTION_KEY: vaultKey,
+    CREDENTIAL_VAULT_KEY: vaultKey,
     LLM_PROVIDER: llmProvider,
     OPENAI_API_KEY: llmProvider === 'openai' ? llmApiKey : '',
     ANTHROPIC_API_KEY: llmProvider === 'anthropic' ? llmApiKey : '',
