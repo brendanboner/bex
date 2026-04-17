@@ -1,0 +1,109 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bclaw
+      POSTGRES_USER: bclaw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bclaw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: packages/api-gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://bclaw:${POSTGRES_PASSWORD}@postgres:5432/bclaw
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "4000"
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: packages/scheduler/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://bclaw:${POSTGRES_PASSWORD}@postgres:5432/bclaw
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_APPROVAL_CHAT_ID: ${TELEGRAM_APPROVAL_CHAT_ID:-}
+      TEAMS_APPROVAL_WEBHOOK_URL: ${TEAMS_APPROVAL_WEBHOOK_URL:-}
+      PERMISSION_GATEWAY_CALLBACK_URL: ${PERMISSION_GATEWAY_CALLBACK_URL:-http://api-gateway:4000}
+      DEFAULT_APPROVAL_CHANNEL: ${DEFAULT_APPROVAL_CHANNEL:-telegram}
+      SCHEDULER_CONCURRENCY: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: apps/dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+
+  telegram-bot:
+    build:
+      context: integrations/telegram
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_DEFAULT_AGENT_ID: ${TELEGRAM_DEFAULT_AGENT_ID}
+      BCLAW_BOT_API_KEY: ${BCLAW_BOT_API_KEY}
+      API_GATEWAY_URL: http://api-gateway:4000
+    depends_on:
+      - api-gateway
+    profiles:
+      - telegram
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,40 @@
+{
+  "name": "@bclaw/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core agent execution engine — LLM routing, tool execution, credential proxying",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@bclaw/shared": "*",
+    "@bclaw/credential-vault": "*",
+    "@bclaw/skill-engine": "*",
+    "@bclaw/permission-gateway": "*",
+    "@ai-sdk/openai": "^0.0.62",
+    "@ai-sdk/anthropic": "^0.0.48",
+    "@ai-sdk/azure": "^0.0.28",
+    "@prisma/client": "^5.17.0",
+    "ai": "^3.4.7",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "typescript": "*",
+    "vitest": "^2.0.5"
+  }
+}

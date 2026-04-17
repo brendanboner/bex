@@ -1,0 +1,297 @@
+// This is the bclaw Prisma schema.
+// All services share this schema via the @bclaw/shared package.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum SkillStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  DEPRECATED
+}
+
+enum CredentialScope {
+  USER
+  SYSTEM
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+}
+
+enum RequestStatus {
+  QUEUED
+  RUNNING
+  AWAITING_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum KnowledgeSourceType {
+  OPENAPI_JSON
+  PDF
+  MARKDOWN
+  URL
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+}
+
+// ─── Users & Access Control ───────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  externalId   String   @unique          // identity from IDP / Telegram / Teams
+  displayName  String
+  email        String?  @unique
+  isSystemUser Boolean  @default(false)  // system users can publish/update skills
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  credentials  Credential[]
+  agents       Agent[]
+  requests     AgentRequest[]
+  approvals    ApprovalRequest[]
+}
+
+// ─── Agents ───────────────────────────────────────────────────────────────────
+
+model Agent {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  status      AgentStatus @default(DRAFT)
+
+  // Persona & behaviour (free-form JSON, validated by skill-engine)
+  persona     Json        @default("{}")
+  // e.g. { "name": "NetOps", "tone": "concise", "maxTokens": 4096 }
+
+  // LLM configuration
+  llmProvider String      @default("openai")  // openai | anthropic | azure-openai
+  llmModel    String      @default("gpt-4o")
+  llmConfig   Json        @default("{}")       // extra provider params
+
+  // Permissions this agent has been granted
+  permissions String[]    @default([])         // e.g. ["read:network", "schedule:jobs"]
+
+  // Skills this agent uses (pinned versions)
+  agentSkills AgentSkill[]
+
+  ownerId     String
+  owner       User         @relation(fields: [ownerId], references: [id])
+
+  requests    AgentRequest[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+// ─── Skills ───────────────────────────────────────────────────────────────────
+
+model Skill {
+  id          String      @id @default(cuid())
+  name        String
+  domain      String      // e.g. "networking.extreme-xco"
+  description String?
+  version     String      // semver e.g. "1.2.0"
+  status      SkillStatus @default(DRAFT)
+
+  // Capabilities offered by this skill (discoverable by orchestrator)
+  capabilities String[]
+
+  // Tools (function definitions the LLM can call)
+  tools       Json        @default("[]")
+  // Array of { name, description, parameters (JSON Schema), endpoint? }
+
+  // System prompt fragment injected when this skill is active
+  systemPrompt String?
+
+  knowledgeSources KnowledgeSource[]
+  agentSkills      AgentSkill[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([domain, version])
+  @@index([domain])
+  @@index([status])
+}
+
+// Join table: Agent ↔ Skill (with pinned version)
+model AgentSkill {
+  agentId  String
+  skillId  String
+  agent    Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  skill    Skill  @relation(fields: [skillId], references: [id])
+
+  @@id([agentId, skillId])
+}
+
+// ─── Knowledge Sources ────────────────────────────────────────────────────────
+
+model KnowledgeSource {
+  id          String              @id @default(cuid())
+  skillId     String
+  skill       Skill               @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  type        KnowledgeSourceType
+  label       String              // Human-readable label
+  rawContent  Bytes?              // For PDFs / uploaded files
+  url         String?             // For URL / OpenAPI sources
+  parsedAt    DateTime?           // When it was last processed
+
+  createdAt   DateTime @default(now())
+
+  @@index([skillId])
+}
+
+// ─── Credentials ──────────────────────────────────────────────────────────────
+
+model Credential {
+  id              String          @id @default(cuid())
+  name            String
+  description     String?
+  scope           CredentialScope
+
+  // AES-256-GCM encrypted JSON blob (key management in credential-vault service)
+  encryptedValue  String
+  iv              String          // base64-encoded initialisation vector
+  authTag         String          // base64-encoded GCM auth tag
+
+  // Which agent permissions can request this credential
+  allowedAgentPermissions String[] @default([])
+
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scope])
+  @@index([userId])
+}
+
+// ─── Approval Requests ────────────────────────────────────────────────────────
+
+model ApprovalRequest {
+  id            String         @id @default(cuid())
+  requestId     String         @unique  // links to AgentRequest
+  agentRequest  AgentRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  reason        String         // Human-readable reason for the request
+  status        ApprovalStatus @default(PENDING)
+
+  requestedBy   String
+  requestor     User           @relation(fields: [requestedBy], references: [id])
+
+  // Notification channel used (telegram | teams | email)
+  channel       String
+  channelRef    String?        // e.g. Telegram message_id for editing the message
+
+  expiresAt     DateTime       // TTL for the approval
+  respondedAt   DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([requestedBy])
+}
+
+// ─── Agent Requests (execution log) ──────────────────────────────────────────
+
+model AgentRequest {
+  id          String        @id @default(cuid())
+  agentId     String
+  agent       Agent         @relation(fields: [agentId], references: [id])
+
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+
+  status      RequestStatus @default(QUEUED)
+
+  // The original user input
+  input       String
+  // Channel: api | telegram | teams | dashboard
+  channel     String        @default("api")
+
+  // LLM conversation turns stored as JSON
+  turns       Json          @default("[]")
+
+  // Tool calls made during this request
+  toolCalls   Json          @default("[]")
+
+  // Final response
+  output      String?
+  errorMsg    String?
+
+  approval    ApprovalRequest?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([userId])
+  @@index([status])
+  @@index([channel])
+}
+
+// ─── Endpoints / Systems Registry ────────────────────────────────────────────
+// Loaded from a markdown endpoints file; also editable via dashboard
+
+model Endpoint {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  baseUrl     String
+  // Tags for discovery (e.g. ["networking", "extreme-xco"])
+  tags        String[] @default([])
+  // Markdown notes / setup info
+  notes       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tags])
+}
+
+// ─── Scheduled Jobs ───────────────────────────────────────────────────────────
+
+model ScheduledJob {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  agentId     String
+  cronExpr    String   // e.g. "0 * * * *"
+  input       String   // JSON-encoded agent input
+  enabled     Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([agentId])
+  @@index([enabled])
+}

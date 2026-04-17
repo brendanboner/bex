@@ -1,0 +1,40 @@
+{
+  "name": "bclaw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise agentic framework with secure credential management, skill discovery, and multi-channel access",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "integrations/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:watch": "turbo run test -- --watch",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "turbo run db:generate --filter=@bclaw/shared",
+    "db:migrate": "turbo run db:migrate --filter=@bclaw/shared",
+    "db:seed": "turbo run db:seed --filter=@bclaw/shared",
+    "db:studio": "cd packages/shared && npx prisma studio",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10.8.0"
+}
