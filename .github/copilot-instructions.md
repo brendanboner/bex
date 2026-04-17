@@ -1,4 +1,4 @@
-# OpenClaw — Copilot Instructions
+# Forge — Copilot Instructions
 
 ## Commands
 

@@ -2,13 +2,14 @@
   "name": "@bclaw/orchestrator",
   "version": "0.1.0",
   "private": true,
-  "description": "Core agent execution engine — LLM routing, tool execution, credential proxying",
+  "description": "Core agent execution engine \u2014 LLM routing, tool execution, credential proxying",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js"
     }
   },
   "scripts": {

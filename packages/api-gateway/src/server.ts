@@ -23,6 +23,7 @@ import { coordinatorRoutes } from './routes/coordinator.js';
 import { toolRoutes } from './routes/tools.js';
 import { personaRoutes } from './routes/personas.js';
 import { charterRoutes } from './routes/charter.js';
+import { scheduledJobRoutes } from './routes/scheduled-jobs.js';
 import { validateEnv } from './env.js';
 
 declare module 'fastify' {
@@ -102,6 +103,7 @@ async function buildApp() {
   await knowledgeRoutes(app);
   await personaRoutes(app, prisma);
   await charterRoutes(app, prisma);
+  await scheduledJobRoutes(app, prisma);
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = async () => {

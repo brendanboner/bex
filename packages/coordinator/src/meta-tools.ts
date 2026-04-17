@@ -4,6 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { WorkflowPlanner } from './planner.js';
+import { SkillBuilderService } from '@bclaw/skill-engine';
 
 // ─── list_agents ─────────────────────────────────────────────────────────────
 
@@ -305,12 +306,12 @@ export function makeListKnowledgeTopicsTool(knowledgeDir: string): CoreTool {
   };
 }
 
-// ─── create_skill_from_goal ───────────────────────────────────────────────────
+// ─── create_skill ────────────────────────────────────────────────────────────
 
-export function makeCreateSkillTool(prisma: PrismaClient, skillBuilderEndpoint: string): CoreTool {
+export function makeCreateSkillTool(prisma: PrismaClient): CoreTool {
   return {
     description:
-      'Trigger the SkillBuilderService to create a new skill from a goal description. Use when a capability gap is detected.',
+      'Build a new skill using the SkillBuilderService. Use when a capability gap is detected and a new skill must be created from knowledge sources.',
     parameters: z.object({
       domain: z.string().describe('Skill domain in reverse-DNS style (e.g. networking.extreme-xco)'),
       intent: z.string().describe('Natural-language description of what the skill should do'),
@@ -335,19 +336,22 @@ export function makeCreateSkillTool(prisma: PrismaClient, skillBuilderEndpoint: 
       intent: string;
       sources?: Array<{ type: string; label: string; url?: string; content?: string }>;
     }) => {
-      const response = await fetch(skillBuilderEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain, intent, sources: sources ?? [] }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        return { error: `Skill builder failed: ${String(response.status)} — ${text}` };
+      try {
+        const builder = new SkillBuilderService(prisma);
+        const result = await builder.build({
+          domain,
+          intent,
+          sources: (sources ?? []).map((s) => ({
+            type: s.type as 'openapi_url' | 'pdf_url' | 'markdown_url' | 'raw_markdown',
+            label: s.label,
+            ...(s.url !== undefined ? { url: s.url } : {}),
+            ...(s.content !== undefined ? { content: s.content } : {}),
+          })),
+        });
+        return { skillId: result.skillId, domain, intent };
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e), domain, intent };
       }
-
-      const result = (await response.json()) as { skillId?: string };
-      return { skillId: result.skillId ?? null, domain, intent };
     },
   };
 }

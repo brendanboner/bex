@@ -24,7 +24,6 @@ export type CoordinatorConfig = {
   llmProvider?: string;
   llmModel?: string;
   knowledgeDir?: string;
-  skillBuilderEndpoint?: string;
 };
 
 export type ChatResult = {
@@ -92,10 +91,6 @@ export class CoordinatorAgent {
 
     // 4. Build tools
     const knowledgeDir = this.config.knowledgeDir ?? process.env['KNOWLEDGE_DIR'] ?? './knowledge';
-    const skillBuilderEndpoint =
-      this.config.skillBuilderEndpoint ??
-      process.env['SKILL_BUILDER_ENDPOINT'] ??
-      'http://localhost:4001/skills/build';
 
     const tools = {
       list_agents: makeListAgentsTool(this.prisma),
@@ -106,7 +101,7 @@ export class CoordinatorAgent {
       read_knowledge: makeReadKnowledgeTool(knowledgeDir),
       write_knowledge: makeWriteKnowledgeTool(knowledgeDir),
       list_knowledge_topics: makeListKnowledgeTopicsTool(knowledgeDir),
-      create_skill: makeCreateSkillTool(this.prisma, skillBuilderEndpoint),
+      create_skill: makeCreateSkillTool(this.prisma),
     };
 
     // 5. Run the LLM with multi-step tool calling

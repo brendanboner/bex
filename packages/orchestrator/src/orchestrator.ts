@@ -1,4 +1,4 @@
-import type { CoreMessage } from 'ai';
+import type { CoreMessage, CoreTool } from 'ai';
 import { PrismaClient } from '@prisma/client';
 
 import type { ExecutionContext, LlmProvider } from '@bclaw/shared';
@@ -9,10 +9,22 @@ import { PermissionGatewayService } from '@bclaw/permission-gateway';
 import { SshExecutorService, createSshTool } from '@bclaw/ssh-executor';
 
 import { buildLlmModel, buildTools, runLlm } from './llm-runner.js';
-import { resolveCharter, buildCharterPrompt } from './charter.js';
+import { resolveCharter, buildCharterPrompt, isRestrictedAction } from './charter.js';
 
-const APPROVAL_POLL_INTERVAL_MS = 3_000;
-const APPROVAL_POLL_MAX_ATTEMPTS = 600; // 30 minutes at 3s intervals
+/**
+ * Thrown when a tool call needs approval before executing.
+ * The job exits cleanly; the approval route re-enqueues when approved.
+ */
+export class ApprovalRequiredError extends Error {
+  constructor(
+    public readonly requestId: string,
+    public readonly toolName: string,
+    public readonly reason: string,
+  ) {
+    super(`Approval required for tool "${toolName}": ${reason}`);
+    this.name = 'ApprovalRequiredError';
+  }
+}
 
 export class OrchestratorService {
   private readonly vault: CredentialVaultService;
@@ -29,6 +41,15 @@ export class OrchestratorService {
     this.sshExecutor = new SshExecutorService(prisma, this.vault);
   }
 
+  /**
+   * Execute an agent request. Called by the BullMQ worker.
+   *
+   * Design contract:
+   * - ALWAYS returns quickly (no long-polling).
+   * - If a SUPERVISED action needs approval, sets status → AWAITING_APPROVAL and returns.
+   * - The approval API re-enqueues the job; on re-run this method detects the prior approval
+   *   and proceeds with execution.
+   */
   async execute(ctx: ExecutionContext): Promise<{ output: string }> {
     // 1. Load agent definition
     const agent = await this.prisma.agent.findUnique({
@@ -40,59 +61,36 @@ export class OrchestratorService {
       throw Object.assign(new Error('Agent not found'), { code: ErrorCodes.NOT_FOUND });
     }
 
-    // 2. Load charter
-    const agentWithCharter = agent as typeof agent & { charterId?: string | null };
-    const charter = agentWithCharter.charterId
-      ? await (this.prisma as unknown as { agentCharter: { findUnique(args: { where: { id: string } }): Promise<{ mandate: string; posture: string; bearing: string; verbosity: string; conductBoundaries: string[]; escalationTriggers: string[]; scopeLimits: unknown } | null> } }).agentCharter.findUnique({ where: { id: agentWithCharter.charterId } })
+    // 2. Load charter (scalar charterId is always present on agent row)
+    const charter = agent.charterId
+      ? await this.prisma.agentCharter.findUnique({ where: { id: agent.charterId } })
       : null;
     const resolvedCharter = resolveCharter(charter);
 
-    // 3. Update request status → RUNNING
+    // 3. Check for prior approval (resume path after AWAITING_APPROVAL)
+    const priorApproval = await this.permGateway.pollStatus(ctx.requestId);
+    if (priorApproval === 'DENIED') {
+      await this.prisma.agentRequest.update({
+        where: { id: ctx.requestId },
+        data: { status: 'FAILED', errorMsg: 'Request denied by approver', completedAt: new Date() },
+      });
+      return { output: 'This request was denied by an approver.' };
+    }
+    // priorApproval is 'APPROVED' | 'PENDING' | 'EXPIRED' | null
+    // 'APPROVED' = resume after gate; 'EXPIRED' / 'PENDING' = still gated (abort softly)
+    const isResuming = priorApproval === 'APPROVED';
+
+    // 4. Update request status → RUNNING
     await this.prisma.agentRequest.update({
       where: { id: ctx.requestId },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
 
     try {
-      // 4. Find matching skill by intent
-      let skill = await this.skillRegistry.findByIntent(ctx.input);
+      // 5. Find matching skill by intent (optional — chat works without one)
+      const skill = await this.skillRegistry.findByIntent(ctx.input);
 
-      // 5. If no skill — request credential approval, then trigger discovery
-      if (!skill) {
-        await this.prisma.agentRequest.update({
-          where: { id: ctx.requestId },
-          data: { status: 'AWAITING_APPROVAL' },
-        });
-
-        const approvalChannel = (process.env['DEFAULT_APPROVAL_CHANNEL'] ?? 'telegram') as 'telegram' | 'teams';
-        await this.permGateway.requestApproval(
-          ctx.requestId,
-          agent.name,
-          ctx.userId,
-          `Agent "${agent.name}" needs to discover a new skill for: "${ctx.input}"`,
-          approvalChannel,
-        );
-
-        await this.waitForApproval(ctx.requestId);
-
-        // Skill discovery — for now uses basic intent-only discovery
-        const newSkill = await this.skillRegistry.createFromDiscovery({ intent: ctx.input });
-        const created = await this.prisma.skill.findUnique({
-          where: { id: newSkill.id },
-          select: {
-            id: true,
-            name: true,
-            domain: true,
-            description: true,
-            capabilities: true,
-            tools: true,
-            systemPrompt: true,
-          },
-        });
-        skill = created;
-      }
-
-      // 5. Resolve credential for this agent (look for a SYSTEM credential first)
+      // 6. Resolve a credential for proxied tool calls
       const credentialRecord = await this.prisma.credential.findFirst({
         where: {
           scope: 'SYSTEM',
@@ -101,7 +99,7 @@ export class OrchestratorService {
         select: { id: true },
       });
 
-      // 6. Build tools from skill definition
+      // 7. Build tool set
       const skillTools = (skill?.tools as Array<{
         name: string;
         description: string;
@@ -109,25 +107,44 @@ export class OrchestratorService {
         endpoint?: string;
       }>) ?? [];
 
-      // Load dynamic tools from registry
       await this.toolRegistry.load();
       const dynamicTools = this.toolRegistry.getAll();
 
-      // Add SSH tool for agents with ssh:exec permission
       const sshTool = agent.permissions.includes('ssh:exec')
         ? { ssh_exec: createSshTool(this.sshExecutor, this.prisma) }
         : {};
 
-      // Merge all tool sources (skill tools take precedence for naming)
-      const tools = { ...dynamicTools, ...sshTool, ...buildTools(skillTools, this.vault, agent.permissions, credentialRecord?.id) };
+      const rawTools = { ...dynamicTools, ...sshTool, ...buildTools(skillTools, this.vault, agent.permissions, credentialRecord?.id) };
 
-      // 7. Build LLM model
-      const model = buildLlmModel(
-        agent.llmProvider as LlmProvider,
-        agent.llmModel,
-      );
+      // For SUPERVISED posture: wrap restricted tools with an approval gate.
+      // If a restricted tool is called without prior approval, we abort and request it.
+      const tools: Record<string, CoreTool> = {};
+      for (const [name, tool] of Object.entries(rawTools)) {
+        const restricted = isRestrictedAction(name, resolvedCharter) || resolvedCharter.posture === 'SUPERVISED';
+        if (restricted && !isResuming) {
+          tools[name] = {
+            ...tool,
+            execute: async (args: Record<string, unknown>): Promise<unknown> => {
+              // Request approval asynchronously — abort current execution path
+              const approvalChannel = (process.env['DEFAULT_APPROVAL_CHANNEL'] ?? 'api') as 'telegram' | 'teams' | 'api';
+              await this.permGateway.requestApproval(
+                ctx.requestId,
+                agent.name,
+                ctx.userId,
+                `Agent "${agent.name}" wants to run tool "${name}" with args: ${JSON.stringify(args)}`,
+                approvalChannel === 'api' ? 'telegram' : approvalChannel,
+              );
+              throw new ApprovalRequiredError(ctx.requestId, name, JSON.stringify(args));
+            },
+          } as CoreTool;
+        } else {
+          tools[name] = tool;
+        }
+      }
 
-      // 8. Build system prompt
+      // 8. Build LLM model and system prompt
+      const model = buildLlmModel(agent.llmProvider as LlmProvider, agent.llmModel);
+
       const charterPrompt = buildCharterPrompt(resolvedCharter);
       const systemParts = [
         charterPrompt,
@@ -136,13 +153,18 @@ export class OrchestratorService {
       ].filter(Boolean);
 
       const systemPrompt = systemParts.join('\n\n');
-
       const messages: CoreMessage[] = [{ role: 'user', content: ctx.input }];
 
       // 9. Run LLM
-      const result = await runLlm({ model, messages, tools, systemPrompt });
+      const toolsArg = Object.keys(tools).length > 0 ? tools : undefined;
+      const result = await runLlm({
+        model,
+        messages,
+        ...(toolsArg !== undefined ? { tools: toolsArg } : {}),
+        systemPrompt,
+      });
 
-      // 10. Persist turns and result
+      // 10. Persist result
       await this.prisma.agentRequest.update({
         where: { id: ctx.requestId },
         data: {
@@ -156,6 +178,15 @@ export class OrchestratorService {
 
       return { output: result.text };
     } catch (error) {
+      if (error instanceof ApprovalRequiredError) {
+        // Approval was requested — suspend cleanly (not a failure)
+        await this.prisma.agentRequest.update({
+          where: { id: ctx.requestId },
+          data: { status: 'AWAITING_APPROVAL' },
+        });
+        return { output: `This action requires approval. Approval request created — check your configured notification channel or use the API to approve.` };
+      }
+
       const msg = error instanceof Error ? error.message : String(error);
       await this.prisma.agentRequest.update({
         where: { id: ctx.requestId },
@@ -164,32 +195,4 @@ export class OrchestratorService {
       throw error;
     }
   }
-
-  private async waitForApproval(requestId: string): Promise<void> {
-    for (let i = 0; i < APPROVAL_POLL_MAX_ATTEMPTS; i++) {
-      const status = await this.permGateway.pollStatus(requestId);
-
-      if (status === 'APPROVED') return;
-      if (status === 'DENIED') {
-        throw Object.assign(new Error('Request denied by approver'), {
-          code: ErrorCodes.APPROVAL_DENIED,
-        });
-      }
-      if (status === 'EXPIRED') {
-        throw Object.assign(new Error('Approval request expired'), {
-          code: ErrorCodes.APPROVAL_EXPIRED,
-        });
-      }
-
-      await sleep(APPROVAL_POLL_INTERVAL_MS);
-    }
-
-    throw Object.assign(new Error('Approval polling timed out'), {
-      code: ErrorCodes.APPROVAL_EXPIRED,
-    });
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

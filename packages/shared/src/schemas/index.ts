@@ -38,7 +38,7 @@ export const ToolParameterSchema: z.ZodType<Record<string, unknown>> = z.record(
 export const SkillToolSchema = z.object({
   name: z.string().min(1).max(64).regex(/^[a-z_][a-z0-9_]*$/),
   description: z.string().min(1).max(500),
-  parameters: z.record(z.unknown()), // JSON Schema object
+  parameters: z.record(z.unknown()).default({}), // JSON Schema object; defaults to empty (no params)
   endpoint: z.string().url().optional(),
 });
 

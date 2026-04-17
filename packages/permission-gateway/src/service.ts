@@ -12,11 +12,26 @@ export class PermissionGatewayService {
   private readonly adapters: Map<ApprovalChannel, NotificationAdapter>;
 
   constructor(private readonly prisma: PrismaClient) {
-    this.adapters = new Map<ApprovalChannel, NotificationAdapter>([
-      ['telegram', new TelegramAdapter() as NotificationAdapter],
-      ['teams', new TeamsAdapter() as NotificationAdapter],
-      ['whatsapp', new WhatsAppAdapter() as NotificationAdapter],
-    ]);
+    this.adapters = new Map<ApprovalChannel, NotificationAdapter>();
+
+    // Only register adapters whose env vars are present
+    if (process.env['TELEGRAM_BOT_TOKEN'] && process.env['TELEGRAM_APPROVAL_CHAT_ID']) {
+      try {
+        this.adapters.set('telegram', new TelegramAdapter() as NotificationAdapter);
+      } catch { /* skip if misconfigured */ }
+    }
+
+    if (process.env['TEAMS_APPROVAL_WEBHOOK_URL']) {
+      try {
+        this.adapters.set('teams', new TeamsAdapter() as NotificationAdapter);
+      } catch { /* skip if misconfigured */ }
+    }
+
+    if (process.env['TWILIO_ACCOUNT_SID'] && process.env['TWILIO_WHATSAPP_FROM']) {
+      try {
+        this.adapters.set('whatsapp', new WhatsAppAdapter() as NotificationAdapter);
+      } catch { /* skip if misconfigured */ }
+    }
   }
 
   /**
@@ -101,17 +116,18 @@ export class PermissionGatewayService {
   }
 
   /**
-   * Polls the DB for the status of an approval (used by orchestrator to block execution).
+   * Polls the DB for the status of an approval.
+   * Returns null when no approval record exists (first run, no gate needed).
    */
   async pollStatus(
     requestId: string,
-  ): Promise<'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED'> {
+  ): Promise<'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED' | null> {
     const approval = await this.prisma.approvalRequest.findUnique({
       where: { requestId },
       select: { status: true, expiresAt: true },
     });
 
-    if (!approval) return 'EXPIRED';
+    if (!approval) return null;
 
     if (approval.status === 'PENDING' && approval.expiresAt < new Date()) {
       await this.expire(requestId);

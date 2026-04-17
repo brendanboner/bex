@@ -63,7 +63,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
         email: adminEmail,
         displayName: adminEmail.split('@')[0] ?? 'Admin',
         passwordHash,
-        isSystemUser: false,
+        isSystemUser: true, // bootstrapped admin has full system privileges
       },
     });
 

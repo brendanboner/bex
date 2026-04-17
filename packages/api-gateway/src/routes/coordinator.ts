@@ -20,9 +20,6 @@ export async function coordinatorRoutes(app: FastifyInstance, prisma: PrismaClie
     knowledgeDir: process.env['KNOWLEDGE_DIR'] ?? './knowledge',
     ...(process.env['LLM_PROVIDER'] !== undefined ? { llmProvider: process.env['LLM_PROVIDER'] } : {}),
     ...(process.env['LLM_MODEL'] !== undefined ? { llmModel: process.env['LLM_MODEL'] } : {}),
-    ...(process.env['SKILL_BUILDER_ENDPOINT'] !== undefined
-      ? { skillBuilderEndpoint: process.env['SKILL_BUILDER_ENDPOINT'] }
-      : {}),
   });
 
   const sessionManager = new SessionManager(prisma);

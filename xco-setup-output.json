@@ -1,0 +1,61 @@
+{
+  "skills": {
+    "monitor": {
+      "id": "cmo3cj3n40000fplbt96lk2pv",
+      "domain": "networking.extreme-xco.monitor",
+      "capabilities": [
+        "authenticate",
+        "check-fabric-health",
+        "retrieve-alarm-summaries",
+        "retrieve-alarm-histories",
+        "validate-fabric-clos-topology",
+        "check-device-inventory",
+        "monitor-platform-service-health",
+        "detect-configuration-drifts"
+      ]
+    },
+    "operations": {
+      "id": "cmo3cjaki0005fplbuuem6ye2",
+      "domain": "networking.extreme-xco.operations",
+      "capabilities": [
+        "acknowledge-alarms",
+        "close-alarms",
+        "purge-closed-alarms",
+        "create-ip-fabric",
+        "delete-ip-fabric",
+        "clone-fabric",
+        "update-fabric-settings",
+        "register-switch",
+        "remove-switch",
+        "update-switch-settings"
+      ]
+    }
+  },
+  "agents": {
+    "monitor": {
+      "id": "cmo3cjaky000bfplb4d2kdq7z",
+      "name": "XCO Monitor",
+      "posture": "AUTONOMOUS"
+    },
+    "operator": {
+      "id": "cmo3cjal8000efplbofh6ihyq",
+      "name": "XCO Operator",
+      "posture": "SUPERVISED"
+    },
+    "provisioner": {
+      "id": "cmo3cjald000hfplb1zepeox2",
+      "name": "XCO Provisioner",
+      "posture": "DELIBERATE"
+    }
+  },
+  "scheduledJobs": {
+    "hourlyHealthCheck": {
+      "id": "cmo3cjalk000jfplbai1fou4n",
+      "cron": "0 * * * *"
+    },
+    "dailyDeepAudit": {
+      "id": "cmo3cjalm000kfplbbke890mw",
+      "cron": "0 6 * * *"
+    }
+  }
+}

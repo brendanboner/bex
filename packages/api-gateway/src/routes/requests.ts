@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { OrchestratorService } from '@bclaw/orchestrator';
 import { CreateAgentRequestSchema, ok, err, ErrorCodes } from '@bclaw/shared';
 import { createAgentQueue } from '@bclaw/scheduler';
+import { resolveUserId } from '../user-resolver.js';
 
 export async function requestRoutes(
   app: FastifyInstance,
@@ -19,7 +20,9 @@ export async function requestRoutes(
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
     }
 
-    const userId = (request.user as { sub: string }).sub;
+    const externalId = (request.user as { sub: string }).sub;
+    const userId = await resolveUserId(prisma, externalId);
+    if (!userId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
 
     // Create request record
     const agentRequest = await prisma.agentRequest.create({
@@ -72,7 +75,9 @@ export async function requestRoutes(
 
   // GET /requests — list requests for the current user
   app.get('/requests', async (request, reply) => {
-    const userId = (request.user as { sub: string }).sub;
+    const externalId = (request.user as { sub: string }).sub;
+    const userId = await resolveUserId(prisma, externalId);
+    if (!userId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
     const requests = await prisma.agentRequest.findMany({
       where: { userId },
       select: { id: true, agentId: true, status: true, input: true, channel: true, createdAt: true },
@@ -87,6 +92,26 @@ export async function requestRoutes(
     const { PermissionGatewayService } = await import('@bclaw/permission-gateway');
     const gateway = new PermissionGatewayService(prisma);
     await gateway.recordDecision(request.params.requestId, 'APPROVED');
+
+    // Re-enqueue the original request so the orchestrator can resume execution
+    const agentRequest = await prisma.agentRequest.findUnique({
+      where: { id: request.params.requestId },
+      select: { id: true, agentId: true, userId: true, input: true, channel: true },
+    });
+    if (agentRequest) {
+      await prisma.agentRequest.update({
+        where: { id: agentRequest.id },
+        data: { status: 'QUEUED' },
+      });
+      await queue.add(`resume-${agentRequest.id}`, {
+        requestId: agentRequest.id,
+        agentId: agentRequest.agentId,
+        userId: agentRequest.userId,
+        input: agentRequest.input,
+        channel: agentRequest.channel as 'api' | 'telegram' | 'teams' | 'dashboard' | 'whatsapp' | 'scheduler',
+      });
+    }
+
     return reply.send(ok({ status: 'APPROVED' }));
   });
 
@@ -95,6 +120,12 @@ export async function requestRoutes(
     const { PermissionGatewayService } = await import('@bclaw/permission-gateway');
     const gateway = new PermissionGatewayService(prisma);
     await gateway.recordDecision(request.params.requestId, 'DENIED');
+
+    await prisma.agentRequest.update({
+      where: { id: request.params.requestId },
+      data: { status: 'FAILED', errorMsg: 'Denied by approver', completedAt: new Date() },
+    });
+
     return reply.send(ok({ status: 'DENIED' }));
   });
 
@@ -114,11 +145,13 @@ export async function requestRoutes(
     const channel = (body.channel ?? parent.channel) as 'api' | 'telegram' | 'teams' | 'dashboard' | 'whatsapp' | 'scheduler';
 
     const userId = (request.user as { sub: string }).sub;
+    const resolvedUserId = await resolveUserId(prisma, userId);
+    if (!resolvedUserId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
 
     const remediation = await prisma.agentRequest.create({
       data: {
         agentId: remediationAgentId,
-        userId,
+        userId: resolvedUserId,
         status: 'QUEUED',
         input: escalationInput,
         channel,
@@ -129,7 +162,7 @@ export async function requestRoutes(
     await queue.add(remediation.id, {
       requestId: remediation.id,
       agentId: remediationAgentId,
-      userId,
+      userId: resolvedUserId,
       input: escalationInput,
       channel,
     });

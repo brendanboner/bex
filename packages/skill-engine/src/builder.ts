@@ -134,19 +134,30 @@ export class SkillBuilderService {
       }),
     });
 
-    const skill = await this.prisma.skill.create({
-      data: {
-        name: object.skill.name,
-        domain: object.skill.domain,
-        description: object.skill.description ?? null,
-        version: object.skill.version,
-        status: 'DRAFT',
-        capabilities: object.skill.capabilities,
-        tools: object.skill.tools as Prisma.InputJsonValue,
-        systemPrompt: object.skill.systemPrompt ?? null,
-      },
-      select: { id: true },
-    });
+    const skill = await (async () => {
+      // If a skill with this domain+version already exists, bump version
+      let version = object.skill.version;
+      let existing = await this.prisma.skill.findFirst({ where: { domain: object.skill.domain, version }, select: { id: true } });
+      if (existing) {
+        const parts = version.split('.').map(Number);
+        parts[2] = (parts[2] ?? 0) + 1;
+        version = parts.join('.');
+      }
+
+      return this.prisma.skill.create({
+        data: {
+          name: object.skill.name,
+          domain: object.skill.domain,
+          description: object.skill.description ?? null,
+          version,
+          status: 'DRAFT',
+          capabilities: object.skill.capabilities,
+          tools: object.skill.tools as Prisma.InputJsonValue,
+          systemPrompt: object.skill.systemPrompt ?? null,
+        },
+        select: { id: true },
+      });
+    })();
 
     for (const p of parsed) {
       await this.prisma.knowledgeSource.create({
