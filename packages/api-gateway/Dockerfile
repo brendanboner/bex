@@ -11,6 +11,13 @@ COPY packages/permission-gateway/package.json ./packages/permission-gateway/
 COPY packages/skill-engine/package.json ./packages/skill-engine/
 COPY packages/api-gateway/package.json ./packages/api-gateway/
 COPY packages/scheduler/package.json ./packages/scheduler/
+COPY packages/coordinator/package.json ./packages/coordinator/
+COPY packages/persona-factory/package.json ./packages/persona-factory/
+COPY packages/knowledge-store/package.json ./packages/knowledge-store/
+COPY packages/agent-mesh/package.json ./packages/agent-mesh/
+COPY packages/ssh-executor/package.json ./packages/ssh-executor/
+COPY packages/skill-registry-client/package.json ./packages/skill-registry-client/
+COPY packages/dashboard-api/package.json ./packages/dashboard-api/
 RUN npm install --workspaces --include-workspace-root
 
 COPY packages/ ./packages/

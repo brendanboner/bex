@@ -98,8 +98,9 @@ enum MeshTaskStatus {
 model User {
   id           String   @id @default(cuid())
   externalId   String   @unique          // identity from IDP / Telegram / Teams
-  displayName  String
+  displayName  String   @default("")
   email        String?  @unique
+  passwordHash String?                   // bcrypt hash for local auth
   isSystemUser Boolean  @default(false)  // system users can publish/update skills
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client';
 import { CredentialVaultService } from '@bclaw/credential-vault';
 import { SshExecutorService } from '@bclaw/ssh-executor';
 
+import { adminRoutes } from './routes/admin.js';
 import { knowledgeRoutes } from './routes/knowledge.js';
 
 import { agentRoutes } from './routes/agents.js';
@@ -60,7 +61,7 @@ async function buildApp() {
   // ─── Auth hook ────────────────────────────────────────────────────────────
   app.addHook('onRequest', async (request, reply) => {
     // Public endpoints that bypass auth
-    const publicPaths = ['/health', '/approvals'];
+    const publicPaths = ['/health', '/approvals', '/admin/setup', '/auth/login'];
     if (publicPaths.some((p) => request.url.startsWith(p))) return;
     try {
       await request.jwtVerify();
@@ -89,6 +90,7 @@ async function buildApp() {
 
   // ─── Routes ───────────────────────────────────────────────────────────────
   await agentRoutes(app, prisma);
+  await adminRoutes(app, prisma);
   await constraintRoutes(app, prisma);
   await credentialRoutes(app, prisma);
   await requestRoutes(app, prisma);

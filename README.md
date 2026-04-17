@@ -1,30 +1,43 @@
-# OpenClaw
+# Forge
 
-**Self-learning enterprise agentic platform.** Configure your LLM, connect your notification channel, and start building domain agents that discover, test, and publish skills — with secure credential management and approval workflows baked in.
+**Enterprise Agentic Platform.** One command to configure, deploy, and start building autonomous domain agents — with secure credential management, federated skill sharing, and approval workflows baked in.
 
 ---
 
 ## Quickstart
 
 ```bash
-# 1. Clone and generate secrets
-git clone https://github.com/your-org/openclaw
-cd openclaw
-make setup          # generates a .env with secure secrets
-
-# 2. Add your API keys to .env
-#    At minimum: OPENAI_API_KEY (or ANTHROPIC_API_KEY)
-#    Optional:   TELEGRAM_BOT_TOKEN + TELEGRAM_APPROVAL_CHAT_ID
-nano .env
-
-# 3. Run
-make run            # starts all services, runs migrations
-open http://localhost:3000
+git clone https://github.com/your-org/forge
+cd forge
+npm install
+npx bforge init
 ```
 
-That's it. The dashboard is at `http://localhost:3000`.
+The `bforge init` wizard will:
+1. Ask for your LLM provider + API key (validated live)
+2. Choose your interface channel (Web Dashboard / Telegram / Teams / WhatsApp)
+3. Create your admin account
+4. Generate a secure `.env` with all secrets
+5. Start all services via Docker Compose
+6. Open the dashboard at `http://localhost:3000`
+
+> **Prerequisites:** Node.js 20+, Docker (running)
 
 ---
+
+## CLI Reference
+
+```bash
+bforge init       # First-run setup wizard
+bforge start      # Start all services
+bforge stop       # Stop all services
+bforge status     # Health check all services
+bforge logs       # Tail all service logs
+bforge logs api   # Tail API gateway logs only
+```
+
+---
+
 
 ## First Steps in the Dashboard
 

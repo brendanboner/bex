@@ -20,7 +20,13 @@ export async function endpointRoutes(app: FastifyInstance, prisma: PrismaClient)
     if (!parsed.success) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
     }
-    const endpoint = await prisma.endpoint.create({ data: parsed.data });
+    const endpoint = await prisma.endpoint.create({ data: {
+      name: parsed.data.name,
+      baseUrl: parsed.data.baseUrl,
+      tags: parsed.data.tags,
+      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+      ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
+    } });
     return reply.status(201).send(ok(endpoint));
   });
 
@@ -34,7 +40,7 @@ export async function endpointRoutes(app: FastifyInstance, prisma: PrismaClient)
       }
       const endpoint = await prisma.endpoint.update({
         where: { id: request.params.id },
-        data: parsed.data,
+        data: Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined)),
       });
       return reply.send(ok(endpoint));
     },

@@ -39,7 +39,11 @@ export async function userRoutes(app: FastifyInstance, prisma: PrismaClient): Pr
     const user = await prisma.user.upsert({
       where: { externalId: body.externalId },
       update: { displayName: body.displayName, ...(body.email ? { email: body.email } : {}) },
-      create: { externalId: body.externalId, displayName: body.displayName, email: body.email },
+      create: {
+        externalId: body.externalId,
+        displayName: body.displayName,
+        ...(body.email !== undefined ? { email: body.email } : {}),
+      },
       select: { id: true, externalId: true, displayName: true, isSystemUser: true },
     });
     return reply.send(ok(user));

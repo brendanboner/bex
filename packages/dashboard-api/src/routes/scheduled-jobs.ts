@@ -7,7 +7,6 @@ export async function scheduledJobRoutes(app: FastifyInstance, prisma: PrismaCli
   app.get('/admin/scheduled-jobs', async (_request, reply) => {
     const jobs = await prisma.scheduledJob.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { },
     });
     return reply.send(ok(jobs));
   });
@@ -23,7 +22,14 @@ export async function scheduledJobRoutes(app: FastifyInstance, prisma: PrismaCli
     if (!parsed.success) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
     }
-    const job = await prisma.scheduledJob.create({ data: parsed.data });
+    const job = await prisma.scheduledJob.create({ data: {
+      name: parsed.data.name,
+      agentId: parsed.data.agentId,
+      cronExpr: parsed.data.cronExpr,
+      input: parsed.data.input,
+      enabled: parsed.data.enabled,
+      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+    } });
     return reply.status(201).send(ok(job));
   });
 
@@ -36,7 +42,7 @@ export async function scheduledJobRoutes(app: FastifyInstance, prisma: PrismaCli
       }
       const job = await prisma.scheduledJob.update({
         where: { id: request.params.id },
-        data: parsed.data,
+        data: Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined)),
       });
       return reply.send(ok(job));
     },
