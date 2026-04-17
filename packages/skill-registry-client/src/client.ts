@@ -35,7 +35,7 @@ export function computeSkillChecksum(tools: unknown[], systemPrompt?: string): s
 
 /**
  * Client for interacting with a remote (or local) skill registry.
- * Any openclaw instance can act as a registry by implementing the /registry/* endpoints.
+ * Any Forge instance can act as a registry by implementing the /registry/* endpoints.
  */
 export class SkillRegistryClient {
   private readonly baseUrl: string;

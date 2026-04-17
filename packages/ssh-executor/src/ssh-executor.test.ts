@@ -50,7 +50,7 @@ vi.mock('ssh2', () => {
 
         // Simulate: send data then close
         setTimeout(() => {
-          stream._emitData('openclaw-verify\n');
+          stream._emitData('forge-verify\n');
           stream._emit('close', 0);
         }, 0);
 
@@ -71,11 +71,11 @@ describe('sshExec', () => {
       'localhost',
       22,
       { username: 'admin', password: 'secret' },
-      'echo openclaw-verify',
+      'echo forge-verify',
     );
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('openclaw-verify');
+    expect(result.stdout).toContain('forge-verify');
     expect(result.stderr).toBe('');
   });
 

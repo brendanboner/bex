@@ -108,7 +108,7 @@ Go to **Scheduled Jobs** and set the agent to run hourly. It will:
 ## Key Concepts
 
 ### Skill Registry
-Skills are versioned, tested, and published. When an agent encounters an unknown domain, it automatically triggers skill discovery. Skills can be published to a central registry and shared across openclaw instances.
+Skills are versioned, tested, and published. When an agent encounters an unknown domain, it automatically triggers skill discovery. Skills can be published to a central registry and shared across Forge instances.
 
 ### Credential Vault
 All credentials are encrypted at rest (AES-256-GCM). Agents never see raw credentials — all API calls and SSH sessions are proxied through the vault service.
@@ -117,7 +117,7 @@ All credentials are encrypted at rest (AES-256-GCM). Agents never see raw creden
 Sensitive operations (write access, new skill publishing, remediation execution) require explicit approval via your configured notification channel before proceeding.
 
 ### Central Skill Registry
-Any openclaw instance can act as a skill registry. Set `SKILL_REGISTRY_URL` to share skills across your fleet.
+Any Forge instance can act as a skill registry. Set `SKILL_REGISTRY_URL` to share skills across your fleet.
 
 ---
 

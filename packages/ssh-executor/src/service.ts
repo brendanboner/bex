@@ -46,8 +46,8 @@ export class SshExecutorService {
    */
   async verify(targetId: string): Promise<{ success: boolean; message: string }> {
     try {
-      const result = await this.exec(targetId, 'echo openclaw-verify');
-      const success = result.stdout.trim() === 'openclaw-verify' && result.exitCode === 0;
+      const result = await this.exec(targetId, 'echo forge-verify');
+      const success = result.stdout.trim() === 'forge-verify' && result.exitCode === 0;
       await this.prisma.target.update({
         where: { id: targetId },
         data: { sshVerified: success },

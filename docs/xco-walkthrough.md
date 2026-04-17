@@ -1,12 +1,12 @@
 # XCO Monitoring Agent Walkthrough
 
-This guide walks through the complete journey from a fresh OpenClaw installation to a running XCO network monitoring agent.
+This guide walks through the complete journey from a fresh Forge installation to a running XCO network monitoring agent.
 
 ---
 
 ## Prerequisites
 
-- OpenClaw running (`make setup && make run`)
+- Forge running (`bforge init` (first time) or `bforge start`)
 - An Extreme Networks XCO site with REST API access
 - LLM API key configured (OpenAI, Anthropic, or Azure)
 - Notification channel configured (Telegram, Teams, or WhatsApp)
@@ -108,7 +108,7 @@ curl -X POST http://localhost:4000/skills/$SKILL_ID/publish \
 
 The skill is now available to all agents.
 
-### Optionally share with other openclaw instances
+### Optionally share with other Forge instances
 
 ```bash
 curl -X POST http://localhost:4000/skills/$SKILL_ID/publish-to-registry \
