@@ -74,6 +74,10 @@ api-gateway ← integrations/telegram, integrations/teams, integrations/whatsapp
 | `@bclaw/skill-engine` | Skill discovery (LLM + knowledge parsing), skill builder (URL fetch + parse), test runner |
 | `@bclaw/skill-registry-client` | Push/pull skill manifests to/from central registry; checksum verification |
 | `@bclaw/orchestrator` | Core execution engine; LLM multi-provider via Vercel AI SDK |
+| `@bclaw/coordinator` | Smart gateway node; multi-agent orchestration, intent routing, CoordinatorSession management |
+| `@bclaw/persona-factory` | LLM-driven Persona generation from a goal description; spawns Agent records |
+| `@bclaw/knowledge-store` | Markdown knowledge file CRUD; search and injection into skill system prompts |
+| `@bclaw/agent-mesh` | Inter-agent capability routing, constraint registry, MeshEvent observability log |
 | `@bclaw/scheduler` | BullMQ worker + cron loop for scheduled agent jobs |
 | `@bclaw/api-gateway` | Fastify server, JWT auth, all HTTP routes, audit trail |
 | `@bclaw/dashboard-api` | Admin REST API (status, users, scheduled jobs, endpoints) |
@@ -97,6 +101,21 @@ Targets:      GET/POST /targets, GET/PUT/DELETE /targets/:id
 Requests:     GET/POST /requests, GET /requests/:id
               POST /requests/:id/escalate    — spawn remediation agent
 Approvals:    POST /approvals/:id/approve,  POST /approvals/:id/deny
+Charter:      GET /agents/:id/charter
+              PUT /agents/:id/charter        — upsert charter
+              PATCH /agents/:id/charter      — partial update
+Coordinator:  POST /coordinator/chat         — multi-agent conversation (creates CoordinatorSession)
+              GET /coordinator/sessions/:id  — session detail
+Personas:     GET/POST /personas
+              POST /personas/generate        — LLM-driven persona from goal
+              POST /personas/:id/spawn       — spawn agent from persona
+              DELETE /personas/:id
+Knowledge:    GET/POST /knowledge
+              GET/PUT/DELETE /knowledge/:id
+Constraints:  GET/POST /constraints          — DomainConstraint CRUD
+              GET/PUT/DELETE /constraints/:id
+Tools:        GET/POST /tools                — DynamicTool CRUD
+              GET/PUT/DELETE /tools/:id
 Registry:     GET /registry/skills[?domain=]
               GET /registry/skills/:domain/:version
               POST /registry/publish         — receive/forward manifest
@@ -149,6 +168,38 @@ Use `buildLlmModel(provider, model)` from `@bclaw/orchestrator` to get a Vercel 
 
 ### Approval channels
 `DEFAULT_APPROVAL_CHANNEL` controls which adapter is used: `telegram`, `teams`, or `whatsapp`. The approval callback URL must be publicly accessible (`PERMISSION_GATEWAY_CALLBACK_URL`).
+
+The `channel` field on `AgentRequest` and `CoordinatorSession` records which input surface originated the request: `api` | `telegram` | `teams` | `dashboard` | `scheduler`.
+
+### Agent Charter System
+Every deployed agent should have an `AgentCharter` defining its operating mandate and authority limits.
+
+**Model fields:**
+- `mandate` — injected into every system prompt; describes what the agent exists to do
+- `posture` — the interactivity axis (see below)
+- `bearing` — communication style: `ANALYTICAL` | `CONCISE` | `NARRATIVE` | `FORMAL`
+- `verbosity` — response detail: `TERSE` | `STANDARD` | `DETAILED`
+- `conductBoundaries` — action patterns always requiring human approval regardless of posture (e.g. `delete.*`, `write:fabric-config`)
+- `escalationTriggers` — conditions that force immediate escalation (e.g. `severity:CRITICAL`)
+- `scopeLimits` — optional JSON hard limits on scope of action
+
+**Posture levels:**
+| Posture | Behaviour |
+|---|---|
+| `AUTONOMOUS` | Acts independently; notifies on completion only |
+| `SUPERVISED` | Plans independently; approval gates for writes and destructive operations |
+| `INTERACTIVE` | Confirms before each significant action; presents decision options |
+| `DELIBERATE` | Analysis and planning only; awaits explicit instruction before each execution step |
+
+**API endpoints:**
+```
+GET   /agents/:id/charter   — retrieve current charter (null if none)
+PUT   /agents/:id/charter   — upsert charter (replaces entire document)
+PATCH /agents/:id/charter   — partial update (merge patch)
+```
+
+### Mesh worker pattern
+`@bclaw/agent-mesh` exposes `AgentMesh.route(task)` which selects the best-fit agent from the active pool based on capability matching and `DomainConstraint` compatibility scores. Each routed task produces a `MeshEvent` record for observability. Set `MESH_AUTO_START_WORKERS=true` to auto-register all `ACTIVE` agents as mesh workers at startup.
 
 ### Imports
 Use `@bclaw/<package>` workspace imports. TypeScript project references enforce build order. Always use `.js` extensions in import paths (ESM + `NodeNext`).
@@ -221,6 +272,10 @@ api-gateway ← integrations/telegram, integrations/teams
 | `@bclaw/permission-gateway` | Approval workflows; Telegram/Teams notification adapters |
 | `@bclaw/skill-engine` | Skill discovery (LLM + knowledge parsing), skill registry CRUD |
 | `@bclaw/orchestrator` | Core execution engine; LLM multi-provider via Vercel AI SDK |
+| `@bclaw/coordinator` | Smart gateway node; multi-agent orchestration, intent routing, CoordinatorSession management |
+| `@bclaw/persona-factory` | LLM-driven Persona generation from a goal description; spawns Agent records |
+| `@bclaw/knowledge-store` | Markdown knowledge file CRUD; search and injection into skill system prompts |
+| `@bclaw/agent-mesh` | Inter-agent capability routing, constraint registry, MeshEvent observability log |
 | `@bclaw/scheduler` | BullMQ worker + cron loop for scheduled agent jobs |
 | `@bclaw/api-gateway` | Fastify server, JWT auth, all HTTP routes, audit trail |
 | `@bclaw/integration-telegram` | grammY bot → api-gateway bridge |
@@ -261,6 +316,8 @@ Skill tool names must match `/^[a-z_][a-z0-9_]*$/` (enforced by `SkillToolSchema
 
 ### Approval channel
 `DEFAULT_APPROVAL_CHANNEL` env var controls which adapter is used (`telegram` or `teams`). The approval callback URL must be publicly accessible (set `PERMISSION_GATEWAY_CALLBACK_URL`).
+
+The `channel` field on `AgentRequest` and `CoordinatorSession` records which surface originated the request: `api` | `telegram` | `teams` | `dashboard` | `scheduler`.
 
 ### Imports
 Use `@bclaw/<package>` workspace imports. TypeScript project references enforce build order. Always use `.js` extensions in import paths (ESM + `NodeNext`).

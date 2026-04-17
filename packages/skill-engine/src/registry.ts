@@ -23,35 +23,59 @@ export class SkillRegistryService {
     id: string;
     name: string;
     domain: string;
+    description: string | null;
     capabilities: string[];
     tools: unknown;
     systemPrompt: string | null;
   } | null> {
-    // Simple capability keyword search — replace with vector similarity in v2
     const skills = await this.prisma.skill.findMany({
       where: { status: 'PUBLISHED' },
-      select: {
-        id: true,
-        name: true,
-        domain: true,
-        capabilities: true,
-        tools: true,
-        systemPrompt: true,
-      },
+      select: { id: true, name: true, domain: true, description: true, capabilities: true, tools: true, systemPrompt: true },
     });
 
-    type SkillRow = (typeof skills)[number];
-    type ScoredSkill = { skill: SkillRow; score: number };
-    const intentWords = intent.toLowerCase().split(/\s+/);
-    const scored: ScoredSkill[] = skills.map((skill: SkillRow) => {
+    if (skills.length === 0) return null;
+
+    const intentWords = intent.toLowerCase().split(/\W+/).filter((w) => w.length > 2);
+
+    const scored = skills.map((skill) => {
+      let score = 0;
+      const domainWords = skill.domain.toLowerCase().split(/[.\-_]/);
       const capText = skill.capabilities.join(' ').toLowerCase();
-      const matches = intentWords.filter((w) => capText.includes(w)).length;
-      return { skill, score: matches };
+      const nameText = skill.name.toLowerCase();
+      const descText = (skill.description ?? '').toLowerCase();
+
+      for (const word of intentWords) {
+        // Domain match — highest weight (indicates direct domain targeting)
+        if (domainWords.some((d) => d.includes(word) || word.includes(d))) score += 3;
+        // Capability match — strong signal
+        if (capText.includes(word)) score += 2;
+        // Name match — medium signal
+        if (nameText.includes(word)) score += 1.5;
+        // Description match — weaker signal
+        if (descText.includes(word)) score += 0.5;
+      }
+
+      return { skill, score };
     });
 
-    scored.sort((a: ScoredSkill, b: ScoredSkill) => b.score - a.score);
-    const best = scored[0];
-    return best && best.score > 0 ? best.skill : null;
+    const best = scored.sort((a, b) => b.score - a.score)[0];
+    // Return null if no meaningful match (score threshold prevents random matches)
+    return best && best.score >= 1 ? best.skill : null;
+  }
+
+  async findByDomain(domain: string): Promise<{
+    id: string;
+    name: string;
+    domain: string;
+    description: string | null;
+    capabilities: string[];
+    tools: unknown;
+    systemPrompt: string | null;
+  } | null> {
+    return this.prisma.skill.findFirst({
+      where: { domain, status: 'PUBLISHED' },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async createFromDiscovery(request: SkillDiscoveryRequest): Promise<{ id: string }> {

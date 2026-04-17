@@ -125,3 +125,36 @@ export const CreateTargetSchema = z.object({
 });
 
 export const UpdateTargetSchema = CreateTargetSchema.partial();
+
+// ─── Agent Charter ────────────────────────────────────────────────────────────
+
+export const AgentPostureSchema = z.enum(['AUTONOMOUS', 'SUPERVISED', 'INTERACTIVE', 'DELIBERATE']);
+export const AgentBearingSchema = z.enum(['ANALYTICAL', 'CONCISE', 'NARRATIVE', 'FORMAL']);
+export const AgentVerbositySchema = z.enum(['TERSE', 'STANDARD', 'DETAILED']);
+
+export const AgentCharterSchema = z.object({
+  mandate: z.string().min(1).max(2000),
+  posture: AgentPostureSchema.default('SUPERVISED'),
+  bearing: AgentBearingSchema.default('CONCISE'),
+  verbosity: AgentVerbositySchema.default('STANDARD'),
+  conductBoundaries: z.array(z.string()).default([]),
+  escalationTriggers: z.array(z.string()).default([]),
+  scopeLimits: z.record(z.unknown()).optional(),
+});
+
+export const UpdateAgentCharterSchema = AgentCharterSchema.partial();
+
+// ─── Persona ──────────────────────────────────────────────────────────────────
+
+export const GeneratePersonaSchema = z.object({
+  goal: z.string().min(1).max(2000),
+  domain: z.string().optional(),
+  existingSkills: z.array(z.string()).optional(),
+});
+
+export const SpawnPersonaSchema = z.object({
+  ownerId: z.string().cuid(),
+  name: z.string().optional(),
+  llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']).optional(),
+  llmModel: z.string().optional(),
+});

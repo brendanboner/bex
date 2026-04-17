@@ -4,10 +4,12 @@ import { PrismaClient } from '@prisma/client';
 import type { ExecutionContext, LlmProvider } from '@bclaw/shared';
 import { ErrorCodes } from '@bclaw/shared';
 import { CredentialVaultService } from '@bclaw/credential-vault';
-import { SkillRegistryService } from '@bclaw/skill-engine';
+import { SkillRegistryService, ToolRegistry } from '@bclaw/skill-engine';
 import { PermissionGatewayService } from '@bclaw/permission-gateway';
+import { SshExecutorService, createSshTool } from '@bclaw/ssh-executor';
 
 import { buildLlmModel, buildTools, runLlm } from './llm-runner.js';
+import { resolveCharter, buildCharterPrompt } from './charter.js';
 
 const APPROVAL_POLL_INTERVAL_MS = 3_000;
 const APPROVAL_POLL_MAX_ATTEMPTS = 600; // 30 minutes at 3s intervals
@@ -16,11 +18,15 @@ export class OrchestratorService {
   private readonly vault: CredentialVaultService;
   private readonly skillRegistry: SkillRegistryService;
   private readonly permGateway: PermissionGatewayService;
+  private readonly toolRegistry: ToolRegistry;
+  private readonly sshExecutor: SshExecutorService;
 
   constructor(private readonly prisma: PrismaClient) {
     this.vault = new CredentialVaultService(prisma);
     this.skillRegistry = new SkillRegistryService(prisma);
     this.permGateway = new PermissionGatewayService(prisma);
+    this.toolRegistry = new ToolRegistry(prisma);
+    this.sshExecutor = new SshExecutorService(prisma, this.vault);
   }
 
   async execute(ctx: ExecutionContext): Promise<{ output: string }> {
@@ -34,17 +40,24 @@ export class OrchestratorService {
       throw Object.assign(new Error('Agent not found'), { code: ErrorCodes.NOT_FOUND });
     }
 
-    // 2. Update request status → RUNNING
+    // 2. Load charter
+    const agentWithCharter = agent as typeof agent & { charterId?: string | null };
+    const charter = agentWithCharter.charterId
+      ? await (this.prisma as unknown as { agentCharter: { findUnique(args: { where: { id: string } }): Promise<{ mandate: string; posture: string; bearing: string; verbosity: string; conductBoundaries: string[]; escalationTriggers: string[]; scopeLimits: unknown } | null> } }).agentCharter.findUnique({ where: { id: agentWithCharter.charterId } })
+      : null;
+    const resolvedCharter = resolveCharter(charter);
+
+    // 3. Update request status → RUNNING
     await this.prisma.agentRequest.update({
       where: { id: ctx.requestId },
       data: { status: 'RUNNING', startedAt: new Date() },
     });
 
     try {
-      // 3. Find matching skill by intent
+      // 4. Find matching skill by intent
       let skill = await this.skillRegistry.findByIntent(ctx.input);
 
-      // 4. If no skill — request credential approval, then trigger discovery
+      // 5. If no skill — request credential approval, then trigger discovery
       if (!skill) {
         await this.prisma.agentRequest.update({
           where: { id: ctx.requestId },
@@ -70,6 +83,7 @@ export class OrchestratorService {
             id: true,
             name: true,
             domain: true,
+            description: true,
             capabilities: true,
             tools: true,
             systemPrompt: true,
@@ -95,12 +109,17 @@ export class OrchestratorService {
         endpoint?: string;
       }>) ?? [];
 
-      const tools = buildTools(
-        skillTools,
-        this.vault,
-        agent.permissions,
-        credentialRecord?.id,
-      );
+      // Load dynamic tools from registry
+      await this.toolRegistry.load();
+      const dynamicTools = this.toolRegistry.getAll();
+
+      // Add SSH tool for agents with ssh:exec permission
+      const sshTool = agent.permissions.includes('ssh:exec')
+        ? { ssh_exec: createSshTool(this.sshExecutor, this.prisma) }
+        : {};
+
+      // Merge all tool sources (skill tools take precedence for naming)
+      const tools = { ...dynamicTools, ...sshTool, ...buildTools(skillTools, this.vault, agent.permissions, credentialRecord?.id) };
 
       // 7. Build LLM model
       const model = buildLlmModel(
@@ -109,11 +128,11 @@ export class OrchestratorService {
       );
 
       // 8. Build system prompt
+      const charterPrompt = buildCharterPrompt(resolvedCharter);
       const systemParts = [
+        charterPrompt,
         (agent.persona as { systemPromptOverride?: string })?.systemPromptOverride ?? '',
         skill?.systemPrompt ?? '',
-        `You are ${(agent.persona as { name?: string })?.name ?? agent.name}.`,
-        `Available capabilities: ${skill?.capabilities.join(', ') ?? 'general assistance'}.`,
       ].filter(Boolean);
 
       const systemPrompt = systemParts.join('\n\n');

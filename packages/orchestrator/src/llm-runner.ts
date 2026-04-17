@@ -64,7 +64,9 @@ export function buildTools(
       parameters: paramSchema,
       execute: async (args: Record<string, unknown>): Promise<unknown> => {
         if (!skillTool.endpoint || !credentialId) {
-          return { result: 'dry-run', args };
+          // This tool is specification-only — it has no configured endpoint.
+          // It is available for the LLM to reference during planning but produces no side effects.
+          return { result: 'schema-only', args, note: 'Tool has no endpoint configured; used for planning and analysis only.' };
         }
 
         const result = await vault.proxyRequest(
@@ -101,7 +103,7 @@ export type RunLlmResult = {
 };
 
 export async function runLlm(options: RunLlmOptions): Promise<RunLlmResult> {
-  const { text, toolCalls, usage } = await generateText({
+  const { text, usage, steps } = await generateText({
     model: options.model,
     ...(options.systemPrompt !== undefined ? { system: options.systemPrompt } : {}),
     messages: options.messages,
@@ -109,15 +111,23 @@ export async function runLlm(options: RunLlmOptions): Promise<RunLlmResult> {
     maxSteps: options.maxSteps ?? 10,
   });
 
-  const mappedToolCalls: ToolCallResult[] = toolCalls.map((tc) => ({
-    toolCallId: tc.toolCallId,
-    toolName: tc.toolName,
-    result: undefined,
-  }));
+  const allToolCalls: ToolCallResult[] = [];
+  for (const step of steps) {
+    const stepToolCalls = step.toolCalls as Array<{ toolCallId: string; toolName: string }>;
+    const stepToolResults = step.toolResults as Array<{ toolCallId: string; result: unknown }> | undefined;
+    for (const tc of stepToolCalls) {
+      const matchingResult = stepToolResults?.find((r) => r.toolCallId === tc.toolCallId);
+      allToolCalls.push({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        result: matchingResult?.result ?? null,
+      });
+    }
+  }
 
   return {
     text,
-    toolCalls: mappedToolCalls,
+    toolCalls: allToolCalls,
     usage: {
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,

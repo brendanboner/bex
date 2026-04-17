@@ -171,3 +171,46 @@ export type SkillManifest = {
   publishedBy?: string;
   publishedAt: string;
 };
+
+// ─── Agent Charter ────────────────────────────────────────────────────────────
+
+export type AgentPosture = 'AUTONOMOUS' | 'SUPERVISED' | 'INTERACTIVE' | 'DELIBERATE';
+export type AgentBearing = 'ANALYTICAL' | 'CONCISE' | 'NARRATIVE' | 'FORMAL';
+export type AgentVerbosity = 'TERSE' | 'STANDARD' | 'DETAILED';
+
+export type AgentCharterInput = {
+  mandate: string;
+  posture: AgentPosture;
+  bearing: AgentBearing;
+  verbosity: AgentVerbosity;
+  conductBoundaries: string[];
+  escalationTriggers: string[];
+  scopeLimits?: Record<string, unknown>;
+};
+
+export type AgentCharterRecord = AgentCharterInput & {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// Resolved charter with defaults applied — safe to pass to orchestrator
+export type ResolvedCharter = {
+  mandate: string;
+  posture: AgentPosture;
+  bearing: AgentBearing;
+  verbosity: AgentVerbosity;
+  conductBoundaries: string[];
+  escalationTriggers: string[];
+  scopeLimits: Record<string, unknown>;
+};
+
+export const DEFAULT_CHARTER: ResolvedCharter = {
+  mandate: 'Assist users with their requests accurately and safely.',
+  posture: 'SUPERVISED',
+  bearing: 'CONCISE',
+  verbosity: 'STANDARD',
+  conductBoundaries: ['delete.*', 'write:config', 'ssh:exec:reboot', 'ssh:exec:shutdown'],
+  escalationTriggers: ['severity:CRITICAL', 'error_rate > 0.5'],
+  scopeLimits: {},
+};

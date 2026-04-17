@@ -37,6 +37,9 @@
     },
     {
       "path": "../agent-mesh"
+    },
+    {
+      "path": "../persona-factory"
     }
   ],
   "include": [

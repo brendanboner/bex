@@ -40,6 +40,8 @@ export const api = {
   get: <T>(path: string) => apiFetch<T>(API_URL, path),
   post: <T>(path: string, body?: unknown) =>
     apiFetch<T>(API_URL, path, { method: 'POST', body: JSON.stringify(body) }),
+  put: <T>(path: string, body?: unknown) =>
+    apiFetch<T>(API_URL, path, { method: 'PUT', body: JSON.stringify(body) }),
   patch: <T>(path: string, body?: unknown) =>
     apiFetch<T>(API_URL, path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (path: string) => apiFetch<unknown>(API_URL, path, { method: 'DELETE' }),

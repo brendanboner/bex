@@ -20,6 +20,9 @@ import { targetRoutes } from './routes/targets.js';
 import { registryRoutes } from './routes/registry.js';
 import { coordinatorRoutes } from './routes/coordinator.js';
 import { toolRoutes } from './routes/tools.js';
+import { personaRoutes } from './routes/personas.js';
+import { charterRoutes } from './routes/charter.js';
+import { validateEnv } from './env.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -28,6 +31,7 @@ declare module 'fastify' {
 }
 
 async function buildApp() {
+  validateEnv();
   const app = Fastify({
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
@@ -94,6 +98,8 @@ async function buildApp() {
   await coordinatorRoutes(app, prisma);
   await toolRoutes(app, prisma);
   await knowledgeRoutes(app);
+  await personaRoutes(app, prisma);
+  await charterRoutes(app, prisma);
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = async () => {

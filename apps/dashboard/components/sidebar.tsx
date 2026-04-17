@@ -14,6 +14,7 @@ import {
   Network,
   Package,
   Settings,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
   { href: '/agents', label: 'Agents', icon: Bot },
   { href: '/skills', label: 'Skills', icon: Brain },
+  { href: '/personas', label: 'Personas', icon: UserPlus },
   { href: '/credentials', label: 'Credentials', icon: Key },
   { href: '/requests', label: 'Requests', icon: Clock },
   { href: '/endpoints', label: 'Endpoints', icon: Network },

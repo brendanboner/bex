@@ -53,6 +53,31 @@ enum AgentStatus {
   DRAFT
 }
 
+// ─── Charter enums ────────────────────────────────────────────────────────────
+
+// How autonomously the agent operates — the interactivity axis.
+enum AgentPosture {
+  AUTONOMOUS    // Acts independently; notifies on completion only
+  SUPERVISED    // Plans independently; approval gates for writes and destructive ops
+  INTERACTIVE   // Confirms before each significant action; presents decision options
+  DELIBERATE    // Analysis and planning only; awaits explicit instruction before each execution step
+}
+
+// How the agent communicates — the bearing axis.
+enum AgentBearing {
+  ANALYTICAL    // Structured findings, data-forward, minimal commentary
+  CONCISE       // Brief, action-oriented responses
+  NARRATIVE     // Explanatory prose with reasoning
+  FORMAL        // Professional, structured, no colloquialisms
+}
+
+// How much detail the agent includes in its responses.
+enum AgentVerbosity {
+  TERSE
+  STANDARD
+  DETAILED
+}
+
 enum CompatibilityLevel {
   FULL
   PARTIAL
@@ -115,6 +140,10 @@ model Agent {
   personaId   String?
   persona_ref Persona?     @relation(fields: [personaId], references: [id])
 
+  // Optional operating charter — defines mandate, posture, bearing
+  charterId   String?      @unique
+  charter     AgentCharter? @relation(fields: [charterId], references: [id])
+
   requests    AgentRequest[]
 
   createdAt   DateTime @default(now())
@@ -122,6 +151,44 @@ model Agent {
 
   @@index([ownerId])
   @@index([status])
+}
+
+// ─── Agent Charter ────────────────────────────────────────────────────────────
+// The AgentCharter defines an agent's operating mandate, behavioral posture,
+// and authority boundaries. It is the enterprise equivalent of a behavioral
+// framework — every deployed agent should have one.
+
+model AgentCharter {
+  id       String @id @default(cuid())
+
+  // What this agent exists to do — injected into every system prompt
+  mandate  String
+
+  // How autonomously the agent operates (the interactivity axis)
+  posture  AgentPosture @default(SUPERVISED)
+
+  // How the agent communicates
+  bearing  AgentBearing @default(CONCISE)
+
+  // How much detail is included in responses
+  verbosity AgentVerbosity @default(STANDARD)
+
+  // Actions that always require human approval regardless of posture
+  // e.g. ["delete.*", "write:fabric-config", "ssh:exec:reboot"]
+  conductBoundaries String[] @default([])
+
+  // Conditions that force immediate escalation
+  // e.g. ["severity:CRITICAL", "alarm_count > 10", "config drift detected"]
+  escalationTriggers String[] @default([])
+
+  // Optional hard limits on the scope of action
+  // e.g. { "maxTargets": 5, "allowedDomains": ["networking.*"] }
+  scopeLimits Json?
+
+  agent    Agent?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─── Skills ───────────────────────────────────────────────────────────────────

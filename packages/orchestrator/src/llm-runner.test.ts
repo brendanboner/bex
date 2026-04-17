@@ -23,6 +23,7 @@ vi.mock('ai', () => ({
   generateText: vi.fn().mockResolvedValue({
     text: 'Hello from the LLM',
     toolCalls: [],
+    steps: [],
     usage: { promptTokens: 10, completionTokens: 20 },
   }),
 }));
@@ -93,7 +94,7 @@ describe('llm-runner', () => {
       const tools = buildTools(skillTools, mockVault, [], undefined);
       const execute = tools['check_health']?.execute as (args: Record<string, unknown>) => Promise<unknown>;
       const result = await execute({});
-      expect(result).toMatchObject({ result: 'dry-run' });
+      expect(result).toMatchObject({ result: 'schema-only' });
     });
   });
 

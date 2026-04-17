@@ -32,7 +32,8 @@
     "@bclaw/skill-registry-client": "*",
     "@bclaw/coordinator": "*",
     "@bclaw/agent-mesh": "*",
-    "@bclaw/knowledge-store": "*"
+    "@bclaw/knowledge-store": "*",
+    "@bclaw/persona-factory": "*"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

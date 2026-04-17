@@ -6,7 +6,27 @@ import { z } from 'zod';
 import { buildModel } from './model.js';
 import { generateObject } from 'ai';
 
+export interface ToolRegistryServices {
+  vault?: {
+    proxyRequest(config: {
+      credentialId: string;
+      method: string;
+      url: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+      injection: { type: 'bearer' } | { type: 'header'; key: string } | { type: 'query'; key: string } | { type: 'basic' };
+    }, permissions: string[]): Promise<{ status: number; body: unknown }>;
+  };
+  sshExecutor?: {
+    exec(targetId: string, command: string): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  };
+  agentMesh?: {
+    delegateTo(agentId: string, payload: Record<string, unknown>): Promise<{ status: string; result?: unknown }>;
+  };
+}
+
 export interface ToolDefinition {
+
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -52,17 +72,69 @@ function jsonSchemaToZod(
   return z.object(shape);
 }
 
-function buildCoreTool(definition: ToolDefinition): CoreTool {
-  const props = definition.parameters as Record<string, JsonSchemaProperty>;
+function buildCoreTool(definition: ToolDefinition, services: ToolRegistryServices): CoreTool {
+  const props = (definition.parameters as { properties?: Record<string, JsonSchemaProperty> }).properties ?? (definition.parameters as Record<string, JsonSchemaProperty>);
   const schema = jsonSchemaToZod(props);
+
   return {
     description: definition.description,
     parameters: schema as z.ZodTypeAny,
-    execute: async (_args: unknown) => ({
-      dispatched: true,
-      handlerType: definition.handlerType,
-      config: definition.config,
-    }),
+    execute: async (args: Record<string, unknown>): Promise<unknown> => {
+      switch (definition.handlerType) {
+        case 'http_call': {
+          const config = definition.config as {
+            credentialId: string;
+            method: string;
+            urlTemplate: string;
+            injection?: { type: string; key?: string };
+          };
+          if (!services.vault) return { error: 'vault service not available' };
+          const url = config.urlTemplate.replace(/\{(\w+)\}/g, (_, k) => String(args[k] ?? ''));
+          const injection = (config.injection ?? { type: 'bearer' }) as
+            | { type: 'bearer' }
+            | { type: 'header'; key: string }
+            | { type: 'query'; key: string }
+            | { type: 'basic' };
+          const result = await services.vault.proxyRequest(
+            { credentialId: config.credentialId, method: config.method, url, body: args, injection },
+            [],
+          );
+          return result.body;
+        }
+
+        case 'ssh_exec': {
+          const config = definition.config as { targetId: string; commandTemplate: string };
+          if (!services.sshExecutor) return { error: 'ssh executor service not available' };
+          const command = config.commandTemplate.replace(/\{(\w+)\}/g, (_, k) => String(args[k] ?? ''));
+          return services.sshExecutor.exec(config.targetId, command);
+        }
+
+        case 'agent_delegate': {
+          const config = definition.config as { agentId: string };
+          if (!services.agentMesh) return { error: 'agent mesh service not available' };
+          return services.agentMesh.delegateTo(config.agentId, args);
+        }
+
+        case 'skill_invoke': {
+          const config = definition.config as { endpoint: string; credentialId: string };
+          if (!services.vault) return { error: 'vault service not available' };
+          const result = await services.vault.proxyRequest(
+            {
+              credentialId: config.credentialId,
+              method: 'POST',
+              url: config.endpoint,
+              body: args,
+              injection: { type: 'bearer' },
+            },
+            [],
+          );
+          return result.body;
+        }
+
+        default:
+          return { error: `Unknown handler type: ${definition.handlerType}` };
+      }
+    },
   } as CoreTool;
 }
 
@@ -70,57 +142,47 @@ export class ToolRegistry {
   private tools = new Map<string, CoreTool>();
   private toolDomains = new Map<string, string>();
 
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: PrismaClient, private services: ToolRegistryServices = {}) {}
 
   async load(): Promise<number> {
-    const rows = await this.prisma.dynamicTool.findMany({
-      where: { enabled: true },
-    });
-
+    const rows = await this.prisma.dynamicTool.findMany({ where: { enabled: true } });
     for (const row of rows) {
-      const definition: ToolDefinition = {
+      const def: ToolDefinition = {
         name: row.name,
         description: row.description,
         parameters: row.parameters as Record<string, unknown>,
         handlerType: row.handlerType as ToolDefinition['handlerType'],
         config: row.config as Record<string, unknown>,
-        ...(row.domain != null && { domain: row.domain }),
-        ...(row.skillId != null && { skillId: row.skillId }),
+        ...(row.domain != null ? { domain: row.domain } : {}),
+        ...(row.skillId != null ? { skillId: row.skillId } : {}),
       };
-      this.tools.set(row.name, buildCoreTool(definition));
-      if (row.domain != null) {
-        this.toolDomains.set(row.name, row.domain);
-      }
+      this.tools.set(row.name, buildCoreTool(def, this.services));
+      if (row.domain != null) this.toolDomains.set(row.name, row.domain);
     }
-
     return rows.length;
   }
 
   async register(definition: ToolDefinition): Promise<void> {
     await this.prisma.dynamicTool.upsert({
       where: { name: definition.name },
-      update: {
-        description: definition.description,
-        parameters: definition.parameters as Prisma.InputJsonValue,
-        handlerType: definition.handlerType,
-        config: definition.config as Prisma.InputJsonValue,
-        enabled: true,
-        ...(definition.domain !== undefined && { domain: definition.domain }),
-        ...(definition.skillId !== undefined && { skillId: definition.skillId }),
-      },
       create: {
         name: definition.name,
         description: definition.description,
-        parameters: definition.parameters as Prisma.InputJsonValue,
+        parameters: definition.parameters as Prisma.InputJsonObject,
         handlerType: definition.handlerType,
-        config: definition.config as Prisma.InputJsonValue,
-        enabled: true,
-        ...(definition.domain !== undefined && { domain: definition.domain }),
-        ...(definition.skillId !== undefined && { skillId: definition.skillId }),
+        config: definition.config as Prisma.InputJsonObject,
+        ...(definition.domain !== undefined ? { domain: definition.domain } : {}),
+        ...(definition.skillId !== undefined ? { skillId: definition.skillId } : {}),
+      },
+      update: {
+        description: definition.description,
+        parameters: definition.parameters as Prisma.InputJsonObject,
+        handlerType: definition.handlerType,
+        config: definition.config as Prisma.InputJsonObject,
+        ...(definition.domain !== undefined ? { domain: definition.domain } : {}),
       },
     });
-
-    this.tools.set(definition.name, buildCoreTool(definition));
+    this.tools.set(definition.name, buildCoreTool(definition, this.services));
     if (definition.domain !== undefined) {
       this.toolDomains.set(definition.name, definition.domain);
     }
@@ -145,10 +207,7 @@ export class ToolRegistry {
   }
 
   async disable(name: string): Promise<void> {
-    await this.prisma.dynamicTool.update({
-      where: { name },
-      data: { enabled: false },
-    });
+    await this.prisma.dynamicTool.update({ where: { name }, data: { enabled: false } });
     this.tools.delete(name);
     this.toolDomains.delete(name);
   }
