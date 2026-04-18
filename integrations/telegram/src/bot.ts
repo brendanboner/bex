@@ -69,13 +69,75 @@ bot.on('message:text', async (ctx) => {
 
     const data = (await res.json()) as { ok: boolean; data?: { requestId: string } };
 
-    if (data.ok && data.data) {
-      ctx.session.pendingRequestId = data.data.requestId;
-      await ctx.reply(`✅ Request queued (ID: \`${data.data.requestId}\`). Use /status to check progress.`, {
-        parse_mode: 'Markdown',
-      });
-    } else {
+    if (!data.ok || !data.data) {
       await ctx.reply('❌ Failed to queue request. Please try again.');
+      return;
+    }
+
+    const requestId = data.data.requestId;
+    ctx.session.pendingRequestId = requestId;
+
+    // Poll for completion and auto-reply with the result
+    const POLL_INTERVAL_MS = 2_000;
+    const MAX_WAIT_MS = 120_000;
+    const started = Date.now();
+    let typingInterval: ReturnType<typeof setInterval> | undefined;
+
+    // Keep showing "typing..." while we wait
+    typingInterval = setInterval(() => {
+      void ctx.replyWithChatAction('typing');
+    }, 4_000);
+
+    try {
+      while (Date.now() - started < MAX_WAIT_MS) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+        const statusRes = await fetch(`${API_GATEWAY_URL}/requests/${requestId}`, {
+          headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+        });
+        const statusData = (await statusRes.json()) as {
+          ok: boolean;
+          data?: { status: string; output?: string; errorMsg?: string };
+        };
+
+        if (!statusData.ok || !statusData.data) continue;
+        const { status, output, errorMsg } = statusData.data;
+
+        if (status === 'COMPLETED') {
+          clearInterval(typingInterval);
+          await ctx.reply(output ?? '(No response)', { parse_mode: 'Markdown' });
+          return;
+        }
+
+        if (status === 'FAILED') {
+          clearInterval(typingInterval);
+          await ctx.reply(`❌ Request failed: ${errorMsg ?? 'Unknown error'}`);
+          return;
+        }
+
+        if (status === 'AWAITING_APPROVAL') {
+          clearInterval(typingInterval);
+          await ctx.reply(
+            `⏳ Action requires approval (ID: \`${requestId}\`).\nUse /approve or /deny to respond.`,
+            { parse_mode: 'Markdown' },
+          );
+          return;
+        }
+      }
+
+      // Timeout
+      clearInterval(typingInterval);
+      await ctx.reply(
+        `⏳ Request is taking longer than expected (ID: \`${requestId}\`).\nUse /status to check when it completes.`,
+        { parse_mode: 'Markdown' },
+      );
+    } catch (pollErr) {
+      clearInterval(typingInterval);
+      console.error('[telegram] Polling error:', pollErr);
+      await ctx.reply(
+        `✅ Request queued (ID: \`${requestId}\`). Use /status to check progress.`,
+        { parse_mode: 'Markdown' },
+      );
     }
   } catch (err) {
     console.error('[telegram] Error routing message:', err);

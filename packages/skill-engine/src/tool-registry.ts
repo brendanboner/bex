@@ -30,7 +30,7 @@ export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  handlerType: 'http_call' | 'skill_invoke' | 'agent_delegate' | 'ssh_exec';
+  handlerType: 'http_call' | 'public_http_call' | 'skill_invoke' | 'agent_delegate' | 'ssh_exec';
   config: Record<string, unknown>;
   domain?: string;
   skillId?: string;
@@ -81,6 +81,28 @@ function buildCoreTool(definition: ToolDefinition, services: ToolRegistryService
     parameters: schema as z.ZodTypeAny,
     execute: async (args: Record<string, unknown>): Promise<unknown> => {
       switch (definition.handlerType) {
+        case 'public_http_call': {
+          // Direct HTTP call to a public/free API — no credentials required
+          const config = definition.config as {
+            method: string;
+            urlTemplate: string;
+            responseField?: string; // optional dot-path to extract from response
+          };
+          const { fetch } = await import('undici');
+          const url = config.urlTemplate.replace(/\{(\w+)\}/g, (_, k) => String(args[k] ?? ''));
+          const method = (config.method ?? 'GET').toUpperCase();
+          const fetchOpts: Parameters<typeof fetch>[1] = {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          };
+          if (method !== 'GET' && method !== 'HEAD') {
+            fetchOpts.body = JSON.stringify(args);
+          }
+          const resp = await fetch(url, fetchOpts);
+          const body = await resp.json() as Record<string, unknown>;
+          return body;
+        }
+
         case 'http_call': {
           const config = definition.config as {
             credentialId: string;
@@ -220,7 +242,7 @@ export class ToolRegistry {
         name: z.string(),
         description: z.string(),
         parameters: z.record(z.unknown()),
-        handlerType: z.enum(['http_call', 'skill_invoke', 'agent_delegate', 'ssh_exec']),
+        handlerType: z.enum(['http_call', 'public_http_call', 'skill_invoke', 'agent_delegate', 'ssh_exec']),
         config: z.record(z.unknown()),
         domain: z.string().optional(),
       }),
