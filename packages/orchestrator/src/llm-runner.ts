@@ -37,6 +37,9 @@ type ExtendedSkillTool = SkillTool & {
 /** In-process token cache for xciq_http_call — avoids re-logging in on every tool call. */
 const xciqTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+/** In-process token cache for xco_http_call — per XCO endpoint. */
+const xcoTokenCache = new Map<string, { token: string; expiresAt: number }>();
+
 function getCachedToken(credentialId: string): string | null {
   const entry = xciqTokenCache.get(credentialId);
   if (!entry) return null;
@@ -47,6 +50,17 @@ function getCachedToken(credentialId: string): string | null {
 function setCachedToken(credentialId: string, token: string, expiresInSeconds = 82800): void {
   // Use 82800s (23h) as TTL — slightly shorter than the 24h API max to be safe
   xciqTokenCache.set(credentialId, { token, expiresAt: Date.now() + expiresInSeconds * 1000 });
+}
+
+function getXcoToken(cacheKey: string): string | null {
+  const entry = xcoTokenCache.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) { xcoTokenCache.delete(cacheKey); return null; }
+  return entry.token;
+}
+
+function setXcoToken(cacheKey: string, token: string, expiresInSeconds = 3600): void {
+  xcoTokenCache.set(cacheKey, { token, expiresAt: Date.now() + expiresInSeconds * 1000 });
 }
 
 /**
@@ -250,6 +264,94 @@ export function buildTools(
           }
         }
 
+        // ── xco_http_call: ExtremeCloud Orchestrator auth-then-call pattern ─
+        // Resolves USERNAME_PASSWORD credential from vault, authenticates against
+        // XCO's REST API (/rest/v1/auth/token), caches the token, then makes the
+        // actual API call with Bearer token. The LLM never sees the credentials.
+        if (handlerType === 'xco_http_call') {
+          const effectiveCredId = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
+          if (!effectiveCredId) return { error: 'xco_http_call requires a credential. Configure an xco-admin credential in the dashboard.' };
+
+          const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
+          if (!urlTemplate) return { error: 'No URL template configured for xco_http_call tool' };
+          const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
+
+          // Replace {param} placeholders (word-char args only — host already resolved)
+          const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k: string) => encodeURIComponent(String(args[k] ?? '')));
+
+          // Derive auth URL: strip path from urlTemplate, append /rest/v1/auth/token
+          const defaultAuthUrl = (() => {
+            try { const u = new URL(url); return `${u.protocol}//${u.host}/rest/v1/auth/token`; } catch { return ''; }
+          })();
+          const authUrl = (config['authUrl'] as string | undefined) ?? defaultAuthUrl;
+
+          // Quick reachability check
+          const xcoReach = await checkReachable(authUrl || url);
+          if (!xcoReach.reachable) {
+            return { error: xcoReach.error ?? `Cannot reach XCO endpoint`, hint: 'XCO is on a private network — ensure VPN is connected or the host is reachable' };
+          }
+
+          const { fetch } = await import('undici');
+          const cacheKey = `${effectiveCredId}:${authUrl}`;
+
+          // Get or refresh token
+          let accessToken = getXcoToken(cacheKey);
+          if (!accessToken) {
+            const creds = await vault.resolve(effectiveCredId, agentPermissions);
+            const authResp = await fetch(authUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ username: String(creds['username'] ?? ''), password: String(creds['password'] ?? '') }),
+            });
+            if (!authResp.ok) {
+              const errText = await authResp.text();
+              return { error: `XCO authentication failed (${authResp.status})`, detail: errText.slice(0, 300) };
+            }
+            const authData = await authResp.json() as { token?: string; access_token?: string; expires_in?: number };
+            accessToken = authData.token ?? authData.access_token ?? '';
+            if (!accessToken) return { error: 'XCO auth succeeded but no token in response', raw: authData };
+            setXcoToken(cacheKey, accessToken, authData.expires_in ?? 3600);
+            console.info(`[xco_http_call] Authenticated to XCO, token cached (${authUrl})`);
+          }
+
+          // Make the actual API call
+          const fetchOpts: Parameters<typeof fetch>[1] = {
+            method,
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          };
+          if (method !== 'GET' && method !== 'HEAD') {
+            fetchOpts.body = JSON.stringify(args);
+          }
+          let apiResp = await fetch(url, fetchOpts);
+
+          // Retry once on 401 (token expired)
+          if (apiResp.status === 401) {
+            xcoTokenCache.delete(cacheKey);
+            const creds2 = await vault.resolve(effectiveCredId, agentPermissions);
+            const freshAuth = await fetch(authUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ username: String(creds2['username'] ?? ''), password: String(creds2['password'] ?? '') }),
+            });
+            if (freshAuth.ok) {
+              const freshData = await freshAuth.json() as { token?: string; access_token?: string; expires_in?: number };
+              const freshToken = freshData.token ?? freshData.access_token ?? '';
+              if (freshToken) {
+                setXcoToken(cacheKey, freshToken, freshData.expires_in ?? 3600);
+                fetchOpts.headers = { ...fetchOpts.headers as object, Authorization: `Bearer ${freshToken}` };
+                apiResp = await fetch(url, fetchOpts);
+              }
+            }
+          }
+
+          const apiText = await apiResp.text();
+          console.info(`[xco_http_call] ${method} ${url} → ${apiResp.status}`);
+          if (!apiResp.ok) {
+            return { error: `XCO API error ${apiResp.status}`, url, detail: apiText.slice(0, 500) };
+          }
+          try { return JSON.parse(apiText); } catch { return { result: apiText.slice(0, 2000) }; }
+        }
+
         // ── public_http_call: direct fetch, no credentials ────────────────
         if (handlerType === 'public_http_call') {
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
@@ -292,10 +394,13 @@ export function buildTools(
         // ── http_call: vault-proxied call with credentials ─────────────────
         if (handlerType === 'http_call' || skillTool.endpoint) {
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
-          if (!urlTemplate || !credentialId) {
-            return { result: 'schema-only', args, note: 'Tool has no endpoint or credential configured.' };
+          // Use per-tool credential (injected by orchestrator for domain-specific skills) or agent default
+          const effectiveCredentialId = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
+          if (!urlTemplate || !effectiveCredentialId) {
+            return { result: 'schema-only', args, note: 'Tool has no endpoint or credential configured. Assign an endpoint and credential in the dashboard.' };
           }
           const method = ((config['method'] as string | undefined) ?? 'POST').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+          // Replace {param} arg placeholders (word chars only — host placeholders resolved earlier by orchestrator)
           const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
 
           // Quick reachability check
@@ -310,7 +415,7 @@ export function buildTools(
             | { type: 'query'; key: string }
             | { type: 'basic' };
           const result = await vault.proxyRequest(
-            { credentialId, method, url, body: args, injection },
+            { credentialId: effectiveCredentialId, method, url, body: args, injection },
             agentPermissions,
           );
           return result.body;

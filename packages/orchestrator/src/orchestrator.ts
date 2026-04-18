@@ -111,11 +111,86 @@ export class OrchestratorService {
         });
       }
 
-      // 7. Build tool set — include tools from ALL linked skills with smart domain routing
-      const allSkillTools = linkedSkills.flatMap((s) => (s.tools as Array<Record<string, unknown>>) ?? []);
-      if (allSkillTools.length === 0 && skill?.tools) {
-        allSkillTools.push(...(skill.tools as Array<Record<string, unknown>>));
+      // 6b. Build per-skill credential map (domain → credentialId) for multi-domain agents.
+      // Each skill may require a specific credential type (e.g. XCO needs USERNAME_PASSWORD).
+      const domainCredMap: Record<string, string> = {};
+      for (const s of linkedSkills) {
+        if (!s.requiredCredentialType) continue;
+        // Extract meaningful domain keyword to match credential by name
+        const keywords = s.domain.split('.').filter((k: string) => !['networking', 'monitoring', 'cloud', 'extreme', 'extremecloudiq'].includes(k));
+        const keyword = keywords[0];
+        const cred = await this.prisma.credential.findFirst({
+          where: {
+            scope: 'SYSTEM',
+            credentialType: s.requiredCredentialType as 'API_TOKEN' | 'USERNAME_PASSWORD' | 'SSH_KEY' | 'OAUTH2_CLIENT' | 'USER_PREFERENCE',
+            ...(keyword ? { name: { contains: keyword, mode: 'insensitive' as const } } : {}),
+          },
+          select: { id: true },
+        });
+        if (cred) {
+          domainCredMap[s.domain] = cred.id;
+          console.info(`[orchestrator] Resolved credential for domain ${s.domain} → ${cred.id}`);
+        }
       }
+
+      // 6c. Resolve endpoint host map: Endpoint tags → baseUrl.
+      // Used to substitute {tag-host} placeholders in skill tool URL templates.
+      // e.g. Endpoint{tags:["xco"], baseUrl:"http://10.64.160.109"} → hostMap["xco-host"] = "http://10.64.160.109"
+      const endpointRows = await this.prisma.endpoint.findMany({ select: { tags: true, baseUrl: true } });
+      const hostMap: Record<string, string> = {};
+      for (const ep of endpointRows) {
+        for (const tag of ep.tags) {
+          hostMap[`${tag}-host`] = ep.baseUrl.replace(/\/$/, '');
+        }
+      }
+
+      // 7. Build tool set — include tools from ALL linked skills with smart domain routing.
+      // Pre-annotate each tool with its resolved endpoint URL and credential ID.
+      const rawSkillTools: Array<Record<string, unknown>> = linkedSkills.flatMap((s) =>
+        ((s.tools as Array<Record<string, unknown>>) ?? []).map((t) => ({
+          ...t,
+          _skillDomain: s.domain,
+        })),
+      );
+      if (rawSkillTools.length === 0 && skill?.tools) {
+        rawSkillTools.push(...(skill.tools as Array<Record<string, unknown>>));
+      }
+
+      // Substitute {tag-host} placeholders and inject per-domain credential IDs
+      const resolveHostPlaceholders = (url: string): string => {
+        // First: replace `https://{tag-host}` or `http://{tag-host}` as a unit,
+        // so the configured protocol (e.g. http://) overrides the skill template's protocol.
+        let resolved = url.replace(/https?:\/\/\{([^}]+)\}/g, (_, key: string) => hostMap[key] ?? `https://{${key}}`);
+        // Second pass: replace any bare `{tag-host}` placeholders (no protocol prefix)
+        resolved = resolved.replace(/\{([^}]+)\}/g, (full, key: string) => {
+          if (key in hostMap) return (hostMap[key] ?? '').replace(/^https?:\/\//, '');
+          return full;
+        });
+        return resolved;
+      };
+
+      const allSkillTools = rawSkillTools.map((tool) => {
+        const domain = tool['_skillDomain'] as string | undefined;
+        const resolved = { ...tool };
+        delete resolved['_skillDomain'];
+
+        // Resolve {tag-host} in endpoint and config.urlTemplate
+        if (typeof resolved['endpoint'] === 'string') {
+          resolved['endpoint'] = resolveHostPlaceholders(resolved['endpoint']);
+        }
+        const cfg = resolved['config'] as Record<string, unknown> | undefined;
+        if (cfg && typeof cfg['urlTemplate'] === 'string') {
+          resolved['config'] = { ...cfg, urlTemplate: resolveHostPlaceholders(cfg['urlTemplate']) };
+        }
+
+        // Embed domain credential so buildTools can use it for http_call
+        const domainCred = domain ? domainCredMap[domain] : undefined;
+        if (domainCred) {
+          resolved['config'] = { ...(resolved['config'] as Record<string, unknown> ?? {}), resolvedCredentialId: domainCred };
+        }
+
+        return resolved;
+      });
 
       // Build a map of tool name → skill domain for the router
       const skillDomainMap = buildSkillDomainMap(
