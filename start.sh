@@ -55,9 +55,17 @@ WORKER_PID=$!; disown $WORKER_PID
 echo "    PID $WORKER_PID"
 
 echo "  → Starting Dashboard (port 3000)..."
-nohup bash -c "cd '$ROOT/apps/dashboard' && exec node_modules/.bin/next dev -p 3000" >> "$ROOT/logs/dashboard.log" 2>&1 &
+# Unset PORT so Next.js uses -p 3000, not the API gateway's PORT=4000
+nohup bash -c "unset PORT; cd '$ROOT/apps/dashboard' && exec node_modules/.bin/next dev -p 3000" >> "$ROOT/logs/dashboard.log" 2>&1 &
 DASH_PID=$!; disown $DASH_PID
 echo "    PID $DASH_PID"
+
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  echo "  → Starting Telegram Bot..."
+  nohup bash -c "TELEGRAM_BOT_TOKEN='$TELEGRAM_BOT_TOKEN' JWT_SECRET='$JWT_SECRET' API_GATEWAY_URL='http://localhost:4000' DATABASE_URL='$DATABASE_URL' REDIS_URL='$REDIS_URL' node '$ROOT/integrations/telegram/dist/bot.js'" >> "$ROOT/logs/telegram-bot.log" 2>&1 &
+  BOT_PID=$!; disown $BOT_PID
+  echo "    PID $BOT_PID"
+fi
 
 echo ""
 echo "  Waiting for services to start..."
@@ -85,5 +93,5 @@ echo "  ├───────────────────────
 echo "  │  Logs:   tail -f $ROOT/logs/<service>.log        │"
 echo "  └──────────────────────────────────────────────────┘"
 echo ""
-echo "  PIDs: registry=$REG_PID  api=$API_PID  admin=$DAPI_PID  worker=$WORKER_PID  dashboard=$DASH_PID"
+echo "  PIDs: registry=$REG_PID  api=$API_PID  admin=$DAPI_PID  worker=$WORKER_PID  dashboard=$DASH_PID${BOT_PID:+  telegram=$BOT_PID}"
 echo ""
