@@ -46,14 +46,15 @@ export class PersonaSpawner {
       ),
     );
 
-    // 5. If persona has a schedule, create ScheduledJob
+    // 5. If persona has a schedule, create ScheduledJob with the persona goal as input prompt.
     if (persona.schedule != null) {
       await this.prisma.scheduledJob.create({
         data: {
           name: `${agent.name} — scheduled`,
           agentId: agent.id,
           cronExpr: persona.schedule,
-          input: JSON.stringify({}),
+          input: persona.goal,
+          enabled: true,
         },
       });
     }

@@ -116,8 +116,10 @@ export class OrchestratorService {
       const domainCredMap: Record<string, string> = {};
       for (const s of linkedSkills) {
         if (!s.requiredCredentialType) continue;
-        // Extract meaningful domain keyword to match credential by name
-        const keywords = s.domain.split('.').filter((k: string) => !['networking', 'monitoring', 'cloud', 'extreme', 'extremecloudiq'].includes(k));
+        // Extract meaningful domain keyword to match credential by name.
+        // Split by both '.' and '-' so "extreme-xco" yields ["extreme","xco"] → keyword "xco".
+        const stopWords = new Set(['networking', 'monitoring', 'cloud', 'extreme', 'extremecloudiq', 'operations', 'monitor']);
+        const keywords = s.domain.split('.').flatMap((k: string) => k.split('-')).filter((k: string) => !stopWords.has(k));
         const keyword = keywords[0];
         const cred = await this.prisma.credential.findFirst({
           where: {

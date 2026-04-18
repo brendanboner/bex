@@ -48,9 +48,15 @@ export class CredentialVaultService {
   }
 
   async resolve(credentialId: string, agentPermissions: string[]): Promise<CredentialValues & { _type: string }> {
-    const credential = await this.prisma.credential.findUnique({
-      where: { id: credentialId },
-    });
+    // Try by ID first; fall back to name lookup so callers that store a
+    // credential name (rather than its cuid) still work.
+    let credential = await this.prisma.credential.findUnique({ where: { id: credentialId } });
+    if (!credential) {
+      credential = await this.prisma.credential.findFirst({
+        where: { name: { equals: credentialId, mode: 'insensitive' } },
+        orderBy: [{ scope: 'desc' }, { createdAt: 'desc' }],
+      });
+    }
 
     if (!credential) {
       throw Object.assign(new Error('Credential not found'), { code: ErrorCodes.CREDENTIAL_NOT_FOUND });

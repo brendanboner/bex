@@ -103,11 +103,14 @@ async function checkReachable(baseUrl: string, timeoutMs = 4000): Promise<{ reac
         : { reachable: cached.reachable };
     }
 
-    const { fetch } = await import('undici');
+    const { fetch: undiFetch, Agent: UndiAgent } = await import('undici');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // Use a TLS-permissive agent so HTTPS endpoints with self-signed certs don't
+    // falsely report as unreachable (e.g. XCO EFA uses a self-signed certificate).
+    const dispatcher = origin.startsWith('https:') ? new UndiAgent({ connect: { rejectUnauthorized: false } }) : undefined;
     try {
-      await fetch(origin, { method: 'HEAD', signal: controller.signal });
+      await undiFetch(origin, { method: 'HEAD', signal: controller.signal, ...(dispatcher ? { dispatcher } : {}) });
       reachabilityCache.set(origin, { reachable: true, checkedAt: now });
       return { reachable: true };
     } catch (e) {
@@ -265,9 +268,9 @@ export function buildTools(
         }
 
         // ── xco_http_call: ExtremeCloud Orchestrator auth-then-call pattern ─
-        // Resolves USERNAME_PASSWORD credential from vault, authenticates against
-        // XCO's REST API (/rest/v1/auth/token), caches the token, then makes the
-        // actual API call with Bearer token. The LLM never sees the credentials.
+        // XCO EFA REST API: POST /v1/auth/token/access-token → { "access-token": "..." }
+        // All endpoints use HTTPS with a self-signed cert (rejectUnauthorized: false).
+        // The LLM never sees credentials — only the resolved Bearer token is used.
         if (handlerType === 'xco_http_call') {
           const effectiveCredId = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
           if (!effectiveCredId) return { error: 'xco_http_call requires a credential. Configure an xco-admin credential in the dashboard.' };
@@ -276,14 +279,22 @@ export function buildTools(
           if (!urlTemplate) return { error: 'No URL template configured for xco_http_call tool' };
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
 
-          // Replace {param} placeholders (word-char args only — host already resolved)
-          const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k: string) => encodeURIComponent(String(args[k] ?? '')));
+          // Replace {param} placeholders — support both word-chars and hyphenated names (e.g. {fabric-name})
+          const url = urlTemplate.replace(/\{([^}]+)\}/g, (full, k: string) => {
+            const val = args[k] ?? args[k.replace(/-/g, '_')] ?? args[k.replace(/_/g, '-')];
+            return val !== undefined ? encodeURIComponent(String(val)) : full;
+          });
 
-          // Derive auth URL: strip path from urlTemplate, append /rest/v1/auth/token
+          // Derive XCO EFA auth URL: strip path and append the correct token endpoint
           const defaultAuthUrl = (() => {
-            try { const u = new URL(url); return `${u.protocol}//${u.host}/rest/v1/auth/token`; } catch { return ''; }
+            try { const u = new URL(url); return `${u.protocol}//${u.host}/v1/auth/token/access-token`; } catch { return ''; }
           })();
           const authUrl = (config['authUrl'] as string | undefined) ?? defaultAuthUrl;
+
+          // Use undici with TLS verification disabled (XCO uses self-signed cert)
+          const { fetch: nodeFetch, Agent: UndiciAgent } = await import('undici');
+          const tlsAgent = new UndiciAgent({ connect: { rejectUnauthorized: false } });
+          const xcoFetch: typeof nodeFetch = (u, opts) => nodeFetch(u, { ...opts, dispatcher: tlsAgent });
 
           // Quick reachability check
           const xcoReach = await checkReachable(authUrl || url);
@@ -291,56 +302,51 @@ export function buildTools(
             return { error: xcoReach.error ?? `Cannot reach XCO endpoint`, hint: 'XCO is on a private network — ensure VPN is connected or the host is reachable' };
           }
 
-          const { fetch } = await import('undici');
           const cacheKey = `${effectiveCredId}:${authUrl}`;
 
-          // Get or refresh token
-          let accessToken = getXcoToken(cacheKey);
-          if (!accessToken) {
+          const doAuth = async (): Promise<string | null> => {
             const creds = await vault.resolve(effectiveCredId, agentPermissions);
-            const authResp = await fetch(authUrl, {
+            const authResp = await xcoFetch(authUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({ username: String(creds['username'] ?? ''), password: String(creds['password'] ?? '') }),
             });
             if (!authResp.ok) {
               const errText = await authResp.text();
-              return { error: `XCO authentication failed (${authResp.status})`, detail: errText.slice(0, 300) };
+              console.error(`[xco_http_call] Auth failed (${authResp.status}): ${errText.slice(0, 200)}`);
+              return null;
             }
-            const authData = await authResp.json() as { token?: string; access_token?: string; expires_in?: number };
-            accessToken = authData.token ?? authData.access_token ?? '';
-            if (!accessToken) return { error: 'XCO auth succeeded but no token in response', raw: authData };
-            setXcoToken(cacheKey, accessToken, authData.expires_in ?? 3600);
-            console.info(`[xco_http_call] Authenticated to XCO, token cached (${authUrl})`);
-          }
+            // XCO EFA returns { "access-token": "...", "token-type": "Bearer", ... }
+            const authData = await authResp.json() as Record<string, unknown>;
+            const token = String(authData['access-token'] ?? authData['token'] ?? authData['access_token'] ?? '');
+            if (!token) return null;
+            const expiresIn = Number(authData['expires_in'] ?? 3600);
+            setXcoToken(cacheKey, token, expiresIn);
+            console.info(`[xco_http_call] Authenticated to XCO (${authUrl}), token cached`);
+            return token;
+          };
+
+          // Get or refresh token
+          let accessToken = getXcoToken(cacheKey) ?? await doAuth();
+          if (!accessToken) return { error: 'XCO authentication failed — check xco-admin credentials in the vault' };
 
           // Make the actual API call
-          const fetchOpts: Parameters<typeof fetch>[1] = {
+          const fetchOpts: Parameters<typeof xcoFetch>[1] = {
             method,
             headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
           };
           if (method !== 'GET' && method !== 'HEAD') {
             fetchOpts.body = JSON.stringify(args);
           }
-          let apiResp = await fetch(url, fetchOpts);
+          let apiResp = await xcoFetch(url, fetchOpts);
 
           // Retry once on 401 (token expired)
           if (apiResp.status === 401) {
             xcoTokenCache.delete(cacheKey);
-            const creds2 = await vault.resolve(effectiveCredId, agentPermissions);
-            const freshAuth = await fetch(authUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({ username: String(creds2['username'] ?? ''), password: String(creds2['password'] ?? '') }),
-            });
-            if (freshAuth.ok) {
-              const freshData = await freshAuth.json() as { token?: string; access_token?: string; expires_in?: number };
-              const freshToken = freshData.token ?? freshData.access_token ?? '';
-              if (freshToken) {
-                setXcoToken(cacheKey, freshToken, freshData.expires_in ?? 3600);
-                fetchOpts.headers = { ...fetchOpts.headers as object, Authorization: `Bearer ${freshToken}` };
-                apiResp = await fetch(url, fetchOpts);
-              }
+            const freshToken = await doAuth();
+            if (freshToken) {
+              fetchOpts.headers = { ...fetchOpts.headers as object, Authorization: `Bearer ${freshToken}` };
+              apiResp = await xcoFetch(url, fetchOpts);
             }
           }
 
