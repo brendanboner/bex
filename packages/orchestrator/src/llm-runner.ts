@@ -74,6 +74,56 @@ export function buildTools(
         const handlerType = skillTool.handlerType;
         const config = skillTool.config ?? {};
 
+        // ── xciq_http_call: ExtremeCloud IQ login-then-call pattern ──────────
+        // Logs in via POST /login with username/password credential, then calls
+        // the actual API endpoint using the returned Bearer token.
+        if (handlerType === 'xciq_http_call') {
+          if (!credentialId) {
+            return { error: 'xciq_http_call requires a credentialId' };
+          }
+          const loginUrl = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const urlTemplate = (config['urlTemplate'] as string | undefined) ?? '';
+          const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
+          if (!urlTemplate) return { error: 'No urlTemplate configured for xciq_http_call tool' };
+
+          // Resolve username/password from vault
+          const creds = await vault.resolve(credentialId, agentPermissions);
+          const username = String(creds['username'] ?? '');
+          const password = String(creds['password'] ?? '');
+
+          const { fetch } = await import('undici');
+
+          // Step 1: Login → get access_token
+          const loginResp = await fetch(loginUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ username, password }),
+          });
+          if (!loginResp.ok) {
+            return { error: `ExtremeCloud IQ login failed: ${loginResp.status}` };
+          }
+          const loginData = await loginResp.json() as { access_token?: string };
+          const accessToken = loginData.access_token;
+          if (!accessToken) return { error: 'No access_token in ExtremeCloud IQ login response' };
+
+          // Step 2: Build URL — replace {param} placeholders, drop empty optional params
+          const url = urlTemplate.replace(/([?&][^=]+=)\{(\w+)\}/g, (full, prefix, k) => {
+            const v = args[k];
+            return v != null && v !== '' ? `${prefix}${encodeURIComponent(String(v))}` : '';
+          }).replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+
+          // Step 3: Call API with Bearer token
+          const fetchOpts: Parameters<typeof fetch>[1] = {
+            method,
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          };
+          if (method !== 'GET' && method !== 'HEAD') {
+            fetchOpts.body = JSON.stringify(args);
+          }
+          const apiResp = await fetch(url, fetchOpts);
+          return apiResp.json();
+        }
+
         // ── public_http_call: direct fetch, no credentials ────────────────
         if (handlerType === 'public_http_call') {
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
