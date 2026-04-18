@@ -5,6 +5,7 @@ import { startCommand } from '../commands/start.js';
 import { stopCommand } from '../commands/stop.js';
 import { statusCommand } from '../commands/status.js';
 import { logsCommand } from '../commands/logs.js';
+import { monitorCommand } from '../commands/monitor.js';
 
 const program = new Command();
 
@@ -20,8 +21,7 @@ program
 
 program
   .command('start')
-  .description('Start all platform services')
-  .option('--no-build', 'Skip Docker image builds')
+  .description('Start all platform services in the background')
   .action(startCommand);
 
 program
@@ -36,8 +36,16 @@ program
 
 program
   .command('logs [service]')
-  .description('Tail service logs (omit service to tail all)')
+  .description('Tail service logs (omit service to tail all). Services: api, registry, admin, worker, dashboard')
   .option('-n, --lines <number>', 'Number of log lines to show', '50')
   .action(logsCommand);
 
+program
+  .command('monitor')
+  .description('Start services and open a tmux monitor session with live log tailing (requires tmux)')
+  .option('--attach', 'Attach to an existing monitor session')
+  .option('--stop', 'Stop all services and close the monitor session')
+  .action(monitorCommand);
+
 program.parse();
+

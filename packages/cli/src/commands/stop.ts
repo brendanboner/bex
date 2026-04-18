@@ -1,5 +1,6 @@
 import ora from 'ora';
-import { findProjectRoot, composeCommand, printError } from '../utils.js';
+import chalk from 'chalk';
+import { findProjectRoot, stopLocalServices, printError, printSuccess } from '../utils.js';
 
 export async function stopCommand(): Promise<void> {
   let root: string;
@@ -10,13 +11,24 @@ export async function stopCommand(): Promise<void> {
     process.exit(1);
   }
 
+  console.log('');
   const spinner = ora('Stopping Forge services...').start();
-  const result = composeCommand(['down'], root);
+  stopLocalServices();
+  await new Promise((r) => setTimeout(r, 1000));
+  spinner.succeed('All local services stopped');
 
-  if (result.status !== 0) {
-    spinner.fail('Failed to stop services gracefully.');
-    process.exit(1);
+  // Also stop docker infra if running
+  try {
+    const { execSync } = await import('node:child_process');
+    const { resolve } = await import('node:path');
+    execSync(
+      `docker compose -f "${resolve(root, 'infra/docker-compose.yml')}" stop postgres redis 2>/dev/null || true`,
+      { stdio: 'pipe' }
+    );
+    printSuccess('Docker infrastructure stopped');
+  } catch {
+    // Docker may not be running — fine
   }
-
-  spinner.succeed('All services stopped');
+  console.log('');
 }
+

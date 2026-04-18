@@ -1,8 +1,18 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
-import { execSync, spawnSync } from 'node:child_process';
+import { execSync, spawnSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import chalk from 'chalk';
+
+export interface ServiceDef {
+  name: string;
+  port?: number;
+  logFile: string;
+  /** node script to run */
+  script: string;
+  /** extra env vars for this service */
+  env: (rootEnv: Record<string, string>, root: string) => Record<string, string>;
+}
 
 // Walk up from current working directory to find project root (contains infra/docker-compose.yml)
 export function findProjectRoot(): string {
@@ -109,3 +119,161 @@ export async function waitForService(
   printError(`${label} did not respond within ${timeoutMs / 1000}s`);
   return false;
 }
+
+// ── Local service management (non-Docker) ───────────────────────────────────
+
+export function stopPort(port: number): void {
+  try {
+    const pids = execSync(`lsof -ti ":${port}" 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
+    if (pids) {
+      pids.split(/\s+/).filter(Boolean).forEach((pid) => {
+        try { execSync(`kill ${pid} 2>/dev/null || true`); } catch { /* ignore */ }
+      });
+    }
+  } catch { /* ignore */ }
+}
+
+export function stopLocalServices(): void {
+  [4000, 4001, 5050, 3000].forEach(stopPort);
+}
+
+/** Spawn a detached Node.js service writing stdout+stderr to logFile. Returns PID. */
+export function spawnService(
+  script: string,
+  env: Record<string, string>,
+  logFile: string,
+  cwd: string,
+): number | undefined {
+  mkdirSync(resolve(cwd, 'logs'), { recursive: true });
+  const logStream = createWriteStream(logFile, { flags: 'w' });
+  const child = spawn('node', [script], {
+    detached: true,
+    stdio: ['ignore', logStream, logStream],
+    env: { ...process.env, ...env },
+    cwd,
+  });
+  child.unref();
+  // close write stream in parent after child inherits it
+  logStream.on('open', () => logStream.close());
+  return child.pid;
+}
+
+/** Spawn Next.js dashboard (uses npx next dev) */
+export function spawnDashboard(
+  dashDir: string,
+  logFile: string,
+  port = 3000,
+): number | undefined {
+  mkdirSync(resolve(dashDir, '..', '..', 'logs'), { recursive: true });
+  const logStream = createWriteStream(logFile, { flags: 'w' });
+  const child = spawn('node_modules/.bin/next', ['dev', '-p', String(port)], {
+    detached: true,
+    stdio: ['ignore', logStream, logStream],
+    env: { ...process.env, NODE_ENV: 'development' },
+    cwd: dashDir,
+  });
+  child.unref();
+  logStream.on('open', () => logStream.close());
+  return child.pid;
+}
+
+/** Returns the 5 service definitions for local startup */
+export function getServiceDefs(root: string, env: Record<string, string>): Array<{
+  name: string;
+  port?: number;
+  logFile: string;
+  start: () => number | undefined;
+}> {
+  const logsDir = resolve(root, 'logs');
+  const tok = env['SKILL_REGISTRY_TOKEN'] ?? 'forge-registry-dev';
+  return [
+    {
+      name: 'Skill Registry',
+      port: 5050,
+      logFile: resolve(logsDir, 'skill-registry.log'),
+      start: () => spawnService(
+        resolve(root, 'packages/skill-registry/dist/server.js'),
+        {
+          PORT: '5050',
+          DATA_DIR: resolve(root, 'packages/skill-registry/data'),
+          REGISTRY_AUTH_TOKEN: tok,
+        },
+        resolve(logsDir, 'skill-registry.log'),
+        root,
+      ),
+    },
+    {
+      name: 'API Gateway',
+      port: 4000,
+      logFile: resolve(logsDir, 'api-gateway.log'),
+      start: () => spawnService(
+        resolve(root, 'packages/api-gateway/dist/server.js'),
+        {
+          SKILL_REGISTRY_URL: env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050',
+          SKILL_REGISTRY_TOKEN: tok,
+          DATABASE_URL: env['DATABASE_URL'] ?? '',
+          REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
+          JWT_SECRET: env['JWT_SECRET'] ?? '',
+          CREDENTIAL_VAULT_KEY: env['CREDENTIAL_VAULT_KEY'] ?? '',
+          CORS_ORIGIN: env['CORS_ORIGIN'] ?? 'http://localhost:3000',
+          OPENAI_API_KEY: env['OPENAI_API_KEY'] ?? '',
+        },
+        resolve(logsDir, 'api-gateway.log'),
+        root,
+      ),
+    },
+    {
+      name: 'Admin API',
+      port: 4001,
+      logFile: resolve(logsDir, 'admin-api.log'),
+      start: () => spawnService(
+        resolve(root, 'packages/dashboard-api/dist/server.js'),
+        {
+          PORT: '4001',
+          DATABASE_URL: env['DATABASE_URL'] ?? '',
+          REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
+          JWT_SECRET: env['JWT_SECRET'] ?? '',
+          CORS_ORIGIN: env['CORS_ORIGIN'] ?? 'http://localhost:3000',
+        },
+        resolve(logsDir, 'admin-api.log'),
+        root,
+      ),
+    },
+    {
+      name: 'Worker',
+      logFile: resolve(logsDir, 'worker.log'),
+      start: () => spawnService(
+        resolve(root, 'packages/scheduler/dist/worker.js'),
+        {
+          DATABASE_URL: env['DATABASE_URL'] ?? '',
+          REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
+          CREDENTIAL_VAULT_KEY: env['CREDENTIAL_VAULT_KEY'] ?? '',
+          OPENAI_API_KEY: env['OPENAI_API_KEY'] ?? '',
+        },
+        resolve(logsDir, 'worker.log'),
+        root,
+      ),
+    },
+    {
+      name: 'Dashboard',
+      port: 3000,
+      logFile: resolve(logsDir, 'dashboard.log'),
+      start: () => spawnDashboard(
+        resolve(root, 'apps/dashboard'),
+        resolve(logsDir, 'dashboard.log'),
+        3000,
+      ),
+    },
+  ];
+}
+
+export function ensureInfraRunning(root: string): void {
+  if (!isDockerRunning()) return;
+  const composePath = resolve(root, 'infra', 'docker-compose.yml');
+  // Only start postgres+redis, not app services
+  spawnSync('docker', ['compose', '-f', composePath, 'up', '-d', 'postgres', 'redis'], {
+    stdio: 'pipe',
+    cwd: root,
+  });
+}
+
