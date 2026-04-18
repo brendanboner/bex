@@ -154,6 +154,11 @@ model Agent {
   charterId   String?      @unique
   charter     AgentCharter? @relation(fields: [charterId], references: [id])
 
+  // Explicitly assigned credential — takes priority over permission-based lookup.
+  // Named credentials make it easy to switch between e.g. "XCO Lab" and "XCO Production".
+  credentialId String?
+  credential   Credential?  @relation(fields: [credentialId], references: [id])
+
   requests    AgentRequest[]
 
   createdAt   DateTime @default(now())
@@ -221,6 +226,11 @@ model Skill {
   // System prompt fragment injected when this skill is active
   systemPrompt String?
 
+  // Accumulated learnings from real interactions — appended by the agent when it discovers
+  // API quirks, correct parameter values, pagination patterns, etc.
+  // Injected after systemPrompt so it overrides/refines generated guidance.
+  learnedNotes String?
+
   // What type of credential agents need when using this skill
   // Matches CredentialType enum: API_TOKEN | USERNAME_PASSWORD | SSH_KEY | BASIC_AUTH | OAUTH2_CLIENT | USER_PREFERENCE
   requiredCredentialType String?
@@ -285,6 +295,9 @@ model Credential {
 
   userId    String?
   user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Agents that have this credential directly assigned
+  agents    Agent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

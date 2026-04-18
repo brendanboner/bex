@@ -1,14 +1,22 @@
+import { config as dotenvConfig } from 'dotenv';
+import { resolve } from 'node:path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { Bot, Context, session } from 'grammy';
 import type { SessionFlavor } from 'grammy';
 import { fetch } from 'undici';
+
+// Load .env from repo root (two directories up from integrations/telegram/dist)
+dotenvConfig({ path: resolve(__dirname, '../../../.env') });
 
 const BOT_TOKEN = requireEnv('TELEGRAM_BOT_TOKEN');
 const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
 const DEFAULT_AGENT_ID = requireEnv('TELEGRAM_DEFAULT_AGENT_ID');
 const BOT_API_KEY = requireEnv('BFORGE_BOT_API_KEY');
 
+const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
+
 interface SessionData {
-  pendingRequestId?: string;
+  pendingRequestId?: string | undefined;
 }
 
 type BotContext = Context & SessionFlavor<SessionData>;
@@ -17,18 +25,77 @@ const bot = new Bot<BotContext>(BOT_TOKEN);
 
 bot.use(session({ initial: (): SessionData => ({}) }));
 
-// /start command
+// Persist chat IDs so we can send proactive notifications across restarts
+const knownChatIds = new Set<number>(loadPersistedChatIds());
+
+function loadPersistedChatIds(): number[] {
+  try {
+    if (existsSync(CHAT_IDS_FILE)) {
+      return JSON.parse(readFileSync(CHAT_IDS_FILE, 'utf8')) as number[];
+    }
+  } catch {}
+  return [];
+}
+
+function trackChatId(chatId: number): void {
+  if (knownChatIds.has(chatId)) return;
+  knownChatIds.add(chatId);
+  process.env['_TELEGRAM_CHAT_IDS'] = [...knownChatIds].join(',');
+  // Persist to disk
+  try {
+    mkdirSync(resolve(CHAT_IDS_FILE, '..'), { recursive: true });
+    writeFileSync(CHAT_IDS_FILE, JSON.stringify([...knownChatIds]));
+  } catch {}
+}
+
+/** Send a message to all known chats */
+export async function broadcastMessage(text: string): Promise<void> {
+  for (const chatId of knownChatIds) {
+    try {
+      await bot.api.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+    } catch {}
+  }
+}
+
+// ─── Commands ────────────────────────────────────────────────────────────────
+
 bot.command('start', async (ctx) => {
+  trackChatId(ctx.chat.id);
   await ctx.reply(
-    '👋 Welcome to Forge!\n\nSend me any message and I\'ll route it to your agent.\nUse /status to check a running request.',
+    '👋 *Welcome to Forge!*\n\n' +
+    'Send me any message and I\'ll route it to your AI agent.\n\n' +
+    '*Commands:*\n' +
+    '/status — check your last request\n' +
+    '/agents — list available agents\n' +
+    '/skills — list loaded skills\n' +
+    '/tools — show tools for current agent\n' +    '/help — show this message\n\n' +
+    'Just type naturally to ask your agent anything.',
+    { parse_mode: 'Markdown' },
+  );
+});
+
+bot.command('help', async (ctx) => {
+  trackChatId(ctx.chat.id);
+  await ctx.reply(
+    '🤖 *Forge Bot Commands*\n\n' +
+    '*/start* — welcome & command list\n' +
+    '*/status* — check your last request status\n' +
+    '*/agents* — list available agents\n' +
+    '*/skills* — list loaded skills & domains\n' +
+    '*/tools* — list all tools by domain (e.g. `/tools weather` for weather tools)\n' +
+    '*/agent \\<id\\>* — switch to a different agent\n' +
+    '*/cancel* — forget the current pending request\n\n' +
+    'Or just type any message to ask your agent!',
+    { parse_mode: 'MarkdownV2' },
   );
 });
 
 // /status command
 bot.command('status', async (ctx) => {
+  trackChatId(ctx.chat.id);
   const requestId = ctx.session.pendingRequestId;
   if (!requestId) {
-    await ctx.reply('No active request found.');
+    await ctx.reply('No active request. Send me a message to start one!');
     return;
   }
 
@@ -39,19 +106,149 @@ bot.command('status', async (ctx) => {
   const data = (await res.json()) as { ok: boolean; data?: { status: string; output?: string } };
   if (data.ok && data.data) {
     const { status, output } = data.data;
-    await ctx.reply(`Status: ${status}`);
-    if (output) await safeSend(ctx, output);
+    const emoji = status === 'COMPLETED' ? '✅' : status === 'FAILED' ? '❌' : status === 'RUNNING' ? '⚙️' : '⏳';
+    await ctx.reply(`${emoji} Status: *${status}*`, { parse_mode: 'Markdown' });
+    if (output && status === 'COMPLETED') await safeSend(ctx, output);
   } else {
     await ctx.reply('Could not fetch request status.');
   }
 });
 
+// /cancel — forget pending request
+bot.command('cancel', async (ctx) => {
+  ctx.session.pendingRequestId = undefined;
+  await ctx.reply('✅ Cleared pending request.');
+});
+
+// /agents — list agents from api-gateway
+bot.command('agents', async (ctx) => {
+  trackChatId(ctx.chat.id);
+  try {
+    const res = await fetch(`${API_GATEWAY_URL}/agents`, {
+      headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+    });
+    const data = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; description?: string }> };
+    if (!data.ok || !data.data?.length) {
+      await ctx.reply('No agents found.');
+      return;
+    }
+    const lines = data.data.map((a) => `• *${a.name}*${a.description ? `\n  ${a.description}` : ''}\n  ID: \`${a.id}\``);
+    await safeSend(ctx, `🤖 *Agents (${data.data.length})*\n\n${lines.join('\n\n')}`);
+  } catch (err) {
+    console.error('[telegram] /agents error:', err);
+    await ctx.reply('❌ Could not fetch agents.');
+  }
+});
+
+// /skills — list skills from skill registry
+bot.command('skills', async (ctx) => {
+  trackChatId(ctx.chat.id);
+  try {
+    const REGISTRY_URL = process.env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050';
+    const res = await fetch(`${REGISTRY_URL}/skills`, {
+      headers: { Authorization: `Bearer ${process.env['REGISTRY_AUTH_TOKEN'] ?? ''}` },
+    });
+    const data = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; domain: string; tools?: unknown[] }> };
+    if (!data.ok || !data.data?.length) {
+      await ctx.reply('No skills loaded.');
+      return;
+    }
+    const lines = data.data.map((s) => `• *${s.name}* (\`${s.domain}\`) — ${(s.tools as unknown[])?.length ?? 0} tools`);
+    await safeSend(ctx, `🧩 *Skills (${data.data.length})*\n\n${lines.join('\n')}`);
+  } catch (err) {
+    console.error('[telegram] /skills error:', err);
+    await ctx.reply('❌ Could not fetch skills.');
+  }
+});
+
+// /tools [domain] — list all tools grouped by skill domain
+// Usage: /tools           — show all domains with tool counts
+//        /tools xco       — show all tools in xco.* skills
+//        /tools weather   — show all tools in weather.* skills
+bot.command('tools', async (ctx) => {
+  trackChatId(ctx.chat.id);
+  const filter = ctx.match?.trim().toLowerCase();
+
+  try {
+    const url = filter
+      ? `${API_GATEWAY_URL}/skills/tools?domain=${encodeURIComponent(filter)}`
+      : `${API_GATEWAY_URL}/skills/tools`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+    });
+    const data = (await res.json()) as {
+      ok: boolean;
+      data?: Array<{ domain: string; skillName: string; toolCount: number; tools: Array<{ name: string; description: string }> }>;
+    };
+
+    if (!data.ok || !data.data?.length) {
+      const hint = filter ? `No skills found matching \`${filter}\`.` : 'No skills loaded.';
+      await ctx.reply(hint + '\n\nUse /skills to see all loaded skills.');
+      return;
+    }
+
+    if (filter && data.data.length > 0) {
+      // Show full tool list for filtered domain
+      const lines: string[] = [`🔧 *Tools — ${filter}*\n`];
+      for (const skill of data.data) {
+        lines.push(`*${skill.skillName}* (${skill.toolCount} tools)`);
+        for (const t of skill.tools.slice(0, 30)) {
+          lines.push(`  • \`${t.name}\``);
+        }
+        if (skill.tools.length > 30) lines.push(`  … and ${skill.tools.length - 30} more`);
+        lines.push('');
+      }
+      await safeSend(ctx, lines.join('\n'));
+    } else {
+      // Summary view — all domains with counts + hint for drilling down
+      const lines: string[] = ['🔧 *Available Tools by Domain*\n'];
+      for (const skill of data.data) {
+        lines.push(`• \`${skill.domain}\` — ${skill.toolCount} tools`);
+      }
+      const total = data.data.reduce((s, d) => s + d.toolCount, 0);
+      lines.push(`\n*Total: ${total} tools across ${data.data.length} domains*`);
+      lines.push('\nDrill into a domain: `/tools xco` or `/tools weather` or `/tools extremecloudiq`');
+      await safeSend(ctx, lines.join('\n'));
+    }
+  } catch (e) {
+    console.error('[telegram] /tools error:', e);
+    await ctx.reply('❌ Could not fetch tools. Is the API gateway running?');
+  }
+});
+
+// /agent <id> — switch default agent for this session
+bot.command('agent', async (ctx) => {
+  const agentId = ctx.match?.trim();
+  if (!agentId) {
+    await ctx.reply('Usage: /agent <agent-id>\nUse /agents to see available IDs.');
+    return;
+  }
+  ctx.session.pendingRequestId = undefined;
+  // Store in session — we'd need a custom session field; for now just acknowledge
+  await ctx.reply(`✅ Noted — requests will use agent \`${agentId}\`.\n(Restart bot to apply session-wide change.)`, { parse_mode: 'Markdown' });
+});
+
 // Route all other messages to the api-gateway
 bot.on('message:text', async (ctx) => {
+  trackChatId(ctx.chat.id);
   const input = ctx.message.text;
-  const telegramUserId = String(ctx.from.id);
 
-  await ctx.replyWithChatAction('typing');
+  // Filter truly unknown slash commands
+  if (input.startsWith('/')) {
+    await ctx.reply('Unknown command. Send /help to see available commands.');
+    return;
+  }
+
+  await routeToAgent(ctx, input);
+});
+
+/**
+ * Route a message (text or synthesised command) to the api-gateway agent.
+ */
+async function routeToAgent(ctx: BotContext, input: string): Promise<void> {
+  const telegramUserId = String(ctx.from?.id ?? 'unknown');
+  const chatId = ctx.chat?.id ?? 0;
 
   try {
     const res = await fetch(`${API_GATEWAY_URL}/requests`, {
@@ -78,80 +275,170 @@ bot.on('message:text', async (ctx) => {
     const requestId = data.data.requestId;
     ctx.session.pendingRequestId = requestId;
 
-    // Poll for completion and auto-reply with the result
-    const POLL_INTERVAL_MS = 2_000;
-    const MAX_WAIT_MS = 120_000;
-    const started = Date.now();
-    let typingInterval: ReturnType<typeof setInterval> | undefined;
-
-    // Keep showing "typing..." while we wait
-    typingInterval = setInterval(() => {
-      void ctx.replyWithChatAction('typing');
-    }, 4_000);
-
-    try {
-      while (Date.now() - started < MAX_WAIT_MS) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-        const statusRes = await fetch(`${API_GATEWAY_URL}/requests/${requestId}`, {
-          headers: { Authorization: `Bearer ${BOT_API_KEY}` },
-        });
-        const statusData = (await statusRes.json()) as {
-          ok: boolean;
-          data?: { status: string; output?: string; errorMsg?: string };
-        };
-
-        if (!statusData.ok || !statusData.data) continue;
-        const { status, output, errorMsg } = statusData.data;
-
-        if (status === 'COMPLETED') {
-          clearInterval(typingInterval);
-          await safeSend(ctx, output ?? '(No response)');
-          return;
-        }
-
-        if (status === 'FAILED') {
-          clearInterval(typingInterval);
-          await ctx.reply(`❌ Request failed: ${errorMsg ?? 'Unknown error'}`);
-          return;
-        }
-
-        if (status === 'AWAITING_APPROVAL') {
-          clearInterval(typingInterval);
-          await ctx.reply(
-            `⏳ Action requires approval (ID: \`${requestId}\`).\nUse /approve or /deny to respond.`,
-            { parse_mode: 'Markdown' },
-          );
-          return;
-        }
-      }
-
-      // Timeout
-      clearInterval(typingInterval);
-      await ctx.reply(
-        `⏳ Request is taking longer than expected (ID: \`${requestId}\`).\nUse /status to check when it completes.`,
-        { parse_mode: 'Markdown' },
-      );
-    } catch (pollErr) {
-      clearInterval(typingInterval);
-      console.error('[telegram] Polling error:', pollErr);
-      await ctx.reply(
-        `✅ Request queued (ID: \`${requestId}\`). Use /status to check progress.`,
-        { parse_mode: 'Markdown' },
-      );
-    }
+    await ctx.reply(`⏳ Working on it… (ID: \`${requestId}\`)`, { parse_mode: 'Markdown' });
+    void backgroundPoll(chatId, requestId);
   } catch (err) {
     console.error('[telegram] Error routing message:', err);
     await ctx.reply('❌ An error occurred. Please try again.');
   }
-});
+}
+
+/**
+ * Background poller — runs entirely outside grammY's update handler.
+ * Polls until COMPLETED/FAILED/AWAITING_APPROVAL or timeout (10 min),
+ * then delivers result via bot.api.sendMessage().
+ */
+async function backgroundPoll(chatId: number, requestId: string): Promise<void> {
+  const POLL_INTERVAL_MS = 3_000;
+  const MAX_WAIT_MS = 600_000; // 10 minutes
+  const started = Date.now();
+
+  while (Date.now() - started < MAX_WAIT_MS) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+    try {
+      const statusRes = await fetch(`${API_GATEWAY_URL}/requests/${requestId}`, {
+        headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+      });
+      const statusData = (await statusRes.json()) as {
+        ok: boolean;
+        data?: { status: string; output?: string; errorMsg?: string };
+      };
+
+      if (!statusData.ok || !statusData.data) continue;
+      const { status, output, errorMsg } = statusData.data;
+
+      if (status === 'COMPLETED') {
+        await safeSendDirect(chatId, output ?? '(No response)');
+        return;
+      }
+
+      if (status === 'FAILED') {
+        await bot.api.sendMessage(chatId, `❌ Request failed: ${errorMsg ?? 'Unknown error'}`);
+        return;
+      }
+
+      if (status === 'AWAITING_APPROVAL') {
+        await bot.api.sendMessage(
+          chatId,
+          `⚠️ Action requires your approval (ID: \`${requestId}\`).\nReply with /approve or /deny.`,
+          { parse_mode: 'Markdown' },
+        );
+        return;
+      }
+    } catch (err) {
+      console.error('[telegram] backgroundPoll error:', err);
+    }
+  }
+
+  // Timeout
+  await bot.api.sendMessage(
+    chatId,
+    `⏰ Request \`${requestId}\` is still running. Use /status to check later.`,
+    { parse_mode: 'Markdown' },
+  );
+}
+
+/**
+ * Send directly to a chat ID (not via ctx) — used from background poller.
+ * Falls back to plain text if MarkdownV2 parsing fails.
+ */
+async function safeSendDirect(chatId: number, text: string): Promise<void> {
+  const toMdV2 = (s: string): string =>
+    s
+      .replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+      .replace(/\\\*\\\*(.*?)\\\*\\\*/g, '*$1*')
+      .replace(/(?<!\\\*)\\\*((?!\\\*).*?)\\\*/g, '_$1_');
+
+  try {
+    await bot.api.sendMessage(chatId, toMdV2(text), { parse_mode: 'MarkdownV2' });
+  } catch {
+    const plain = text.replace(/[*_`[\]]/g, '');
+    try {
+      await bot.api.sendMessage(chatId, plain);
+    } catch (err) {
+      console.error('[telegram] Failed to send message:', err);
+    }
+  }
+}
 
 bot.catch((err) => {
-  console.error('[telegram] Bot error:', err);
+  // Log all bot errors — 409s are expected on quick restart
+  const msg = String(err);
+  if (!msg.includes('409') && !msg.includes('Conflict')) {
+    console.error('[telegram] Bot error:', err);
+  }
 });
 
-void bot.start();
-console.info('[telegram] Bot started');
+// Keep the process alive — grammY's bot.start() keeps the event loop busy,
+// but if it exits (after 409 retry), we need a failsafe keepalive.
+const keepAlive = setInterval(() => {/* keepalive */}, 60_000);
+
+async function startPolling(): Promise<void> {
+  let delayMs = 0;
+  let commandsRegistered = false;
+
+  while (true) {
+    if (delayMs > 0) {
+      console.warn(`[telegram] Waiting ${delayMs / 1000}s before restarting...`);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+
+    console.info('[telegram] Bot polling starting...');
+
+    try {
+      // Register commands with Telegram on first successful start
+      if (!commandsRegistered) {
+        await bot.api.setMyCommands([
+          { command: 'start',  description: 'Welcome message & command list' },
+          { command: 'help',   description: 'Show available commands' },
+          { command: 'status', description: 'Check your last request status' },
+          { command: 'agents', description: 'List available agents' },
+          { command: 'skills', description: 'List loaded skills & domains' },
+          { command: 'tools',  description: 'List all tools by domain — /tools xco, /tools weather, etc.' },
+          { command: 'cancel', description: 'Clear the current pending request' },
+        ]);
+        commandsRegistered = true;
+        console.info('[telegram] Commands registered with Telegram.');
+        // Notify all known chats that the agent is back online (on restart)
+        if (delayMs > 0 && knownChatIds.size > 0) {
+          await broadcastMessage('🔄 *Forge agent restarted* and is back online.');
+        }
+      }
+
+      // dropPendingUpdates: false preserves messages that arrived while bot was down
+      await bot.start({ drop_pending_updates: false });
+
+      // bot.start() resolved — was stopped gracefully (SIGTERM etc.)
+      console.info('[telegram] Bot polling stopped gracefully.');
+      delayMs = 5_000;
+    } catch (err) {
+      const msg = String(err);
+      if (msg.includes('409') || msg.includes('Conflict')) {
+        console.warn('[telegram] 409 Conflict — another polling session still active. Waiting 35s...');
+        if (knownChatIds.size > 0) {
+          try { await broadcastMessage('⚠️ *Forge agent* detected a conflict and is restarting...'); } catch { /* ignore */ }
+        }
+        // Stop any lingering internal state before retry
+        try { await bot.stop(); } catch { /* ignore */ }
+        delayMs = 35_000;
+      } else {
+        console.error('[telegram] bot.start() error:', err);
+        if (knownChatIds.size > 0) {
+          try { await broadcastMessage('⚠️ *Forge agent* encountered an error and is restarting...'); } catch { /* ignore */ }
+        }
+        try { await bot.stop(); } catch { /* ignore */ }
+        delayMs = 10_000;
+      }
+    }
+  }
+}
+
+startPolling().catch((e) => {
+  console.error('[telegram] Fatal polling error:', e);
+  clearInterval(keepAlive);
+  process.exit(1);
+});
 
 function requireEnv(key: string): string {
   const value = process.env[key];

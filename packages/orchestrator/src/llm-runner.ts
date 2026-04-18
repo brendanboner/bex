@@ -34,6 +34,85 @@ type ExtendedSkillTool = SkillTool & {
   config?: Record<string, unknown>;
 };
 
+/** In-process token cache for xciq_http_call — avoids re-logging in on every tool call. */
+const xciqTokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+function getCachedToken(credentialId: string): string | null {
+  const entry = xciqTokenCache.get(credentialId);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) { xciqTokenCache.delete(credentialId); return null; }
+  return entry.token;
+}
+
+function setCachedToken(credentialId: string, token: string, expiresInSeconds = 82800): void {
+  // Use 82800s (23h) as TTL — slightly shorter than the 24h API max to be safe
+  xciqTokenCache.set(credentialId, { token, expiresAt: Date.now() + expiresInSeconds * 1000 });
+}
+
+/**
+ * Endpoint reachability cache.
+ * Caches whether a base URL is reachable so we don't block every tool call
+ * when the endpoint is on a private network or VPN (XCO, etc.).
+ * OK results cached 60s; failures cached 15s (retry sooner after network change).
+ */
+const reachabilityCache = new Map<string, { reachable: boolean; checkedAt: number; error?: string }>();
+
+/**
+ * Returns the current cached reachability status for a base URL.
+ * Used by tool-router.ts to skip entire skill domains that are unreachable.
+ *  - `true`      — endpoint confirmed reachable (within TTL)
+ *  - `false`     — endpoint confirmed unreachable (within TTL)
+ *  - `undefined` — not yet checked (allow through — will be checked at first call)
+ */
+export function getCachedReachability(baseUrl: string): boolean | undefined {
+  try {
+    const origin = new URL(baseUrl).origin;
+    const cached = reachabilityCache.get(origin);
+    if (!cached) return undefined;
+    const ttl = cached.reachable ? 60_000 : 15_000;
+    if (Date.now() - cached.checkedAt > ttl) return undefined;  // stale
+    return cached.reachable;
+  } catch {
+    return undefined;
+  }
+}
+
+async function checkReachable(baseUrl: string, timeoutMs = 4000): Promise<{ reachable: boolean; error?: string }> {
+  try {
+    const origin = new URL(baseUrl).origin;
+    const cached = reachabilityCache.get(origin);
+    const now = Date.now();
+    if (cached) {
+      const ttl = cached.reachable ? 60_000 : 15_000;
+      if (now - cached.checkedAt < ttl) return cached.error !== undefined
+        ? { reachable: cached.reachable, error: cached.error }
+        : { reachable: cached.reachable };
+    }
+
+    const { fetch } = await import('undici');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      await fetch(origin, { method: 'HEAD', signal: controller.signal });
+      reachabilityCache.set(origin, { reachable: true, checkedAt: now });
+      return { reachable: true };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const isTimeout = msg.includes('abort') || msg.includes('timeout');
+      const hint = isTimeout
+        ? `Connection to ${origin} timed out — endpoint may require VPN or private network access`
+        : `Cannot reach ${origin} — ${msg}`;
+      reachabilityCache.set(origin, { reachable: false, checkedAt: now, error: hint });
+      return { reachable: false, error: hint };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    // Invalid URL — let the actual call fail naturally
+    return { reachable: true };
+  }
+}
+
 /**
  * Converts a skill's tool definitions into Vercel AI SDK tool objects.
  * Supports legacy endpoint-based tools as well as the newer handlerType/config format.
@@ -86,31 +165,50 @@ export function buildTools(
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
           if (!urlTemplate) return { error: 'No urlTemplate configured for xciq_http_call tool' };
 
-          // Resolve username/password from vault
-          const creds = await vault.resolve(credentialId, agentPermissions);
-          const username = String(creds['username'] ?? '');
-          const password = String(creds['password'] ?? '');
+          // Quick reachability check — fail fast if endpoint is unreachable (VPN, private net, etc.)
+          const reach = await checkReachable(loginUrl);
+          if (!reach.reachable) {
+            return { error: reach.error ?? `Cannot reach ${loginUrl}`, hint: 'Check VPN or network connectivity' };
+          }
 
           const { fetch } = await import('undici');
 
-          // Step 1: Login → get access_token
-          const loginResp = await fetch(loginUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ username, password }),
-          });
-          if (!loginResp.ok) {
-            return { error: `ExtremeCloud IQ login failed: ${loginResp.status}` };
+          // Step 1: Get access_token — use cache to avoid re-logging in on every call
+          let accessToken = getCachedToken(credentialId);
+          if (!accessToken) {
+            // Resolve username/password from vault and login
+            const creds = await vault.resolve(credentialId, agentPermissions);
+            const username = String(creds['username'] ?? '');
+            const password = String(creds['password'] ?? '');
+
+            const loginResp = await fetch(loginUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ username, password }),
+            });
+            if (!loginResp.ok) {
+              return { error: `ExtremeCloud IQ login failed: ${loginResp.status}` };
+            }
+            const loginData = await loginResp.json() as { access_token?: string; expires_in?: number };
+            accessToken = loginData.access_token ?? null;
+            if (!accessToken) return { error: 'No access_token in ExtremeCloud IQ login response' };
+            setCachedToken(credentialId, accessToken, loginData.expires_in ?? 82800);
+            console.info(`[xciq_http_call] Logged in, token cached for credential ${credentialId}`);
           }
-          const loginData = await loginResp.json() as { access_token?: string };
-          const accessToken = loginData.access_token;
-          if (!accessToken) return { error: 'No access_token in ExtremeCloud IQ login response' };
 
           // Step 2: Build URL — replace {param} placeholders, drop empty optional params
-          const url = urlTemplate.replace(/([?&][^=]+=)\{(\w+)\}/g, (full, prefix, k) => {
+          let rawUrl = urlTemplate.replace(/([?&][^=]+=)\{(\w+)\}/g, (full, prefix, k) => {
             const v = args[k];
             return v != null && v !== '' ? `${prefix}${encodeURIComponent(String(v))}` : '';
           }).replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+
+          // Normalize: if ? was stripped but & params remain, promote the first & to ?
+          // e.g. "https://api.example.com/devices&limit=100" → "...devices?limit=100"
+          if (!rawUrl.includes('?') && rawUrl.includes('&')) {
+            rawUrl = rawUrl.replace('&', '?');
+          }
+          // Clean up any double ? or dangling & at end
+          const url = rawUrl.replace(/[?&]+$/, '').replace(/\?&/g, '?').replace(/&&+/g, '&');
 
           // Step 3: Call API with Bearer token
           const fetchOpts: Parameters<typeof fetch>[1] = {
@@ -120,8 +218,36 @@ export function buildTools(
           if (method !== 'GET' && method !== 'HEAD') {
             fetchOpts.body = JSON.stringify(args);
           }
-          const apiResp = await fetch(url, fetchOpts);
-          return apiResp.json();
+          let apiResp = await fetch(url, fetchOpts);
+          // On 401, clear token cache and retry once with a fresh login
+          if (apiResp.status === 401) {
+            xciqTokenCache.delete(credentialId);
+            console.info(`[xciq_http_call] 401 — clearing token cache, re-logging in`);
+            const creds2 = await vault.resolve(credentialId, agentPermissions);
+            const freshLogin = await fetch(loginUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ username: String(creds2['username'] ?? ''), password: String(creds2['password'] ?? '') }),
+            });
+            if (freshLogin.ok) {
+              const freshData = await freshLogin.json() as { access_token?: string; expires_in?: number };
+              if (freshData.access_token) {
+                setCachedToken(credentialId, freshData.access_token, freshData.expires_in ?? 82800);
+                fetchOpts.headers = { ...fetchOpts.headers as object, Authorization: `Bearer ${freshData.access_token}` };
+                apiResp = await fetch(url, fetchOpts);
+              }
+            }
+          }
+          const apiText = await apiResp.text();
+          console.info(`[xciq_http_call] ${method} ${url} → ${apiResp.status}`);
+          if (!apiResp.ok) {
+            return { error: `ExtremeCloud IQ API error ${apiResp.status}`, url, detail: apiText.slice(0, 500) };
+          }
+          try {
+            return JSON.parse(apiText);
+          } catch {
+            return { result: apiText.slice(0, 2000) };
+          }
         }
 
         // ── public_http_call: direct fetch, no credentials ────────────────
@@ -130,7 +256,19 @@ export function buildTools(
           if (!urlTemplate) return { error: 'No URL template configured for this tool' };
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
           // Replace {param} placeholders in URL template
-          const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+          let publicRawUrl = urlTemplate.replace(/([?&][^=]+=)\{(\w+)\}/g, (full, prefix, k) => {
+            const v = args[k];
+            return v != null && v !== '' ? `${prefix}${encodeURIComponent(String(v))}` : '';
+          }).replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+          if (!publicRawUrl.includes('?') && publicRawUrl.includes('&')) publicRawUrl = publicRawUrl.replace('&', '?');
+          const url = publicRawUrl.replace(/[?&]+$/, '').replace(/\?&/g, '?').replace(/&&+/g, '&');
+
+          // Quick reachability check
+          const pubReach = await checkReachable(url);
+          if (!pubReach.reachable) {
+            return { error: pubReach.error ?? `Cannot reach endpoint`, hint: 'Endpoint may be down or require VPN' };
+          }
+
           const { fetch } = await import('undici');
           const fetchOpts: Parameters<typeof fetch>[1] = {
             method,
@@ -140,7 +278,15 @@ export function buildTools(
             fetchOpts.body = JSON.stringify(args);
           }
           const resp = await fetch(url, fetchOpts);
-          return resp.json();
+          const text = await resp.text();
+          if (!resp.ok) {
+            return { error: `HTTP ${resp.status}`, detail: text.slice(0, 500) };
+          }
+          try {
+            return JSON.parse(text);
+          } catch {
+            return { result: text.slice(0, 2000) };
+          }
         }
 
         // ── http_call: vault-proxied call with credentials ─────────────────
@@ -151,6 +297,13 @@ export function buildTools(
           }
           const method = ((config['method'] as string | undefined) ?? 'POST').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
           const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+
+          // Quick reachability check
+          const httpReach = await checkReachable(url);
+          if (!httpReach.reachable) {
+            return { error: httpReach.error ?? `Cannot reach endpoint`, hint: 'Endpoint may require VPN or private network access' };
+          }
+
           const injection = (config['injection'] ?? { type: 'bearer' }) as
             | { type: 'bearer' }
             | { type: 'header'; key: string }

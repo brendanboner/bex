@@ -21,6 +21,35 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
     return reply.send(ok(skills));
   });
 
+  // GET /skills/tools?domain=<prefix> — list all skill tools grouped by domain
+  // domain param is optional prefix filter e.g. "extremecloudiq" or "xco"
+  app.get<{ Querystring: { domain?: string } }>('/skills/tools', async (request, reply) => {
+    const { domain } = request.query;
+    const skills = await prisma.skill.findMany({
+      ...(domain ? { where: { domain: { startsWith: domain } } } : {}),
+      select: {
+        id: true,
+        name: true,
+        domain: true,
+        status: true,
+        tools: true,
+      },
+      orderBy: { domain: 'asc' },
+    });
+    type ToolEntry = { name: string; description?: string };
+    const result = skills.map((s) => {
+      const toolList = (Array.isArray(s.tools) ? s.tools : []) as ToolEntry[];
+      return {
+        domain: s.domain,
+        skillName: s.name,
+        status: s.status,
+        toolCount: toolList.length,
+        tools: toolList.map((t) => ({ name: t.name, description: t.description ?? '' })),
+      };
+    });
+    return reply.send(ok(result));
+  });
+
   // GET /skills/:id
   app.get<{ Params: { id: string } }>('/skills/:id', async (request, reply) => {
     const skill = await prisma.skill.findUnique({

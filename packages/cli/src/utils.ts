@@ -198,6 +198,7 @@ export function getServiceDefs(root: string, env: Record<string, string>): Array
           PORT: '5050',
           DATA_DIR: resolve(root, 'packages/skill-registry/data'),
           REGISTRY_AUTH_TOKEN: tok,
+          REGISTRY_ADMIN_TOKEN: env['REGISTRY_ADMIN_TOKEN'] ?? '',
         },
         resolve(logsDir, 'skill-registry.log'),
         root,
@@ -230,7 +231,7 @@ export function getServiceDefs(root: string, env: Record<string, string>): Array
       start: () => spawnService(
         resolve(root, 'packages/dashboard-api/dist/server.js'),
         {
-          PORT: '4001',
+          ADMIN_API_PORT: '4001',
           DATABASE_URL: env['DATABASE_URL'] ?? '',
           REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
           JWT_SECRET: env['JWT_SECRET'] ?? '',
@@ -272,6 +273,25 @@ export function getServiceDefs(root: string, env: Record<string, string>): Array
         resolve(logsDir, 'dashboard.log'),
         3000,
       ),
+    },
+    {
+      name: 'Telegram Bot',
+      logFile: resolve(logsDir, 'telegram-bot.log'),
+      start: () => {
+        const botToken = env['TELEGRAM_BOT_TOKEN'] ?? '';
+        if (!botToken) return undefined; // Skip if not configured
+        return spawnService(
+          resolve(root, 'integrations/telegram/dist/bot.js'),
+          {
+            TELEGRAM_BOT_TOKEN: botToken,
+            TELEGRAM_DEFAULT_AGENT_ID: env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '',
+            API_GATEWAY_URL: env['API_GATEWAY_URL'] ?? 'http://localhost:4000',
+            BFORGE_BOT_API_KEY: env['BFORGE_BOT_API_KEY'] ?? '',
+          },
+          resolve(logsDir, 'telegram-bot.log'),
+          root,
+        );
+      },
     },
   ];
 }

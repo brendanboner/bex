@@ -9,3 +9,5 @@ export type { ParsedKnowledge } from './knowledge-parser.js';
 export { buildModel } from './model.js';
 export { ToolRegistry } from './tool-registry.js';
 export type { ToolDefinition } from './tool-registry.js';
+export { buildSkillsFromOpenApi } from './openapi-skill-builder.js';
+export type { GeneratedSkill, GeneratedTool, BuildSkillsOptions } from './openapi-skill-builder.js';

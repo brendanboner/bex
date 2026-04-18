@@ -43,3 +43,9 @@ coverage/
 # TypeScript build info
 *.tsbuildinfo
 logs/
+
+# Runtime data (chat IDs, local registry DB)
+data/
+# SQLite registry files
+packages/skill-registry/data/
+packages/shared/prisma/dev.db

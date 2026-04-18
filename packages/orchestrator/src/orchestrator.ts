@@ -8,8 +8,10 @@ import { SkillRegistryService, ToolRegistry } from '@bclaw/skill-engine';
 import { PermissionGatewayService } from '@bclaw/permission-gateway';
 import { SshExecutorService, createSshTool } from '@bclaw/ssh-executor';
 
-import { buildLlmModel, buildTools, runLlm } from './llm-runner.js';
+import { buildLlmModel, buildTools, runLlm, getCachedReachability } from './llm-runner.js';
 import { resolveCharter, buildCharterPrompt, isRestrictedAction } from './charter.js';
+import { routeTools, filterUnavailableSkills, buildSkillDomainMap } from './tool-router.js';
+import { buildSkillLearningTool, buildEnrichedSystemPrompt } from './skill-learning.js';
 
 /**
  * Thrown when a tool call needs approval before executing.
@@ -94,19 +96,56 @@ export class OrchestratorService {
           ? linkedSkills[0]
           : await this.skillRegistry.findByIntent(ctx.input);
 
-      // 6. Resolve a credential for proxied tool calls
-      const credentialRecord = await this.prisma.credential.findFirst({
-        where: {
-          scope: 'SYSTEM',
-          allowedAgentPermissions: { hasSome: agent.permissions.length > 0 ? agent.permissions : ['*'] },
-        },
-        select: { id: true },
-      });
+      // 6. Resolve a credential for proxied tool calls.
+      // Priority: agent.credentialId (explicit named assignment) → permission-based fallback.
+      let credentialRecord: { id: string } | null = null;
+      if (agent.credentialId) {
+        credentialRecord = { id: agent.credentialId };
+      } else {
+        credentialRecord = await this.prisma.credential.findFirst({
+          where: {
+            scope: 'SYSTEM',
+            allowedAgentPermissions: { hasSome: agent.permissions.length > 0 ? agent.permissions : ['*'] },
+          },
+          select: { id: true },
+        });
+      }
 
-      // 7. Build tool set — include tools from ALL linked skills
+      // 7. Build tool set — include tools from ALL linked skills with smart domain routing
       const allSkillTools = linkedSkills.flatMap((s) => (s.tools as Array<Record<string, unknown>>) ?? []);
       if (allSkillTools.length === 0 && skill?.tools) {
         allSkillTools.push(...(skill.tools as Array<Record<string, unknown>>));
+      }
+
+      // Build a map of tool name → skill domain for the router
+      const skillDomainMap = buildSkillDomainMap(
+        linkedSkills.map((s) => ({ domain: s.domain, tools: s.tools })),
+      );
+
+      // Apply availability gating — skip entire domains whose endpoints are unreachable
+      const { tools: reachableTools, skippedDomains } = filterUnavailableSkills(
+        allSkillTools as SkillTool[],
+        skillDomainMap,
+        getCachedReachability,
+      );
+      if (skippedDomains.length > 0) {
+        console.info(`[orchestrator] Skipped unreachable skill domains: ${skippedDomains.join(', ')}`);
+      }
+
+      // Use the smart tool router: domain classification + tiered progressive loading.
+      // Always stays within OpenAI's 128-tool limit (defaults to max 55 tools).
+      const MAX_TOOLS = 55;
+      const routingResult = routeTools(reachableTools, skillDomainMap, {
+        query: ctx.input,
+        maxTools: MAX_TOOLS,
+      });
+      const selectedSkillTools = routingResult.tools;
+
+      console.info(`[orchestrator] ${routingResult.reasoning}`);
+      console.info(`[orchestrator] ${allSkillTools.length} total → ${reachableTools.length} reachable → ${selectedSkillTools.length} selected`);
+      if (selectedSkillTools.length > 0) {
+        const topNames = (selectedSkillTools as SkillTool[]).slice(0, 8).map((t: SkillTool) => t.name).join(', ');
+        console.info(`[orchestrator] Top selected tools: ${topNames}`);
       }
 
       await this.toolRegistry.load();
@@ -116,13 +155,29 @@ export class OrchestratorService {
         ? { ssh_exec: createSshTool(this.sshExecutor, this.prisma) }
         : {};
 
-      const rawTools = { ...dynamicTools, ...sshTool, ...buildTools(allSkillTools as SkillTool[], this.vault, agent.permissions, credentialRecord?.id) };
+      // skill_add_note — always available so agent can persist discovered API quirks
+      const learningTool = buildSkillLearningTool(
+        this.prisma,
+        linkedSkills.map((s) => s.domain),
+      );
 
-      // For SUPERVISED posture: wrap restricted tools with an approval gate.
+      const rawTools = { ...dynamicTools, ...sshTool, ...learningTool, ...buildTools(selectedSkillTools as SkillTool[], this.vault, agent.permissions, credentialRecord?.id) };
+
+      // Build a lookup for whether each tool is a write op (from skill tool config).
+      const writeToolNames = new Set(
+        (selectedSkillTools as Array<{ name?: string; config?: { isWrite?: boolean } }>)
+          .filter((t) => t.config?.isWrite === true)
+          .map((t) => t.name)
+          .filter(Boolean) as string[],
+      );
+
+      // For SUPERVISED posture: wrap write tools with an approval gate.
+      // Read tools execute freely. Explicitly restricted tools (conductBoundaries) are always gated.
       // If a restricted tool is called without prior approval, we abort and request it.
       const tools: Record<string, CoreTool> = {};
       for (const [name, tool] of Object.entries(rawTools)) {
-        const restricted = isRestrictedAction(name, resolvedCharter) || resolvedCharter.posture === 'SUPERVISED';
+        const restricted = isRestrictedAction(name, resolvedCharter) ||
+          (resolvedCharter.posture === 'SUPERVISED' && writeToolNames.has(name));
         if (restricted && !isResuming) {
           tools[name] = {
             ...tool,
@@ -152,10 +207,18 @@ export class OrchestratorService {
       const personaPrompt = personaData?.systemPromptOverride ?? personaData?.systemPrompt ?? '';
       // Collect system prompts from all linked skills (not just the first)
       const skillSystemPrompts = linkedSkills.map((s) => s.systemPrompt).filter(Boolean).join('\n\n');
+      const baseSkillPrompt = skillSystemPrompts || (skill?.systemPrompt ?? '');
+
+      // Enrich base prompt with learnedNotes — accumulated API quirks from real interactions
+      const enrichedSkillPrompt = buildEnrichedSystemPrompt(
+        baseSkillPrompt,
+        linkedSkills.map((s) => ({ domain: s.domain, learnedNotes: (s as typeof s & { learnedNotes?: string | null }).learnedNotes })),
+      );
+
       const systemParts = [
         charterPrompt,
         personaPrompt,
-        skillSystemPrompts || (skill?.systemPrompt ?? ''),
+        enrichedSkillPrompt,
       ].filter(Boolean);
 
       const systemPrompt = systemParts.join('\n\n');
@@ -168,6 +231,7 @@ export class OrchestratorService {
         messages,
         ...(toolsArg !== undefined ? { tools: toolsArg } : {}),
         systemPrompt,
+        maxSteps: 8,  // prevent infinite tool-call loops
       });
 
       // 10. Persist result
@@ -202,3 +266,6 @@ export class OrchestratorService {
     }
   }
 }
+
+
+

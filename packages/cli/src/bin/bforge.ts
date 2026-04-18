@@ -6,6 +6,7 @@ import { stopCommand } from '../commands/stop.js';
 import { statusCommand } from '../commands/status.js';
 import { logsCommand } from '../commands/logs.js';
 import { monitorCommand } from '../commands/monitor.js';
+import { buildSkillCommand } from '../commands/skill.js';
 
 const program = new Command();
 
@@ -46,6 +47,8 @@ program
   .option('--attach', 'Attach to an existing monitor session')
   .option('--stop', 'Stop all services and close the monitor session')
   .action(monitorCommand);
+
+program.addCommand(buildSkillCommand());
 
 program.parse();
 

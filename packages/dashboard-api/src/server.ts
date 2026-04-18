@@ -10,6 +10,7 @@ import { endpointRoutes } from './routes/endpoints.js';
 import { scheduledJobRoutes } from './routes/scheduled-jobs.js';
 import { statusRoutes } from './routes/status.js';
 import { userRoutes } from './routes/users.js';
+import { credentialRoutes } from './routes/credentials.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -59,6 +60,7 @@ export async function buildDashboardApi() {
   await endpointRoutes(app, prisma);
   await scheduledJobRoutes(app, prisma);
   await userRoutes(app, prisma);
+  await credentialRoutes(app, prisma);
 
   const shutdown = async () => {
     await app.close();
@@ -73,7 +75,7 @@ export async function buildDashboardApi() {
 
 async function main() {
   const app = await buildDashboardApi();
-  await app.listen({ port: Number(process.env['PORT'] ?? '4001'), host: '0.0.0.0' });
+  await app.listen({ port: Number(process.env['ADMIN_API_PORT'] ?? process.env['PORT'] ?? '4001'), host: '0.0.0.0' });
 }
 
 void main();

@@ -49,6 +49,26 @@ function requireAuth(req: Request, res: Response): boolean {
   return true;
 }
 
+/**
+ * Admin-level auth — required for destructive operations (DELETE).
+ * Checks REGISTRY_ADMIN_TOKEN if set; falls back to REGISTRY_AUTH_TOKEN.
+ * This allows a separate high-privilege token for skill deletion.
+ */
+function requireAdminAuth(req: Request, res: Response): boolean {
+  const adminToken = process.env['REGISTRY_ADMIN_TOKEN'];
+  if (!adminToken) {
+    // No dedicated admin token — fall back to regular auth token
+    return requireAuth(req, res);
+  }
+  const header = req.headers['authorization'] ?? '';
+  const provided = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (provided !== adminToken) {
+    unauthorized(res);
+    return false;
+  }
+  return true;
+}
+
 // ─── Checksum ─────────────────────────────────────────────────────────────────
 
 function computeChecksum(tools: unknown[], systemPrompt?: string): string {
@@ -125,7 +145,7 @@ export function buildRouter(): Router {
 
   // DELETE /registry/skills/:domain/:version
   router.delete('/registry/skills/:domain/:version', (req, res) => {
-    if (!requireAuth(req, res)) return;
+    if (!requireAdminAuth(req, res)) return;
 
     const { domain, version } = req.params as { domain: string; version: string };
     const existing = getSkill(domain, version);
