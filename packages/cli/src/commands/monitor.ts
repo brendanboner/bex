@@ -1,9 +1,7 @@
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
-import { findProjectRoot, printError, printSuccess, printWarning } from '../utils.js';
-import { startCommand } from './start.js';
+import { findProjectRoot, printError, printSuccess } from '../utils.js';
 
 const SESSION = 'forge';
 
@@ -70,9 +68,6 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
     console.log('');
     process.exit(1);
   }
-
-  // ── start services then open tmux ─────────────────────────────────────────
-  await startCommand();
 
   const logsDir = resolve(root, 'logs');
   const logs = {

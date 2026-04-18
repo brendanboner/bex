@@ -39,7 +39,8 @@ bot.command('status', async (ctx) => {
   const data = (await res.json()) as { ok: boolean; data?: { status: string; output?: string } };
   if (data.ok && data.data) {
     const { status, output } = data.data;
-    await ctx.reply(`Status: *${status}*\n${output ? `\n${output}` : ''}`, { parse_mode: 'Markdown' });
+    await ctx.reply(`Status: ${status}`);
+    if (output) await safeSend(ctx, output);
   } else {
     await ctx.reply('Could not fetch request status.');
   }
@@ -105,7 +106,7 @@ bot.on('message:text', async (ctx) => {
 
         if (status === 'COMPLETED') {
           clearInterval(typingInterval);
-          await ctx.reply(output ?? '(No response)', { parse_mode: 'Markdown' });
+          await safeSend(ctx, output ?? '(No response)');
           return;
         }
 
@@ -156,4 +157,33 @@ function requireEnv(key: string): string {
   const value = process.env[key];
   if (!value) throw new Error(`Missing required environment variable: ${key}`);
   return value;
+}
+
+/**
+ * Send a message to Telegram safely. LLM output may contain Markdown that
+ * doesn't parse cleanly (e.g. **bold** vs *bold*, unmatched backticks).
+ * Try MarkdownV2 first (with escaping), fall back to plain text on error.
+ */
+async function safeSend(ctx: BotContext, text: string): Promise<void> {
+  // Convert common Markdown patterns to MarkdownV2 and escape special chars
+  const toMdV2 = (s: string): string =>
+    s
+      // Escape all MarkdownV2 reserved chars except those we use for formatting
+      .replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+      // Convert **bold** → *bold* (MarkdownV2 uses single * for bold)
+      .replace(/\\\*\\\*(.*?)\\\*\\\*/g, '*$1*')
+      // Convert *italic* that are real italic (single *) back
+      .replace(/(?<!\\\*)\\\*((?!\\\*).*?)\\\*/g, '_$1_');
+
+  try {
+    await ctx.reply(toMdV2(text), { parse_mode: 'MarkdownV2' });
+  } catch {
+    // Fall back to plain text — strip any remaining markdown symbols
+    const plain = text.replace(/[*_`[\]]/g, '');
+    try {
+      await ctx.reply(plain);
+    } catch (err) {
+      console.error('[telegram] Failed to send message:', err);
+    }
+  }
 }
