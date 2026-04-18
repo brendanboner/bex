@@ -82,7 +82,7 @@ set -a; source "$ROOT/.env"; set +a
 REGISTRY_TOKEN="${SKILL_REGISTRY_TOKEN:-forge-registry-dev}"
 
 # ── stop anything already on our ports ───────────────────────────────────────
-stop_port 4000; stop_port 4001; stop_port 5050
+stop_port 4000; stop_port 4001; stop_port 5050; stop_port 3000
 sleep 0.5
 
 # ── start services in background → log files ─────────────────────────────────
@@ -94,22 +94,25 @@ echo ""
 # Clear old logs
 : > "$LOG_API"; : > "$LOG_REG"; : > "$LOG_ADM"; : > "$LOG_WRK"; : > "$LOG_DSH"
 
-SKILL_REGISTRY_URL="http://localhost:5050" SKILL_REGISTRY_TOKEN="$REGISTRY_TOKEN" \
-  node "$ROOT/packages/api-gateway/dist/server.js" >> "$LOG_API" 2>&1 &
-echo "  ✓ API Gateway       :4000"
-
-PORT=5050 DATA_DIR="$ROOT/packages/skill-registry/data" \
-  REGISTRY_AUTH_TOKEN="$REGISTRY_TOKEN" \
-  node "$ROOT/packages/skill-registry/dist/server.js" >> "$LOG_REG" 2>&1 &
+# Use nohup so processes survive after this script attaches to tmux and exits
+nohup bash -c "PORT=5050 DATA_DIR='$ROOT/packages/skill-registry/data' REGISTRY_AUTH_TOKEN='$REGISTRY_TOKEN' node '$ROOT/packages/skill-registry/dist/server.js'" >> "$LOG_REG" 2>&1 &
+disown $!
 echo "  ✓ Skill Registry    :5050"
 
-PORT=4001 node "$ROOT/packages/dashboard-api/dist/server.js" >> "$LOG_ADM" 2>&1 &
+nohup bash -c "SKILL_REGISTRY_URL='http://localhost:5050' SKILL_REGISTRY_TOKEN='$REGISTRY_TOKEN' DATABASE_URL='$DATABASE_URL' REDIS_URL='$REDIS_URL' JWT_SECRET='$JWT_SECRET' CREDENTIAL_VAULT_KEY='$CREDENTIAL_VAULT_KEY' CORS_ORIGIN='${CORS_ORIGIN:-http://localhost:3000}' OPENAI_API_KEY='${OPENAI_API_KEY:-}' LLM_MODEL='${LLM_MODEL:-gpt-4o}' node '$ROOT/packages/api-gateway/dist/server.js'" >> "$LOG_API" 2>&1 &
+disown $!
+echo "  ✓ API Gateway       :4000"
+
+nohup bash -c "PORT=4001 DATABASE_URL='$DATABASE_URL' REDIS_URL='$REDIS_URL' JWT_SECRET='$JWT_SECRET' CORS_ORIGIN='${CORS_ORIGIN:-http://localhost:3000}' node '$ROOT/packages/dashboard-api/dist/server.js'" >> "$LOG_ADM" 2>&1 &
+disown $!
 echo "  ✓ Admin API         :4001"
 
-node "$ROOT/packages/scheduler/dist/worker.js" >> "$LOG_WRK" 2>&1 &
+nohup bash -c "DATABASE_URL='$DATABASE_URL' REDIS_URL='$REDIS_URL' CREDENTIAL_VAULT_KEY='$CREDENTIAL_VAULT_KEY' OPENAI_API_KEY='${OPENAI_API_KEY:-}' node '$ROOT/packages/scheduler/dist/worker.js'" >> "$LOG_WRK" 2>&1 &
+disown $!
 echo "  ✓ Worker            (background)"
 
-(cd "$ROOT/apps/dashboard" && npm run dev >> "$LOG_DSH" 2>&1) &
+nohup bash -c "cd '$ROOT/apps/dashboard' && exec node_modules/.bin/next dev -p 3000" >> "$LOG_DSH" 2>&1 &
+disown $!
 echo "  ✓ Dashboard         :3000"
 
 sleep 2   # let services write first log lines

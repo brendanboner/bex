@@ -94,6 +94,7 @@ JWT_SECRET=${JWT_SECRET}
 CREDENTIAL_VAULT_KEY=${CREDENTIAL_VAULT_KEY}
 
 # ─── Skill Registry ──────────────────────────────────────────────────────────
+# Local registry (started by dev.sh/start.sh). Change to push/pull from a remote server.
 SKILL_REGISTRY_TOKEN=${SKILL_REGISTRY_TOKEN}
 SKILL_REGISTRY_URL=http://localhost:5050
 
