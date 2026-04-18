@@ -1,7 +1,7 @@
 import type { CoreMessage, CoreTool } from 'ai';
 import { PrismaClient } from '@prisma/client';
 
-import type { ExecutionContext, LlmProvider } from '@bclaw/shared';
+import type { ExecutionContext, LlmProvider, SkillTool } from '@bclaw/shared';
 import { ErrorCodes } from '@bclaw/shared';
 import { CredentialVaultService } from '@bclaw/credential-vault';
 import { SkillRegistryService, ToolRegistry } from '@bclaw/skill-engine';
@@ -87,8 +87,12 @@ export class OrchestratorService {
     });
 
     try {
-      // 5. Find matching skill by intent (optional — chat works without one)
-      const skill = await this.skillRegistry.findByIntent(ctx.input);
+      // 5. Use agent's linked skills (agentSkills) as primary source; fall back to intent search
+      const linkedSkills = agent.agentSkills.map((as) => as.skill);
+      const skill =
+        linkedSkills.length > 0
+          ? linkedSkills[0]
+          : await this.skillRegistry.findByIntent(ctx.input);
 
       // 6. Resolve a credential for proxied tool calls
       const credentialRecord = await this.prisma.credential.findFirst({
@@ -99,13 +103,11 @@ export class OrchestratorService {
         select: { id: true },
       });
 
-      // 7. Build tool set
-      const skillTools = (skill?.tools as Array<{
-        name: string;
-        description: string;
-        parameters: Record<string, unknown>;
-        endpoint?: string;
-      }>) ?? [];
+      // 7. Build tool set — include tools from ALL linked skills
+      const allSkillTools = linkedSkills.flatMap((s) => (s.tools as Array<Record<string, unknown>>) ?? []);
+      if (allSkillTools.length === 0 && skill?.tools) {
+        allSkillTools.push(...(skill.tools as Array<Record<string, unknown>>));
+      }
 
       await this.toolRegistry.load();
       const dynamicTools = this.toolRegistry.getAll();
@@ -114,7 +116,7 @@ export class OrchestratorService {
         ? { ssh_exec: createSshTool(this.sshExecutor, this.prisma) }
         : {};
 
-      const rawTools = { ...dynamicTools, ...sshTool, ...buildTools(skillTools, this.vault, agent.permissions, credentialRecord?.id) };
+      const rawTools = { ...dynamicTools, ...sshTool, ...buildTools(allSkillTools as SkillTool[], this.vault, agent.permissions, credentialRecord?.id) };
 
       // For SUPERVISED posture: wrap restricted tools with an approval gate.
       // If a restricted tool is called without prior approval, we abort and request it.
@@ -146,10 +148,14 @@ export class OrchestratorService {
       const model = buildLlmModel(agent.llmProvider as LlmProvider, agent.llmModel);
 
       const charterPrompt = buildCharterPrompt(resolvedCharter);
+      const personaData = agent.persona as { systemPromptOverride?: string; systemPrompt?: string } | null;
+      const personaPrompt = personaData?.systemPromptOverride ?? personaData?.systemPrompt ?? '';
+      // Collect system prompts from all linked skills (not just the first)
+      const skillSystemPrompts = linkedSkills.map((s) => s.systemPrompt).filter(Boolean).join('\n\n');
       const systemParts = [
         charterPrompt,
-        (agent.persona as { systemPromptOverride?: string })?.systemPromptOverride ?? '',
-        skill?.systemPrompt ?? '',
+        personaPrompt,
+        skillSystemPrompts || (skill?.systemPrompt ?? ''),
       ].filter(Boolean);
 
       const systemPrompt = systemParts.join('\n\n');

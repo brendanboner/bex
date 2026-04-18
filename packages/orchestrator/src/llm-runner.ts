@@ -29,8 +29,14 @@ export function buildLlmModel(provider: LlmProvider, model: string): LanguageMod
   }
 }
 
+type ExtendedSkillTool = SkillTool & {
+  handlerType?: string;
+  config?: Record<string, unknown>;
+};
+
 /**
  * Converts a skill's tool definitions into Vercel AI SDK tool objects.
+ * Supports legacy endpoint-based tools as well as the newer handlerType/config format.
  */
 export function buildTools(
   skillTools: SkillTool[],
@@ -40,7 +46,9 @@ export function buildTools(
 ): Record<string, CoreTool> {
   const tools: Record<string, CoreTool> = {};
 
-  for (const skillTool of skillTools) {
+  for (const rawTool of skillTools) {
+    const skillTool = rawTool as ExtendedSkillTool;
+
     const paramSchema = z.object(
       Object.fromEntries(
         Object.entries(
@@ -49,12 +57,12 @@ export function buildTools(
         ).map(([key, val]) => [
           key,
           val.type === 'string'
-            ? z.string().describe(val.description ?? key)
+            ? z.string().describe(val.description ?? key).optional()
             : val.type === 'number'
-            ? z.number().describe(val.description ?? key)
+            ? z.number().describe(val.description ?? key).optional()
             : val.type === 'boolean'
-            ? z.boolean().describe(val.description ?? key)
-            : z.unknown(),
+            ? z.boolean().describe(val.description ?? key).optional()
+            : z.unknown().optional(),
         ]),
       ),
     );
@@ -63,24 +71,50 @@ export function buildTools(
       description: skillTool.description,
       parameters: paramSchema,
       execute: async (args: Record<string, unknown>): Promise<unknown> => {
-        if (!skillTool.endpoint || !credentialId) {
-          // This tool is specification-only — it has no configured endpoint.
-          // It is available for the LLM to reference during planning but produces no side effects.
-          return { result: 'schema-only', args, note: 'Tool has no endpoint configured; used for planning and analysis only.' };
+        const handlerType = skillTool.handlerType;
+        const config = skillTool.config ?? {};
+
+        // ── public_http_call: direct fetch, no credentials ────────────────
+        if (handlerType === 'public_http_call') {
+          const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
+          if (!urlTemplate) return { error: 'No URL template configured for this tool' };
+          const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
+          // Replace {param} placeholders in URL template
+          const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+          const { fetch } = await import('undici');
+          const fetchOpts: Parameters<typeof fetch>[1] = {
+            method,
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          };
+          if (method !== 'GET' && method !== 'HEAD') {
+            fetchOpts.body = JSON.stringify(args);
+          }
+          const resp = await fetch(url, fetchOpts);
+          return resp.json();
         }
 
-        const result = await vault.proxyRequest(
-          {
-            credentialId,
-            method: 'POST',
-            url: skillTool.endpoint,
-            body: args,
-            injection: { type: 'bearer' },
-          },
-          agentPermissions,
-        );
+        // ── http_call: vault-proxied call with credentials ─────────────────
+        if (handlerType === 'http_call' || skillTool.endpoint) {
+          const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
+          if (!urlTemplate || !credentialId) {
+            return { result: 'schema-only', args, note: 'Tool has no endpoint or credential configured.' };
+          }
+          const method = ((config['method'] as string | undefined) ?? 'POST').toUpperCase() as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+          const url = urlTemplate.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+          const injection = (config['injection'] ?? { type: 'bearer' }) as
+            | { type: 'bearer' }
+            | { type: 'header'; key: string }
+            | { type: 'query'; key: string }
+            | { type: 'basic' };
+          const result = await vault.proxyRequest(
+            { credentialId, method, url, body: args, injection },
+            agentPermissions,
+          );
+          return result.body;
+        }
 
-        return result.body;
+        // ── fallback: schema-only (no handler) ───────────────────────────
+        return { result: 'schema-only', args, note: 'Tool has no handler configured; used for planning only.' };
       },
     };
   }
