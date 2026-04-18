@@ -8,7 +8,8 @@ import { cn, STATUS_COLOURS } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
 type Agent = { id: string; name: string; description?: string; status: string; charter?: { posture: string } };
-type RequestRecord = { id: string; status: string; output?: string };
+type CreateRequestResponse = { id: string; requestId: string; status: string };
+type RequestRecord = { id: string; status: string; output?: string; errorMsg?: string };
 type ChatMessage = { id: string; role: 'user' | 'agent'; content: string };
 
 export default function NexusPage() {
@@ -40,7 +41,7 @@ export default function NexusPage() {
           setMessages(prev => [...prev, {
             id: `${pollingId}-resp`,
             role: 'agent',
-            content: record.output ?? (record.status === 'FAILED' ? '⚠ Request failed.' : '(no output)'),
+            content: record.output ?? record.errorMsg ?? (record.status === 'FAILED' ? '⚠ Request failed.' : '(no output)'),
           }]);
         }
       } catch (e) {
@@ -60,10 +61,10 @@ export default function NexusPage() {
     setInput('');
     setSending(true);
     try {
-      const record = await api.post<RequestRecord>('/requests', {
+      const record = await api.post<CreateRequestResponse>('/requests', {
         agentId: selectedAgent.id, input: content, channel: 'dashboard',
       });
-      setPollingId(record.id);
+      setPollingId(record.id ?? record.requestId);
     } catch (e) {
       setSending(false);
       toast({ title: 'Failed to send', description: (e as Error).message, variant: 'destructive' });

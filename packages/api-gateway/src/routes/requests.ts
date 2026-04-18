@@ -45,7 +45,7 @@ export async function requestRoutes(
       channel: parsed.data.channel,
     });
 
-    return reply.status(202).send(ok({ requestId: agentRequest.id, status: 'QUEUED' }));
+    return reply.status(202).send(ok({ id: agentRequest.id, requestId: agentRequest.id, status: 'QUEUED' }));
   });
 
   // GET /requests/:id — poll request status
