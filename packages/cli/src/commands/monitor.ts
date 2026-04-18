@@ -98,35 +98,34 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
 
   const run = (cmd: string) => execSync(cmd, { stdio: 'pipe' });
 
-  // Window 0 — four-pane grid (api | registry / admin | worker)
-  run(`tmux new-session -d -s "${SESSION}" -x 220 -y 50`);
-  run(`tmux rename-window -t "${SESSION}:0" services`);
+  // Window "services" — 4-pane grid: api | registry / admin | worker
+  // Use simple session-only targeting (no :window.pane) for broad tmux compatibility
+  run(`tmux new-session -d -s "${SESSION}" -n services`);
 
   // Pane 0 (top-left): API Gateway
-  run(`tmux send-keys -t "${SESSION}:0.0" "tail -n 50 -f '${logs.api}'" Enter`);
+  run(`tmux send-keys -t "${SESSION}" "tail -n 50 -f '${logs.api}'" Enter`);
 
-  // Pane 1 (top-right): Skill Registry
-  run(`tmux split-window -h -t "${SESSION}:0"`);
-  run(`tmux send-keys -t "${SESSION}:0.1" "tail -n 50 -f '${logs.registry}'" Enter`);
+  // Pane 1 (top-right): Skill Registry — split right
+  run(`tmux split-window -h -t "${SESSION}"`);
+  run(`tmux send-keys -t "${SESSION}" "tail -n 50 -f '${logs.registry}'" Enter`);
 
-  // Pane 2 (bottom-left): Admin API — split below pane 0
-  run(`tmux select-pane -t "${SESSION}:0.0"`);
-  run(`tmux split-window -v -t "${SESSION}:0.0"`);
-  run(`tmux send-keys -t "${SESSION}:0.2" "tail -n 50 -f '${logs.admin}'" Enter`);
+  // Pane 2 (bottom-right): Worker — split below current (top-right)
+  run(`tmux split-window -v -t "${SESSION}"`);
+  run(`tmux send-keys -t "${SESSION}" "tail -n 50 -f '${logs.worker}'" Enter`);
 
-  // Pane 3 (bottom-right): Worker — split below pane 1
-  run(`tmux select-pane -t "${SESSION}:0.1"`);
-  run(`tmux split-window -v -t "${SESSION}:0.1"`);
-  run(`tmux send-keys -t "${SESSION}:0.3" "tail -n 50 -f '${logs.worker}'" Enter`);
+  // Pane 3 (bottom-left): Admin API — move left to top-left pane, split below
+  run(`tmux select-pane -L`);
+  run(`tmux split-window -v -t "${SESSION}"`);
+  run(`tmux send-keys -t "${SESSION}" "tail -n 50 -f '${logs.admin}'" Enter`);
 
-  // Window 1 — Dashboard + Telegram bot logs side by side
+  // Window "bots" — Dashboard | Telegram side by side
   run(`tmux new-window -t "${SESSION}" -n bots`);
-  run(`tmux send-keys -t "${SESSION}:1" "tail -n 50 -f '${logs.dashboard}'" Enter`);
-  run(`tmux split-window -h -t "${SESSION}:1"`);
-  run(`tmux send-keys -t "${SESSION}:1.1" "tail -n 50 -f '${logs.telegram}'" Enter`);
+  run(`tmux send-keys -t "${SESSION}" "tail -n 50 -f '${logs.dashboard}'" Enter`);
+  run(`tmux split-window -h -t "${SESSION}"`);
+  run(`tmux send-keys -t "${SESSION}" "tail -n 50 -f '${logs.telegram}'" Enter`);
 
-  // Return to services window
-  run(`tmux select-window -t "${SESSION}:0"`);
+  // Return focus to services window
+  run(`tmux select-window -t "${SESSION}:services"`);
 
   spawnSync('tmux', ['attach-session', '-t', SESSION], { stdio: 'inherit' });
 }
