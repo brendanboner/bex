@@ -3,17 +3,19 @@ import { PrismaClient } from '@prisma/client';
 
 import { CreateSkillSchema, ok, err, ErrorCodes } from '@bclaw/shared';
 import { SkillBuilderService, SkillRegistryService, SkillTestRunner } from '@bclaw/skill-engine';
+import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
 import type { BuildSkillSource } from '@bclaw/skill-engine';
 
 export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const registry = new SkillRegistryService(prisma);
   const builder = new SkillBuilderService(prisma);
   const testRunner = new SkillTestRunner(prisma);
+  const remoteRegistry = new SkillRegistryClient();
 
   // GET /skills
   app.get('/skills', async (_request, reply) => {
     const skills = await prisma.skill.findMany({
-      select: { id: true, name: true, domain: true, version: true, status: true, capabilities: true, createdAt: true },
+      select: { id: true, name: true, domain: true, version: true, status: true, capabilities: true, requiredCredentialType: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
     return reply.send(ok(skills));
@@ -103,7 +105,7 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
     },
   );
 
-  // POST /skills/:id/publish-to-registry — publish skill to the central registry (system users only)
+  // POST /skills/:id/publish-to-registry — push skill manifest to the central standalone registry
   app.post<{ Params: { id: string } }>(
     '/skills/:id/publish-to-registry',
     { onRequest: [app.requireSystemUser] },
@@ -111,13 +113,45 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
       const skill = await prisma.skill.findUnique({ where: { id: request.params.id } });
       if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
 
-      await prisma.skill.update({
-        where: { id: request.params.id },
-        data: { status: 'PUBLISHED' },
-      });
+      // Mark local skill as PUBLISHED
+      await prisma.skill.update({ where: { id: request.params.id }, data: { status: 'PUBLISHED' } });
 
-      app.log.info({ skillId: request.params.id, domain: skill.domain, version: skill.version },
-        'Skill published to registry');
+      // Push to standalone registry if configured
+      if (remoteRegistry.isConfigured) {
+        try {
+          const tools = (skill.tools as unknown[]) ?? [];
+          const checksum = computeSkillChecksum(tools, skill.systemPrompt ?? undefined);
+          // Build manifest — cast to satisfy exactOptionalPropertyTypes
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const manifest = {
+            domain: skill.domain,
+            version: skill.version,
+            name: skill.name,
+            ...(skill.description && { description: skill.description }),
+            ...(skill.systemPrompt && { systemPrompt: skill.systemPrompt }),
+            tools,
+            capabilities: skill.capabilities,
+            checksum,
+            publishedAt: new Date().toISOString(),
+          } as import('@bclaw/shared').SkillManifest;
+
+          const { url } = await remoteRegistry.publish(manifest);
+          app.log.info({ skillId: request.params.id, domain: skill.domain, registryUrl: url }, 'Skill pushed to standalone registry');
+
+          // Store the registry entry locally for lookup
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const manifestJson = manifest as any;
+          await prisma.skillRegistryEntry.upsert({
+            where: { domain_version: { domain: skill.domain, version: skill.version } },
+            create: { domain: skill.domain, version: skill.version, name: skill.name, description: skill.description, registryUrl: url, manifest: manifestJson },
+            update: { name: skill.name, description: skill.description, registryUrl: url, manifest: manifestJson },
+          });
+
+          return reply.send(ok({ published: true, skillId: request.params.id, registryUrl: url }));
+        } catch (e) {
+          app.log.warn({ err: e }, 'Failed to push to standalone registry — skill marked PUBLISHED locally only');
+        }
+      }
 
       return reply.send(ok({ published: true, skillId: request.params.id }));
     },

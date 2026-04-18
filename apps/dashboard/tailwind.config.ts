@@ -1,72 +1,46 @@
-/** @type {import('tailwindcss').Config} */
-const config = {
-  darkMode: ['class'],
+import type { Config } from 'tailwindcss';
+const config: Config = {
   content: [
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
     './lib/**/*.{ts,tsx}',
-    './hooks/**/*.{ts,tsx}',
   ],
   theme: {
-    container: {
-      center: true,
-      padding: '2rem',
-      screens: { '2xl': '1400px' },
-    },
     extend: {
       colors: {
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
-        primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
+        background: 'rgb(var(--bg-base) / <alpha-value>)',
+        foreground: 'rgb(var(--text-primary) / <alpha-value>)',
+        surface: 'rgb(var(--bg-surface) / <alpha-value>)',
+        elevated: 'rgb(var(--bg-elevated) / <alpha-value>)',
+        border: 'rgb(var(--border) / <alpha-value>)',
+        card: { DEFAULT: 'rgb(var(--bg-surface))', foreground: 'rgb(var(--text-primary))' },
+        popover: { DEFAULT: 'rgb(var(--bg-elevated))', foreground: 'rgb(var(--text-primary))' },
+        primary: { DEFAULT: 'rgb(var(--accent-violet))', foreground: 'rgb(232 232 248)' },
+        secondary: { DEFAULT: 'rgb(var(--bg-elevated))', foreground: 'rgb(var(--text-secondary))' },
+        muted: { DEFAULT: 'rgb(var(--bg-muted))', foreground: 'rgb(var(--text-secondary))' },
+        accent: { DEFAULT: 'rgb(var(--bg-elevated))', foreground: 'rgb(var(--text-primary))' },
+        destructive: { DEFAULT: 'rgb(var(--error))', foreground: 'rgb(232 232 248)' },
+        input: 'rgb(var(--bg-elevated))',
+        ring: 'rgb(var(--accent-violet))',
+        violet: {
+          400: '#a78bfa', 500: '#8b5cf6', 600: '#7c3aed', 700: '#6d28d9',
         },
-        secondary: {
-          DEFAULT: 'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
-        },
-        destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
-        },
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
-        accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
-        },
-        card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
+        fuchsia: {
+          400: '#e879f9', 500: '#d946ef', 600: '#c026d3',
         },
       },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        xl: '0.875rem',
+        '2xl': '1rem',
       },
-      keyframes: {
-        'accordion-down': {
-          from: { height: '0' },
-          to: { height: 'var(--radix-accordion-content-height)' },
-        },
-        'accordion-up': {
-          from: { height: 'var(--radix-accordion-content-height)' },
-          to: { height: '0' },
-        },
-      },
-      animation: {
-        'accordion-down': 'accordion-down 0.2s ease-out',
-        'accordion-up': 'accordion-up 0.2s ease-out',
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'Inter', 'SF Pro Display', 'system-ui', 'sans-serif'],
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [],
 };
-
 export default config;

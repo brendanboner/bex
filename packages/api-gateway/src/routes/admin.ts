@@ -71,6 +71,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       name: 'forge.llm.primary',
       description: `${llmProvider} LLM configuration`,
       scope: 'SYSTEM',
+      credentialType: 'API_TOKEN',
       value: { provider: llmProvider, apiKey: llmApiKey, model: llmModel },
       allowedAgentPermissions: [],
     });
@@ -80,6 +81,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
         name: `forge.channel.${channel}`,
         description: `${channel} channel config`,
         scope: 'SYSTEM',
+        credentialType: 'USER_PREFERENCE',
         value: channelConfig,
         allowedAgentPermissions: [],
       });

@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+// ─── Credential Type (declared early — used by skill + credential schemas) ────
+
+export const CredentialTypeSchema = z.enum([
+  'API_TOKEN',         // Single bearer/header token or API key
+  'USERNAME_PASSWORD', // username + password (e.g. XCO REST API)
+  'SSH_KEY',           // privateKey + optional passphrase
+  'BASIC_AUTH',        // username + password sent as HTTP Basic Auth
+  'OAUTH2_CLIENT',     // clientId + clientSecret + optional tokenUrl
+  'USER_PREFERENCE',   // Arbitrary key/value preferences usable by agents
+]);
+export type CredentialType = z.infer<typeof CredentialTypeSchema>;
+
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
 export const PersonaSchema = z.object({
@@ -54,6 +66,8 @@ export const CreateSkillSchema = z.object({
   capabilities: z.array(z.string()).min(1),
   tools: z.array(SkillToolSchema).default([]),
   systemPrompt: z.string().optional(),
+  // Optional: credential type required by agents using this skill
+  requiredCredentialType: CredentialTypeSchema.optional(),
 });
 
 export const UpdateSkillSchema = CreateSkillSchema.partial().omit({ domain: true });
@@ -71,11 +85,48 @@ export const AddKnowledgeSourceSchema = z.object({
 
 // ─── Credential ───────────────────────────────────────────────────────────────
 
+// Type-safe value shapes per credential type
+const ApiTokenValue = z.object({
+  token: z.string().min(1),
+  headerName: z.string().optional(), // override default 'Authorization' header
+});
+const UsernamePasswordValue = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+  domain: z.string().optional(), // optional Windows/AD domain
+});
+const SshKeyValue = z.object({
+  privateKey: z.string().min(1),
+  passphrase: z.string().optional(),
+  username: z.string().optional(), // SSH username (can also come from Target)
+});
+const BasicAuthValue = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+const Oauth2ClientValue = z.object({
+  clientId: z.string().min(1),
+  clientSecret: z.string().min(1),
+  tokenUrl: z.string().url().optional(),
+  scopes: z.string().optional(),
+});
+const UserPreferenceValue = z.record(z.string()); // arbitrary key/value pairs
+
+export const CredentialValueSchema = z.discriminatedUnion('credentialType', [
+  z.object({ credentialType: z.literal('API_TOKEN'), value: ApiTokenValue }),
+  z.object({ credentialType: z.literal('USERNAME_PASSWORD'), value: UsernamePasswordValue }),
+  z.object({ credentialType: z.literal('SSH_KEY'), value: SshKeyValue }),
+  z.object({ credentialType: z.literal('BASIC_AUTH'), value: BasicAuthValue }),
+  z.object({ credentialType: z.literal('OAUTH2_CLIENT'), value: Oauth2ClientValue }),
+  z.object({ credentialType: z.literal('USER_PREFERENCE'), value: UserPreferenceValue }),
+]);
+
 export const CreateCredentialSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   scope: z.enum(['USER', 'SYSTEM']),
-  // Raw value - encrypted by credential-vault before storing
+  credentialType: CredentialTypeSchema.default('API_TOKEN'),
+  // Raw value - validated by type, encrypted by credential-vault before storing
   value: z.record(z.string()),
   allowedAgentPermissions: z.array(z.string()).default([]),
 });

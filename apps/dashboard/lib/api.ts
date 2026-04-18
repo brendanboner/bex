@@ -1,4 +1,4 @@
-import type { ApiResponse } from '@bclaw/shared';
+type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: { message?: string } };
 
 const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000';
 const ADMIN_URL = process.env['NEXT_PUBLIC_ADMIN_API_URL'] ?? 'http://localhost:4001';

@@ -1,9 +1,24 @@
 import { PrismaClient } from '@prisma/client';
 
-import type { CreateCredentialInput, CredentialValues, ProxiedRequestConfig, ProxiedRequestResult } from '@bclaw/shared';
+import type { CreateCredentialInput, CredentialValues, CredentialType, ProxiedRequestConfig, ProxiedRequestResult } from '@bclaw/shared';
 import { ErrorCodes } from '@bclaw/shared';
 
 import { decrypt, encrypt } from './crypto.js';
+
+/** Auto-infer HTTP injection strategy from the credential type. */
+function inferInjection(
+  credentialType: CredentialType,
+): { type: 'bearer' } | { type: 'basic' } | { type: 'header'; key: string } {
+  switch (credentialType) {
+    case 'USERNAME_PASSWORD':
+    case 'BASIC_AUTH':
+      return { type: 'basic' };
+    case 'OAUTH2_CLIENT':
+    case 'API_TOKEN':
+    default:
+      return { type: 'bearer' };
+  }
+}
 
 export class CredentialVaultService {
   constructor(private readonly prisma: PrismaClient) {}
@@ -11,7 +26,7 @@ export class CredentialVaultService {
   async create(
     input: CreateCredentialInput,
     userId?: string,
-  ): Promise<{ id: string; name: string }> {
+  ): Promise<{ id: string; name: string; credentialType: string }> {
     const blob = encrypt(input.value);
 
     const credential = await this.prisma.credential.create({
@@ -19,19 +34,20 @@ export class CredentialVaultService {
         name: input.name,
         ...(input.description !== undefined ? { description: input.description } : {}),
         scope: input.scope,
+        credentialType: input.credentialType ?? 'API_TOKEN',
         encryptedValue: blob.encryptedValue,
         iv: blob.iv,
         authTag: blob.authTag,
         allowedAgentPermissions: input.allowedAgentPermissions,
         userId: input.scope === 'USER' && userId != null ? userId : null,
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, credentialType: true },
     });
 
     return credential;
   }
 
-  async resolve(credentialId: string, agentPermissions: string[]): Promise<CredentialValues> {
+  async resolve(credentialId: string, agentPermissions: string[]): Promise<CredentialValues & { _type: string }> {
     const credential = await this.prisma.credential.findUnique({
       where: { id: credentialId },
     });
@@ -51,16 +67,20 @@ export class CredentialVaultService {
       });
     }
 
-    return decrypt({
+    const values = decrypt({
       encryptedValue: credential.encryptedValue,
       iv: credential.iv,
       authTag: credential.authTag,
     });
+
+    // Attach the type as a hidden metadata field so callers can inspect it
+    return { ...values, _type: credential.credentialType };
   }
 
   /**
    * Executes an outbound HTTP request, injecting the credential value without
-   * exposing it to the caller. Returns the response without the credential.
+   * exposing it to the caller. Supports `injection: { type: 'auto' }` to
+   * auto-select the injection strategy based on credentialType.
    */
   async proxyRequest(
     config: ProxiedRequestConfig,
@@ -70,12 +90,20 @@ export class CredentialVaultService {
 
     const headers: Record<string, string> = { ...config.headers };
 
-    switch (config.injection.type) {
-      case 'bearer':
-        headers['Authorization'] = `Bearer ${values['token'] ?? values['api_key'] ?? ''}`;
+    // Resolve injection: 'auto' defers to the credential's own type
+    const injection =
+      config.injection.type === 'auto'
+        ? inferInjection(values['_type'] as CredentialType)
+        : config.injection;
+
+    switch (injection.type) {
+      case 'bearer': {
+        const headerName = values['headerName'] ?? 'Authorization';
+        headers[headerName] = `Bearer ${values['token'] ?? values['api_key'] ?? ''}`;
         break;
+      }
       case 'header':
-        headers[config.injection.key] = values[config.injection.key] ?? values['value'] ?? '';
+        headers[injection.key] = values[injection.key] ?? values['token'] ?? values['value'] ?? '';
         break;
       case 'basic': {
         const encoded = Buffer.from(
@@ -90,9 +118,9 @@ export class CredentialVaultService {
     }
 
     let url = config.url;
-    if (config.injection.type === 'query') {
+    if (injection.type === 'query') {
       const sep = url.includes('?') ? '&' : '?';
-      const paramKey = config.injection.key;
+      const paramKey = (injection as { type: 'query'; key: string }).key;
       url = `${url}${sep}${paramKey}=${encodeURIComponent(values[paramKey] ?? values['value'] ?? '')}`;
     }
 
@@ -127,13 +155,16 @@ export class CredentialVaultService {
     await this.prisma.credential.delete({ where: { id: credentialId } });
   }
 
-  async list(scope?: 'USER' | 'SYSTEM', userId?: string): Promise<Array<{ id: string; name: string; scope: string; description: string | null }>> {
+  async list(
+    scope?: 'USER' | 'SYSTEM',
+    userId?: string,
+  ): Promise<Array<{ id: string; name: string; scope: string; credentialType: string; description: string | null }>> {
     return this.prisma.credential.findMany({
-      where: {
-        ...(scope ? { scope } : {}),
-        ...(userId ? { userId } : {}),
-      },
-      select: { id: true, name: true, scope: true, description: true },
+      where: scope
+        ? { scope }
+        // No scope filter: return USER credentials owned by this user + all SYSTEM credentials
+        : { OR: [{ scope: 'SYSTEM' }, ...(userId ? [{ scope: 'USER' as const, userId }] : [])] },
+      select: { id: true, name: true, scope: true, credentialType: true, description: true },
       orderBy: { createdAt: 'desc' },
     });
   }

@@ -31,7 +31,17 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
       }
     }
 
-    return reply.send(ok([...localEntries, ...remoteSkills]));
+    // Merge local + remote, deduplicating by domain+version (local wins)
+    const seen = new Set(localEntries.map(e => `${e.domain}:${e.version}`));
+    const merged = [
+      ...localEntries,
+      ...remoteSkills.filter((s: unknown) => {
+        const r = s as { domain: string; version: string };
+        return !seen.has(`${r.domain}:${r.version}`);
+      }),
+    ];
+
+    return reply.send(ok(merged));
   });
 
   // GET /registry/skills/:domain/:version — fetch from local registry first, then remote
@@ -170,6 +180,69 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
         });
 
         return reply.send(ok({ skillId: skill.id, domain: skill.domain, version: skill.version }));
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return reply.status(502).send(err(ErrorCodes.INTERNAL, msg));
+      }
+    },
+  );
+
+  // POST /registry/pull — pull a skill from the remote registry by domain+version in body
+  app.post<{ Body: { domain?: string; version?: string } }>(
+    '/registry/pull',
+    { preHandler: [app.requireSystemUser] },
+    async (request, reply) => {
+      const { domain, version } = request.body ?? {};
+
+      if (!domain || !version) {
+        return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'body must include domain and version'));
+      }
+
+      try {
+        const manifest = await client.fetch(domain, version);
+
+        if (!client.verify(manifest)) {
+          return reply.status(422).send(err(ErrorCodes.VALIDATION_ERROR, 'Skill manifest checksum verification failed'));
+        }
+
+        const skill = await prisma.skill.upsert({
+          where: { domain_version: { domain: manifest.domain, version: manifest.version } },
+          create: {
+            name: manifest.name,
+            domain: manifest.domain,
+            version: manifest.version,
+            description: manifest.description ?? null,
+            capabilities: manifest.capabilities,
+            tools: manifest.tools as Prisma.InputJsonValue,
+            systemPrompt: manifest.systemPrompt ?? null,
+            status: 'PUBLISHED',
+          },
+          update: {
+            name: manifest.name,
+            description: manifest.description ?? null,
+            tools: manifest.tools as Prisma.InputJsonValue,
+            systemPrompt: manifest.systemPrompt ?? null,
+            capabilities: manifest.capabilities,
+            status: 'PUBLISHED',
+          },
+        });
+
+        await prisma.skillRegistryEntry.upsert({
+          where: { domain_version: { domain: manifest.domain, version: manifest.version } },
+          create: {
+            domain: manifest.domain,
+            version: manifest.version,
+            name: manifest.name,
+            description: manifest.description ?? null,
+            manifest: manifest as Prisma.InputJsonValue,
+            registryUrl: client['baseUrl'] as string,
+          },
+          update: {
+            manifest: manifest as Prisma.InputJsonValue,
+          },
+        });
+
+        return reply.send(ok({ skillId: skill.id, domain: skill.domain, version: skill.version, name: skill.name }));
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return reply.status(502).send(err(ErrorCodes.INTERNAL, msg));

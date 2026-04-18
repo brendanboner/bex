@@ -1,11 +1,11 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Brain, CheckCircle2, Clock, Key, Network, Users, Zap } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { adminApi, api } from '@/lib/api';
+import { Bot, Brain, Clock, Key, Network, Users, Zap, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { adminApi } from '@/lib/api';
 import { formatDate, STATUS_COLOURS, truncate } from '@/lib/utils';
+import { Spirograph } from '@/components/Spirograph';
 
 type Status = {
   counts: { agents: number; skills: number; credentials: number; requests: number; users: number; endpoints: number; scheduledJobs: number };
@@ -24,15 +24,23 @@ type RecentRequest = {
   user: { id: string; displayName: string };
 };
 
-const statCards = (counts: Status['counts']) => [
-  { label: 'Agents', value: counts.agents, icon: Bot, color: 'text-blue-500' },
-  { label: 'Skills', value: counts.skills, icon: Brain, color: 'text-purple-500' },
-  { label: 'Credentials', value: counts.credentials, icon: Key, color: 'text-yellow-500' },
-  { label: 'Requests', value: counts.requests, icon: Clock, color: 'text-gray-500' },
-  { label: 'Endpoints', value: counts.endpoints, icon: Network, color: 'text-teal-500' },
-  { label: 'Users', value: counts.users, icon: Users, color: 'text-indigo-500' },
-  { label: 'Scheduled Jobs', value: counts.scheduledJobs, icon: Zap, color: 'text-orange-500' },
-];
+function StatPill({ label, value, icon: Icon, href }: { label: string; value: number; icon: React.ElementType; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-3 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-4 py-3 hover:border-[rgba(124,58,237,0.4)] hover:bg-[rgb(var(--bg-elevated))] transition-all group"
+    >
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(124,58,237,0.12)]">
+        <Icon className="h-4 w-4 text-violet-400" />
+      </div>
+      <div>
+        <p className="text-xl font-bold text-[rgb(var(--text-primary))]">{value}</p>
+        <p className="text-xs text-[rgb(var(--text-secondary))]">{label}</p>
+      </div>
+      <ArrowRight className="ml-auto h-3.5 w-3.5 text-[rgb(var(--text-muted))] opacity-0 group-hover:opacity-100 transition-opacity" />
+    </Link>
+  );
+}
 
 export default function OverviewPage() {
   const { data: status } = useQuery({
@@ -48,69 +56,78 @@ export default function OverviewPage() {
   });
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
-        <p className="text-muted-foreground">Platform status at a glance</p>
-      </div>
-
-      {/* Stats grid */}
-      {status && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {statCards(status.counts).map(({ label, value, icon: Icon, color }) => (
-            <Card key={label}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-                <Icon className={`h-5 w-5 ${color}`} />
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-bold">{value}</p>
-              </CardContent>
-            </Card>
-          ))}
-
-          {/* Queue stats */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500" /> Queue
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1 text-sm">
-              <div className="flex justify-between"><span>Active</span><span className="font-semibold">{status.queue.active}</span></div>
-              <div className="flex justify-between"><span>Waiting</span><span className="font-semibold">{status.queue.waiting}</span></div>
-              <div className="flex justify-between"><span>Failed</span><span className="font-semibold text-red-500">{status.queue.failed}</span></div>
-            </CardContent>
-          </Card>
+    <div className="flex gap-8 min-h-[calc(100vh-100px)]">
+      {/* Left column — stats + activity */}
+      <div className="flex-1 min-w-0 space-y-6">
+        {/* Stat pills */}
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+          <StatPill label="Agents" value={status?.counts.agents ?? 0} icon={Bot} href="/agents" />
+          <StatPill label="Skills" value={status?.counts.skills ?? 0} icon={Brain} href="/skills" />
+          <StatPill label="Users" value={status?.counts.users ?? 0} icon={Users} href="/users" />
+          <StatPill label="Credentials" value={status?.counts.credentials ?? 0} icon={Key} href="/credentials" />
+          <StatPill label="Endpoints" value={status?.counts.endpoints ?? 0} icon={Network} href="/endpoints" />
+          <StatPill label="Scheduled" value={status?.counts.scheduledJobs ?? 0} icon={Zap} href="/scheduled-jobs" />
         </div>
-      )}
 
-      {/* Recent Requests */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Requests</CardTitle>
-          <CardDescription>Last 20 agent requests across all channels</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {recent?.map((r) => (
-              <div key={r.id} className="flex items-start gap-3 rounded-md border p-3 text-sm">
+        {/* Queue health */}
+        {status && (
+          <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))] mb-3">Queue Health</p>
+            <div className="flex gap-6">
+              {[
+                { label: 'Active', val: status.queue.active, color: 'text-blue-400' },
+                { label: 'Waiting', val: status.queue.waiting, color: 'text-amber-400' },
+                { label: 'Completed', val: status.queue.completed, color: 'text-emerald-400' },
+                { label: 'Failed', val: status.queue.failed, color: 'text-red-400' },
+              ].map(({ label, val, color }) => (
+                <div key={label}>
+                  <p className={`text-2xl font-bold ${color}`}>{val}</p>
+                  <p className="text-xs text-[rgb(var(--text-secondary))]">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent activity */}
+        <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[rgb(var(--border))]">
+            <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Recent Activity</p>
+            <Link href="/requests" className="text-xs text-violet-400 hover:text-violet-300 transition-colors">View all</Link>
+          </div>
+          <div className="divide-y divide-[rgb(var(--border))]">
+            {recent?.slice(0, 8).map((r) => (
+              <div key={r.id} className="flex items-start gap-3 px-4 py-3">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium">{r.agent.name}</span>
-                    <span className="text-muted-foreground">•</span>
-                    <span className="text-muted-foreground">{r.user.displayName}</span>
-                    <Badge className={`ml-auto text-xs ${STATUS_COLOURS[r.status] ?? ''}`}>{r.status}</Badge>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-xs font-medium text-[rgb(var(--text-primary))]">{r.agent.name}</span>
+                    <span className="text-[10px] text-[rgb(var(--text-muted))]">·</span>
+                    <span className="text-[10px] text-[rgb(var(--text-secondary))]">{r.user.displayName}</span>
+                    <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLOURS[r.status] ?? 'badge-queued'}`}>{r.status}</span>
                   </div>
-                  <p className="text-muted-foreground truncate">{truncate(r.input, 100)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{formatDate(r.createdAt)} · {r.channel}</p>
+                  <p className="text-xs text-[rgb(var(--text-secondary))] truncate">{truncate(r.input, 90)}</p>
+                  <p className="text-[10px] text-[rgb(var(--text-muted))] mt-0.5">{formatDate(r.createdAt)} · {r.channel}</p>
                 </div>
               </div>
             ))}
-            {!recent?.length && <p className="text-sm text-muted-foreground">No requests yet</p>}
+            {!recent?.length && (
+              <p className="px-4 py-6 text-sm text-[rgb(var(--text-muted))] text-center">No requests yet — start by sending a message in Nexus</p>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
+      {/* Right column — spirograph hero */}
+      <div className="hidden xl:flex w-[480px] shrink-0 flex-col items-center justify-center gap-4">
+        <Spirograph size={420} />
+        <div className="text-center space-y-1">
+          <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Autonomous Agent Network</p>
+          <p className="text-xs text-[rgb(var(--text-secondary))] max-w-xs">
+            Skills are built, shared and composed across agents in real time. Each node is an autonomous capability.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
+

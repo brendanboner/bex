@@ -1,14 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import {
   Bot,
   Brain,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Key,
   LayoutDashboard,
+  LogOut,
   MessageSquare,
   Monitor,
   Network,
@@ -19,48 +23,149 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const navItems = [
-  { href: '/', label: 'Overview', icon: LayoutDashboard },
-  { href: '/agents', label: 'Agents', icon: Bot },
-  { href: '/skills', label: 'Skills', icon: Brain },
-  { href: '/personas', label: 'Personas', icon: UserPlus },
-  { href: '/credentials', label: 'Credentials', icon: Key },
-  { href: '/requests', label: 'Requests', icon: Clock },
-  { href: '/endpoints', label: 'Endpoints', icon: Network },
-  { href: '/scheduled-jobs', label: 'Scheduled Jobs', icon: Calendar },
-  { href: '/users', label: 'Users', icon: Users },
-  { href: '/targets', label: 'Targets', icon: Monitor },
-  { href: '/marketplace', label: 'Marketplace', icon: Package },
-  { href: '/chat', label: 'Chat', icon: MessageSquare },
-  { href: '/setup', label: 'Setup', icon: Settings },
+const navSections = [
+  {
+    items: [
+      { href: '/',         label: 'Overview',      icon: LayoutDashboard },
+      { href: '/chat',     label: 'Nexus',         icon: MessageSquare },
+      { href: '/agents',   label: 'Agents',        icon: Bot },
+      { href: '/requests', label: 'Activity',      icon: Clock },
+    ],
+  },
+  {
+    items: [
+      { href: '/skills',         label: 'Skill Exchange',  icon: Brain },
+      { href: '/marketplace',    label: 'Marketplace',     icon: Package },
+      { href: '/personas',       label: 'Personas',        icon: UserPlus },
+    ],
+  },
+  {
+    items: [
+      { href: '/scheduled-jobs', label: 'Scheduled',       icon: Calendar },
+      { href: '/targets',        label: 'Targets',         icon: Monitor },
+      { href: '/endpoints',      label: 'Endpoints',       icon: Network },
+      { href: '/credentials',    label: 'Vault',           icon: Key },
+      { href: '/users',          label: 'Users',           icon: Users },
+      { href: '/setup',          label: 'Configuration',   icon: Settings },
+    ],
+  },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [collapsed, setCollapsed] = useState(false);
+  const [userInitials, setUserInitials] = useState('FG');
+  const [userName, setUserName] = useState('Forge Admin');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('bclaw_token');
+      if (!token) router.replace('/login');
+      // Parse display name from JWT if available
+      try {
+        const payload = JSON.parse(atob(token!.split('.')[1]));
+        const name = payload.displayName || payload.name || 'Forge Admin';
+        setUserName(name);
+        setUserInitials(name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase());
+      } catch {}
+    }
+  }, [router]);
+
+  function logout() {
+    localStorage.removeItem('bclaw_token');
+    router.replace('/login');
+  }
 
   return (
-    <aside className="flex h-screen w-60 flex-col border-r bg-card">
-      <div className="flex h-16 items-center border-b px-6">
-        <span className="text-xl font-bold tracking-tight text-primary">🦀 bclaw</span>
+    <aside
+      className={cn(
+        'flex h-screen flex-col border-r transition-all duration-200 relative',
+        'border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]',
+        collapsed ? 'w-14' : 'w-52',
+      )}
+    >
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] transition-colors"
+      >
+        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+      </button>
+
+      {/* Logo mark */}
+      <div className={cn(
+        'flex h-14 items-center border-b border-[rgb(var(--border))]',
+        collapsed ? 'justify-center px-0' : 'px-4',
+      )}>
+        <div className="flex items-center gap-2.5">
+          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-400 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-white">FG</span>
+          </div>
+          {!collapsed && (
+            <span className="text-sm font-semibold tracking-wide text-[rgb(var(--text-primary))]">
+              Forge
+            </span>
+          )}
+        </div>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4">
-        {navItems.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              'flex items-center gap-3 px-6 py-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
-              pathname === href
-                ? 'bg-accent text-accent-foreground'
-                : 'text-muted-foreground',
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3 space-y-4">
+        {navSections.map((section, si) => (
+          <div key={si}>
+            {si > 0 && (
+              <div className="mx-3 mb-3 border-t border-[rgb(var(--border-subtle))]" />
             )}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </Link>
+            {section.items.map(({ href, label, icon: Icon }) => {
+              const active = pathname === href || (href !== '/' && pathname.startsWith(href));
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  title={collapsed ? label : undefined}
+                  className={cn(
+                    'flex items-center gap-3 mx-2 px-2.5 py-2 rounded-lg text-sm transition-all',
+                    active
+                      ? 'bg-[rgba(124,58,237,0.18)] text-violet-400 shadow-[0_0_12px_rgba(124,58,237,0.15)]'
+                      : 'text-[rgb(var(--text-secondary))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--text-primary))]',
+                    collapsed ? 'justify-center' : '',
+                  )}
+                >
+                  <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-violet-400' : '')} />
+                  {!collapsed && <span className="font-medium truncate">{label}</span>}
+                </Link>
+              );
+            })}
+          </div>
         ))}
       </nav>
-      <div className="border-t p-4 text-xs text-muted-foreground">bclaw v0.1.0</div>
+
+      {/* User profile */}
+      <div className={cn(
+        'flex items-center border-t border-[rgb(var(--border))] p-3',
+        collapsed ? 'justify-center' : 'gap-2.5',
+      )}>
+        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shrink-0">
+          <span className="text-[10px] font-bold text-white">{userInitials}</span>
+        </div>
+        {!collapsed && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-[rgb(var(--text-primary))] truncate">{userName}</p>
+              <p className="text-[10px] text-[rgb(var(--text-muted))]">v0.1.0</p>
+            </div>
+            <button
+              onClick={logout}
+              title="Sign out"
+              className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))] transition-colors shrink-0"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
     </aside>
   );
 }
+

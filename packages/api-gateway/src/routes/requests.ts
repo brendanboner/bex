@@ -80,7 +80,11 @@ export async function requestRoutes(
     if (!userId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
     const requests = await prisma.agentRequest.findMany({
       where: { userId },
-      select: { id: true, agentId: true, status: true, input: true, channel: true, createdAt: true },
+      select: {
+        id: true, agentId: true, status: true, input: true, output: true,
+        errorMsg: true, channel: true, createdAt: true, completedAt: true,
+        agent: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });

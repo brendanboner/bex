@@ -106,6 +106,7 @@ export class SkillRegistryService {
         capabilities: input.capabilities,
         tools: input.tools as Prisma.InputJsonValue,
         systemPrompt: input.systemPrompt ?? null,
+        requiredCredentialType: input.requiredCredentialType ?? null,
       },
       select: { id: true },
     });

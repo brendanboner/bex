@@ -7,7 +7,7 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
   // GET /agents
   app.get('/agents', async (_request, reply) => {
     const agents = await prisma.agent.findMany({
-      select: { id: true, name: true, description: true, status: true, llmProvider: true, llmModel: true, createdAt: true },
+      select: { id: true, name: true, description: true, status: true, llmProvider: true, llmModel: true, createdAt: true, charter: { select: { posture: true } } },
       orderBy: { createdAt: 'desc' },
     });
     return reply.send(ok(agents));

@@ -24,6 +24,15 @@ enum CredentialScope {
   SYSTEM
 }
 
+enum CredentialType {
+  API_TOKEN          // Single bearer/header token or API key
+  USERNAME_PASSWORD  // username + password (e.g. XCO REST API, web UI login)
+  SSH_KEY            // privateKey + optional passphrase (for SSH executor)
+  BASIC_AUTH         // username + password sent as HTTP Basic Auth
+  OAUTH2_CLIENT      // clientId + clientSecret (+ optional tokenUrl)
+  USER_PREFERENCE    // Arbitrary key/value preferences usable by agents
+}
+
 enum ApprovalStatus {
   PENDING
   APPROVED
@@ -212,6 +221,10 @@ model Skill {
   // System prompt fragment injected when this skill is active
   systemPrompt String?
 
+  // What type of credential agents need when using this skill
+  // Matches CredentialType enum: API_TOKEN | USERNAME_PASSWORD | SSH_KEY | BASIC_AUTH | OAUTH2_CLIENT | USER_PREFERENCE
+  requiredCredentialType String?
+
   knowledgeSources KnowledgeSource[]
   agentSkills      AgentSkill[]
 
@@ -258,6 +271,9 @@ model Credential {
   name            String
   description     String?
   scope           CredentialScope
+
+  // What kind of secret this is — determines fields inside encryptedValue
+  credentialType  CredentialType  @default(API_TOKEN)
 
   // AES-256-GCM encrypted JSON blob (key management in credential-vault service)
   encryptedValue  String

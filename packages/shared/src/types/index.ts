@@ -1,15 +1,15 @@
 import type { z } from 'zod';
 
-import type {
-  CreateAgentRequestSchema,
-  CreateAgentSchema,
-  CreateCredentialSchema,
-  CreateScheduledJobSchema,
-  CreateSkillSchema,
-  EndpointSchema,
-  LlmConfigSchema,
-  PersonaSchema,
-  SkillToolSchema,
+import {
+  type CreateAgentRequestSchema,
+  type CreateAgentSchema,
+  type CreateCredentialSchema,
+  type CreateScheduledJobSchema,
+  type CreateSkillSchema,
+  type EndpointSchema,
+  type LlmConfigSchema,
+  type PersonaSchema,
+  type SkillToolSchema,
 } from '../schemas/index.js';
 
 // ─── Derived types from Zod schemas ───────────────────────────────────────────
@@ -93,18 +93,21 @@ export type ApprovalPayload = {
 
 export type CredentialValues = Record<string, string>;
 
+/** Describes how a credential's value should be injected into an HTTP request. */
+export type CredentialInjection =
+  | { type: 'bearer' }
+  | { type: 'header'; key: string }
+  | { type: 'query'; key: string }
+  | { type: 'basic' }
+  | { type: 'auto' }; // auto-infer from credentialType (API_TOKEN→bearer, USERNAME_PASSWORD→basic, etc.)
+
 export type ProxiedRequestConfig = {
   credentialId: string;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
   headers?: Record<string, string>;
   body?: unknown;
-  // How the credential is injected: header key, query param, or bearer token
-  injection:
-    | { type: 'bearer' }
-    | { type: 'header'; key: string }
-    | { type: 'query'; key: string }
-    | { type: 'basic' };
+  injection: CredentialInjection;
 };
 
 export type ProxiedRequestResult = {
