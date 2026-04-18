@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, createWriteStream } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, closeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execSync, spawnSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -145,16 +145,17 @@ export function spawnService(
   cwd: string,
 ): number | undefined {
   mkdirSync(resolve(cwd, 'logs'), { recursive: true });
-  const logStream = createWriteStream(logFile, { flags: 'w' });
+  // Open synchronously so the fd is valid before spawn reads it
+  const fd = openSync(logFile, 'w');
   const child = spawn('node', [script], {
     detached: true,
-    stdio: ['ignore', logStream, logStream],
+    stdio: ['ignore', fd, fd],
     env: { ...process.env, ...env },
     cwd,
   });
   child.unref();
-  // close write stream in parent after child inherits it
-  logStream.on('open', () => logStream.close());
+  // Parent can close its copy — child has inherited its own fd
+  closeSync(fd);
   return child.pid;
 }
 
@@ -165,15 +166,15 @@ export function spawnDashboard(
   port = 3000,
 ): number | undefined {
   mkdirSync(resolve(dashDir, '..', '..', 'logs'), { recursive: true });
-  const logStream = createWriteStream(logFile, { flags: 'w' });
+  const fd = openSync(logFile, 'w');
   const child = spawn('node_modules/.bin/next', ['dev', '-p', String(port)], {
     detached: true,
-    stdio: ['ignore', logStream, logStream],
+    stdio: ['ignore', fd, fd],
     env: { ...process.env, NODE_ENV: 'development' },
     cwd: dashDir,
   });
   child.unref();
-  logStream.on('open', () => logStream.close());
+  closeSync(fd);
   return child.pid;
 }
 

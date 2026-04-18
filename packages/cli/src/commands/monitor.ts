@@ -1,4 +1,5 @@
 import { execSync, spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { findProjectRoot, printError, printSuccess } from '../utils.js';
@@ -70,13 +71,20 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
   }
 
   const logsDir = resolve(root, 'logs');
+
+  // Ensure log dir and files exist so tail -f works even before services start
+  mkdirSync(logsDir, { recursive: true });
   const logs = {
     api:      resolve(logsDir, 'api-gateway.log'),
     registry: resolve(logsDir, 'skill-registry.log'),
     admin:    resolve(logsDir, 'admin-api.log'),
     worker:   resolve(logsDir, 'worker.log'),
     dashboard:resolve(logsDir, 'dashboard.log'),
+    telegram: resolve(logsDir, 'telegram-bot.log'),
   };
+  for (const f of Object.values(logs)) {
+    if (!existsSync(f)) writeFileSync(f, '');
+  }
 
   // Kill stale session if present
   if (sessionExists()) {
@@ -111,9 +119,11 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
   run(`tmux split-window -v -t "${SESSION}:0.1"`);
   run(`tmux send-keys -t "${SESSION}:0.3" "tail -n 50 -f '${logs.worker}'" Enter`);
 
-  // Window 1 — Dashboard log (full width)
-  run(`tmux new-window -t "${SESSION}" -n dashboard`);
+  // Window 1 — Dashboard + Telegram bot logs side by side
+  run(`tmux new-window -t "${SESSION}" -n bots`);
   run(`tmux send-keys -t "${SESSION}:1" "tail -n 50 -f '${logs.dashboard}'" Enter`);
+  run(`tmux split-window -h -t "${SESSION}:1"`);
+  run(`tmux send-keys -t "${SESSION}:1.1" "tail -n 50 -f '${logs.telegram}'" Enter`);
 
   // Return to services window
   run(`tmux select-window -t "${SESSION}:0"`);
