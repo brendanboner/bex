@@ -60,7 +60,7 @@ export function Sidebar() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('bclaw_token');
+      const token = localStorage.getItem('bforge_token');
       if (!token) router.replace('/login');
       // Parse display name from JWT if available
       try {
@@ -73,7 +73,7 @@ export function Sidebar() {
   }, [router]);
 
   function logout() {
-    localStorage.removeItem('bclaw_token');
+    localStorage.removeItem('bforge_token');
     router.replace('/login');
   }
 

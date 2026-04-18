@@ -38,7 +38,7 @@ gen_secret() { openssl rand -hex "${1:-32}"; }
 
 wait_for_postgres() {
   local max=30 i=0
-  while ! PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bclaw -d bclaw -c "SELECT 1" >/dev/null 2>&1; do
+  while ! PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bforge -d bforge -c "SELECT 1" >/dev/null 2>&1; do
     i=$((i+1))
     [ "$i" -ge "$max" ] && { err "Postgres did not become ready in time."; exit 1; }
     printf "."
@@ -86,7 +86,7 @@ LOG_LEVEL=info
 # ─── Database ────────────────────────────────────────────────────────────────
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 REDIS_PASSWORD=${REDIS_PASSWORD}
-DATABASE_URL=postgresql://bclaw:${POSTGRES_PASSWORD}@localhost:5432/bclaw?schema=public
+DATABASE_URL=postgresql://bforge:${POSTGRES_PASSWORD}@localhost:5432/bforge?schema=public
 REDIS_URL=redis://:${REDIS_PASSWORD}@localhost:6379
 
 # ─── Security ────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_APPROVAL_CHAT_ID=
 TEAMS_BOT_ID=
 TEAMS_BOT_PASSWORD=
-BCLAW_BOT_API_KEY=
+BFORGE_BOT_API_KEY=
 EOF
   success ".env created with auto-generated secrets"
 else
@@ -156,7 +156,7 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-forge-dev-postgres}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-forge-dev-redis}"
 
 # Check if postgres is already up
-if PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bclaw -d bclaw -c "SELECT 1" >/dev/null 2>&1; then
+if PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bforge -d bforge -c "SELECT 1" >/dev/null 2>&1; then
   success "Postgres already running"
   POSTGRES_WAS_RUNNING=true
 else

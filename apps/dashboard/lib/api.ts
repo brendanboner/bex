@@ -5,7 +5,7 @@ const ADMIN_URL = process.env['NEXT_PUBLIC_ADMIN_API_URL'] ?? 'http://localhost:
 
 function getToken(): string {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('bclaw_token') ?? '';
+    return localStorage.getItem('bforge_token') ?? '';
   }
   return '';
 }

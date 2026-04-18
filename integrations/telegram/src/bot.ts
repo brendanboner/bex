@@ -5,7 +5,7 @@ import { fetch } from 'undici';
 const BOT_TOKEN = requireEnv('TELEGRAM_BOT_TOKEN');
 const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
 const DEFAULT_AGENT_ID = requireEnv('TELEGRAM_DEFAULT_AGENT_ID');
-const BOT_API_KEY = requireEnv('BCLAW_BOT_API_KEY');
+const BOT_API_KEY = requireEnv('BFORGE_BOT_API_KEY');
 
 interface SessionData {
   pendingRequestId?: string;
@@ -20,7 +20,7 @@ bot.use(session({ initial: (): SessionData => ({}) }));
 // /start command
 bot.command('start', async (ctx) => {
   await ctx.reply(
-    '👋 Welcome to bclaw!\n\nSend me any message and I\'ll route it to your agent.\nUse /status to check a running request.',
+    '👋 Welcome to Forge!\n\nSend me any message and I\'ll route it to your agent.\nUse /status to check a running request.',
   );
 });
 

@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { fetch } from 'undici';
 
-const BCLAW_API_URL = requireEnv('BCLAW_API_URL');
+const BFORGE_API_URL = requireEnv('BFORGE_API_URL');
 
 export function buildWebhookServer(): ReturnType<typeof Fastify> {
   const app = Fastify({ logger: true });
@@ -44,7 +44,7 @@ export function buildWebhookServer(): ReturnType<typeof Fastify> {
     const action = command === 'APPROVE' ? 'approve' : 'deny';
 
     try {
-      const res = await fetch(`${BCLAW_API_URL}/requests/${requestId}/${action}`, {
+      const res = await fetch(`${BFORGE_API_URL}/requests/${requestId}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from }),

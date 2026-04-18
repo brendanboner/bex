@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: bclaw
-      POSTGRES_USER: bclaw
+      POSTGRES_DB: bforge
+      POSTGRES_USER: bforge
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bclaw"]
+      test: ["CMD-SHELL", "pg_isready -U bforge"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -50,7 +50,7 @@ services:
       dockerfile: packages/api-gateway/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://bclaw:${POSTGRES_PASSWORD}@postgres:5432/bclaw
+      DATABASE_URL: postgresql://bforge:${POSTGRES_PASSWORD}@postgres:5432/bforge
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY}
@@ -75,7 +75,7 @@ services:
       dockerfile: packages/scheduler/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://bclaw:${POSTGRES_PASSWORD}@postgres:5432/bclaw
+      DATABASE_URL: postgresql://bforge:${POSTGRES_PASSWORD}@postgres:5432/bforge
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -101,7 +101,7 @@ services:
       dockerfile: packages/dashboard-api/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://bclaw:${POSTGRES_PASSWORD}@postgres:5432/bclaw
+      DATABASE_URL: postgresql://bforge:${POSTGRES_PASSWORD}@postgres:5432/bforge
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
@@ -137,7 +137,7 @@ services:
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_DEFAULT_AGENT_ID: ${TELEGRAM_DEFAULT_AGENT_ID}
-      BCLAW_BOT_API_KEY: ${BCLAW_BOT_API_KEY}
+      BFORGE_BOT_API_KEY: ${BFORGE_BOT_API_KEY}
       API_GATEWAY_URL: http://api-gateway:4000
     depends_on:
       - api-gateway
@@ -153,7 +153,7 @@ services:
       TEAMS_BOT_ID: ${TEAMS_BOT_ID}
       TEAMS_BOT_PASSWORD: ${TEAMS_BOT_PASSWORD}
       TEAMS_DEFAULT_AGENT_ID: ${TEAMS_DEFAULT_AGENT_ID:-}
-      BCLAW_BOT_API_KEY: ${BCLAW_BOT_API_KEY}
+      BFORGE_BOT_API_KEY: ${BFORGE_BOT_API_KEY}
       API_GATEWAY_URL: http://api-gateway:4000
     ports:
       - "3978:3978"
@@ -172,7 +172,7 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
       TWILIO_WHATSAPP_FROM: ${TWILIO_WHATSAPP_FROM}
       WHATSAPP_APPROVAL_TO: ${WHATSAPP_APPROVAL_TO}
-      BCLAW_API_URL: http://api-gateway:4000
+      BFORGE_API_URL: http://api-gateway:4000
     ports:
       - "3980:3980"
     depends_on:

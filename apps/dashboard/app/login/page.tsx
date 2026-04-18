@@ -28,7 +28,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      localStorage.setItem('bclaw_token', json.data.token);
+      localStorage.setItem('bforge_token', json.data.token);
       router.replace('/');
     } catch {
       setError('Could not reach the API gateway. Is Forge running?');

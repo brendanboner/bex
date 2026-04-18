@@ -16,7 +16,7 @@ function requireEnv(name: string): string {
 }
 
 const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
-const BOT_API_KEY = requireEnv('BCLAW_BOT_API_KEY');
+const BOT_API_KEY = requireEnv('BFORGE_BOT_API_KEY');
 // Default agent is optional — if absent, user must pick with /agents
 const DEFAULT_AGENT_ID = process.env['TEAMS_DEFAULT_AGENT_ID'] ?? '';
 
