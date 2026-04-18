@@ -377,6 +377,8 @@ const keepAlive = setInterval(() => {/* keepalive */}, 60_000);
 async function startPolling(): Promise<void> {
   let delayMs = 0;
   let commandsRegistered = false;
+  let wasOffline = false;    // true only after a real non-409 failure
+  let consecutiveConflicts = 0;
 
   while (true) {
     if (delayMs > 0) {
@@ -387,7 +389,7 @@ async function startPolling(): Promise<void> {
     console.info('[telegram] Bot polling starting...');
 
     try {
-      // Register commands with Telegram on first successful start
+      // Register commands once on the first successful connection
       if (!commandsRegistered) {
         await bot.api.setMyCommands([
           { command: 'start',  description: 'Welcome message & command list' },
@@ -399,10 +401,12 @@ async function startPolling(): Promise<void> {
           { command: 'cancel', description: 'Clear the current pending request' },
         ]);
         commandsRegistered = true;
+        consecutiveConflicts = 0;
         console.info('[telegram] Commands registered with Telegram.');
-        // Notify all known chats that the agent is back online (on restart)
-        if (delayMs > 0 && knownChatIds.size > 0) {
-          await broadcastMessage('🔄 *Forge agent restarted* and is back online.');
+        // Only notify if we were genuinely offline (not a 409 startup race)
+        if (wasOffline && knownChatIds.size > 0) {
+          await broadcastMessage('🔄 *Forge agent* is back online.');
+          wasOffline = false;
         }
       }
 
@@ -415,18 +419,20 @@ async function startPolling(): Promise<void> {
     } catch (err) {
       const msg = String(err);
       if (msg.includes('409') || msg.includes('Conflict')) {
-        console.warn('[telegram] 409 Conflict — another polling session still active. Waiting 35s...');
-        if (knownChatIds.size > 0) {
-          try { await broadcastMessage('⚠️ *Forge agent* detected a conflict and is restarting...'); } catch { /* ignore */ }
+        consecutiveConflicts++;
+        console.warn(`[telegram] 409 Conflict (attempt ${consecutiveConflicts}) — another session active. Waiting 35s...`);
+        // 409 is a startup race condition — not an outage. Never broadcast this.
+        // If it persists for a very long time (5+ attempts), log a warning only.
+        if (consecutiveConflicts === 5) {
+          console.error('[telegram] 409 Conflict persisting — possible stale Telegram session. Check for duplicate bot processes.');
         }
-        // Stop any lingering internal state before retry
         try { await bot.stop(); } catch { /* ignore */ }
         delayMs = 35_000;
       } else {
+        // Real error — bot was online and crashed
         console.error('[telegram] bot.start() error:', err);
-        if (knownChatIds.size > 0) {
-          try { await broadcastMessage('⚠️ *Forge agent* encountered an error and is restarting...'); } catch { /* ignore */ }
-        }
+        wasOffline = true;
+        consecutiveConflicts = 0;
         try { await bot.stop(); } catch { /* ignore */ }
         delayMs = 10_000;
       }
