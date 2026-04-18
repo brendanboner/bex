@@ -7,14 +7,31 @@ import { createAgentQueue } from './queue.js';
 const prisma = new PrismaClient();
 const queue = createAgentQueue();
 
-// System user ID used for scheduled job requests
-const SYSTEM_USER_ID = process.env['SYSTEM_USER_ID'] ?? 'system';
+// Cached real DB id of the system user (externalId = 'system')
+let _systemUserId: string | null = null;
+
+async function resolveSystemUserId(): Promise<string | null> {
+  if (_systemUserId) return _systemUserId;
+  const user = await prisma.user.findUnique({ where: { externalId: 'system' } });
+  if (user) {
+    _systemUserId = user.id;
+    return _systemUserId;
+  }
+  return null;
+}
 
 /**
  * Cron scheduler loop — runs every minute and enqueues any jobs due for execution.
  */
 export async function runCronLoop(): Promise<void> {
   const now = new Date();
+
+  const systemUserId = await resolveSystemUserId();
+  if (!systemUserId) {
+    // DB not yet seeded — skip quietly until system user exists
+    console.warn('[cron] System user not found in DB — skipping tick (run init.sh to initialise)');
+    return;
+  }
 
   const jobs = await prisma.scheduledJob.findMany({
     where: {
@@ -28,7 +45,7 @@ export async function runCronLoop(): Promise<void> {
     const request = await prisma.agentRequest.create({
       data: {
         agentId: job.agentId,
-        userId: SYSTEM_USER_ID,
+        userId: systemUserId,
         status: 'QUEUED',
         input: job.input,
         channel: 'api',
@@ -39,7 +56,7 @@ export async function runCronLoop(): Promise<void> {
     const jobData: AgentJobData = {
       requestId: request.id,
       agentId: job.agentId,
-      userId: SYSTEM_USER_ID,
+      userId: systemUserId,
       input: job.input,
       channel: 'scheduler',
     };

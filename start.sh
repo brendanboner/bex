@@ -12,19 +12,21 @@ echo "  ║    Forge — Enterprise Agentic Platform     ║"
 echo "  ╚════════════════════════════════════════════╝"
 echo ""
 
+# Auto-init on first run
 if [ ! -f .env ]; then
-  echo "  ✗ .env not found. Run: bforge init"
-  exit 1
+  echo "  First run — running forge init..."
+  bash "$ROOT/init.sh"
 fi
 
 set -a && source .env && set +a
 
 # Kill any existing processes on our ports
-for PORT_NUM in 4000 4001 5050 3000; do
-  for PID in $(lsof -ti ":$PORT_NUM" 2>/dev/null || true); do
-    kill "$PID" 2>/dev/null || true
-  done
-done
+stop_port() {
+  local pids
+  pids=$(lsof -ti ":$1" 2>/dev/null || true)
+  [ -n "$pids" ] && echo "$pids" | xargs kill 2>/dev/null || true
+}
+stop_port 4000; stop_port 4001; stop_port 5050; stop_port 3000
 sleep 1
 
 echo "  → Starting Skill Registry (port 5050)..."
