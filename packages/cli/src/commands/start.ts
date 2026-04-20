@@ -26,7 +26,7 @@ export async function startCommand(args: string[] = []): Promise<void> {
 
   // Auto-init on first run
   if (!existsSync(resolve(root, '.env'))) {
-    console.log(chalk.cyan('  First run detected — running bex init...'));
+    console.log(chalk.magenta('  First run detected — running bex init...'));
     const { initCommand } = await import('./init.js');
     await initCommand();
   }
@@ -66,7 +66,7 @@ export async function startCommand(args: string[] = []): Promise<void> {
 
   // ── Full startup ──────────────────────────────────────────────────────────
   console.log('');
-  console.log(chalk.bold.cyan('  Forge — Starting services…'));
+  console.log(chalk.bold.magenta('  Forge — Starting services…'));
   console.log('');
 
   const infraSpinner = ora('Starting infrastructure (postgres, redis)…').start();
@@ -126,10 +126,10 @@ export async function startCommand(args: string[] = []): Promise<void> {
 
   console.log('');
   console.log(chalk.bold('  ┌──────────────────────────────────────────────────┐'));
-  console.log(chalk.bold('  │') + chalk.cyan('  Dashboard     →  http://localhost:3000           ') + chalk.bold('│'));
-  console.log(chalk.bold('  │') + chalk.cyan('  API Gateway   →  http://localhost:4000           ') + chalk.bold('│'));
-  console.log(chalk.bold('  │') + chalk.cyan('  Admin API     →  http://localhost:4001           ') + chalk.bold('│'));
-  console.log(chalk.bold('  │') + chalk.cyan('  Skill Registry→  http://localhost:5050           ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.magenta('  Dashboard     →  http://localhost:3000           ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.magenta('  API Gateway   →  http://localhost:4000           ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.magenta('  Admin API     →  http://localhost:4001           ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.magenta('  Skill Registry→  http://localhost:5050           ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
   console.log(chalk.bold('  │') + chalk.dim('  Login:  admin@bex.local  /  bex-admin-2026       ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));

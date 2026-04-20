@@ -6,11 +6,26 @@
  * local skill registry.
  *
  * Usage: npx tsx scripts/seed-xciq-full.ts
+ *
+ * Credentials (in priority order):
+ *   1. XCIQ_USERNAME + XCIQ_PASSWORD env vars
+ *   2. Any existing USERNAME_PASSWORD credential in the DB whose name contains "xiq" or "extremecloudiq"
+ *   3. Any existing USERNAME_PASSWORD credential in the DB
+ *
+ * Set env vars to avoid interactive prompts:
+ *   XCIQ_USERNAME=you@company.com XCIQ_PASSWORD=yourpass npx tsx scripts/seed-xciq-full.ts
  */
 import { PrismaClient } from '@prisma/client';
 import { fetch } from 'undici';
 import { buildSkillsFromOpenApi } from '../packages/skill-engine/src/openapi-skill-builder.js';
 import { CredentialVaultService } from '../packages/credential-vault/src/service.js';
+import { config } from 'dotenv';
+import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+
+// Load .env if present
+const envPath = resolve(process.cwd(), '.env');
+if (existsSync(envPath)) config({ path: envPath });
 
 const prisma = new PrismaClient();
 const vault = new CredentialVaultService(prisma);
@@ -22,7 +37,11 @@ const DOMAIN_PREFIX   = 'extremecloudiq';
 const REGISTRY_URL    = process.env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050';
 const REGISTRY_TOKEN  = process.env['SKILL_REGISTRY_TOKEN'] ?? 'forge-registry-dev';
 const TG_BOT_TOKEN    = process.env['TELEGRAM_BOT_TOKEN'] ?? '';
-const TG_CHAT_ID      = '6878129583';
+const TG_CHAT_ID      = process.env['TELEGRAM_APPROVAL_CHAT_ID'] ?? '';
+
+// Credentials from env (preferred) or discovered from DB
+const XCIQ_USERNAME   = process.env['XCIQ_USERNAME'] ?? '';
+const XCIQ_PASSWORD   = process.env['XCIQ_PASSWORD'] ?? '';
 
 // Tags to consolidate into fewer meaningful skills instead of one-per-tag
 const TAG_GROUPS: Record<string, string[]> = {
@@ -84,26 +103,55 @@ async function main() {
 
   console.log(`  Found ${Object.keys((spec.paths ?? {}) as Record<string, unknown>).length} paths`);
 
-  // ── 2. Find/create the XCIQ credential ───────────────────────────────────
+  // ── 2. Resolve the XCIQ credential ───────────────────────────────────────
   let credentialId: string;
-  const existingCred = await prisma.credential.findFirst({
-    where: { name: 'ExtremeCloud IQ - bbonner' },
-    select: { id: true },
-  });
-  if (existingCred) {
-    credentialId = existingCred.id;
-    console.log(`✔ Using existing credential: ${credentialId}`);
-  } else {
-    const cred = await vault.create({
-      name: 'ExtremeCloud IQ - bbonner',
-      description: 'ExtremeCloud IQ credentials for bbonner@extremenetworks.com',
-      scope: 'SYSTEM',
-      credentialType: 'USERNAME_PASSWORD',
-      value: { username: 'bbonner@extremenetworks.com', password: 'caExtreme2023' },
-      allowedAgentPermissions: ['xciq:read', 'xciq:write', '*'],
+
+  if (XCIQ_USERNAME && XCIQ_PASSWORD) {
+    // Env vars provided — upsert a credential
+    const credName = `ExtremeCloud IQ (${XCIQ_USERNAME})`;
+    const existingCred = await prisma.credential.findFirst({
+      where: { name: credName },
+      select: { id: true },
     });
-    credentialId = cred.id;
-    console.log(`✔ Created credential: ${credentialId}`);
+    if (existingCred) {
+      credentialId = existingCred.id;
+      console.log(`✔ Using existing credential: ${credentialId}`);
+    } else {
+      const cred = await vault.create({
+        name: credName,
+        description: `ExtremeCloud IQ credentials for ${XCIQ_USERNAME}`,
+        scope: 'SYSTEM',
+        credentialType: 'USERNAME_PASSWORD',
+        value: { username: XCIQ_USERNAME, password: XCIQ_PASSWORD },
+        allowedAgentPermissions: ['xciq:read', 'xciq:write', '*'],
+      });
+      credentialId = cred.id;
+      console.log(`✔ Created credential: ${credentialId}`);
+    }
+  } else {
+    // No env vars — try to find any XIQ-related credential already in DB
+    const existingCred = await prisma.credential.findFirst({
+      where: {
+        credentialType: 'USERNAME_PASSWORD',
+        OR: [
+          { name: { contains: 'xiq', mode: 'insensitive' } },
+          { name: { contains: 'extremecloudiq', mode: 'insensitive' } },
+          { name: { contains: 'ExtremeCloud IQ', mode: 'insensitive' } },
+          { description: { contains: 'extremecloudiq.com', mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, name: true },
+    });
+    if (existingCred) {
+      credentialId = existingCred.id;
+      console.log(`✔ Using existing credential "${existingCred.name}": ${credentialId}`);
+    } else {
+      console.error('❌ No XIQ credential found.\n');
+      console.error('   Either set env vars:  XCIQ_USERNAME=you@company.com XCIQ_PASSWORD=yourpass');
+      console.error('   Or add a credential in the dashboard (Vault → New Credential, type: USERNAME_PASSWORD,');
+      console.error('   name containing "XIQ" or "ExtremeCloud IQ") before running this script.');
+      process.exit(1);
+    }
   }
 
   // ── 3. Get system owner ───────────────────────────────────────────────────

@@ -78,10 +78,10 @@ export function composeCommand(args: string[], projectRoot: string): ReturnType<
 
 export function printBanner(): void {
   console.log('');
-  console.log(chalk.bold.cyan('╔══════════════════════════════════════════════════════╗'));
-  console.log(chalk.bold.cyan('║') + chalk.bold.white('   Forge — Enterprise Agentic Platform               ') + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('║') + chalk.dim('   Autonomous agents. Domain skills. Secure by design.') + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('╚══════════════════════════════════════════════════════╝'));
+  console.log(chalk.bold.magenta('╔══════════════════════════════════════════════════════╗'));
+  console.log(chalk.bold.magenta('║') + chalk.bold.white('   Forge — Enterprise Agentic Platform               ') + chalk.bold.magenta('║'));
+  console.log(chalk.bold.magenta('║') + chalk.dim('   Autonomous agents. Domain skills. Secure by design.') + chalk.bold.magenta('║'));
+  console.log(chalk.bold.magenta('╚══════════════════════════════════════════════════════╝'));
   console.log('');
 }
 

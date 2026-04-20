@@ -2,8 +2,14 @@ import { input, password, select, confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import { randomBytes } from 'node:crypto';
-import { existsSync, writeFileSync } from 'node:fs';
-import { printBanner, printSuccess, printError, printWarning, findProjectRoot, writeEnv, waitForService, composeCommand, isDockerRunning } from '../utils.js';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  printBanner, printSuccess, printError, printWarning,
+  findProjectRoot, writeEnv, waitForService,
+  isDockerRunning, ensureInfraRunning, ensureDashboardBuilt, startLocalServices,
+} from '../utils.js';
 
 const LLM_MODELS: Record<string, string[]> = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
@@ -68,7 +74,8 @@ export async function initCommand(): Promise<void> {
 
   const root = findProjectRoot();
 
-  console.log(chalk.bold('Step 1 of 4: LLM Provider\n'));
+  // ── Step 1: LLM ─────────────────────────────────────────────────────────
+  console.log(chalk.bold('Step 1 of 5 — LLM Provider\n'));
 
   const llmProvider = await select({
     message: 'LLM provider:',
@@ -87,12 +94,10 @@ export async function initCommand(): Promise<void> {
   await validateLlmKey(llmProvider, llmApiKey);
 
   const modelChoices = (LLM_MODELS[llmProvider] ?? ['gpt-4o']).map((m) => ({ name: m, value: m }));
-  const llmModel = await select({
-    message: 'Default model:',
-    choices: modelChoices,
-  });
+  const llmModel = await select({ message: 'Default model:', choices: modelChoices });
 
-  console.log('\n' + chalk.bold('Step 2 of 4: Interface Channel\n'));
+  // ── Step 2: Interface Channel ────────────────────────────────────────────
+  console.log('\n' + chalk.bold('Step 2 of 5 — Interface Channel\n'));
 
   const channel = await select({
     message: 'Primary interface channel:',
@@ -107,17 +112,45 @@ export async function initCommand(): Promise<void> {
   const channelEnv: Record<string, string> = {};
   if (channel === 'telegram') {
     channelEnv['TELEGRAM_BOT_TOKEN'] = await password({ message: 'Telegram Bot Token:' });
-    channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] = await input({ message: 'Approval Chat ID:' });
+    channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] = await input({ message: 'Approval Chat ID (your Telegram user ID):' });
   } else if (channel === 'teams') {
     channelEnv['TEAMS_WEBHOOK_URL'] = await input({ message: 'Teams Incoming Webhook URL:' });
   } else if (channel === 'whatsapp') {
     channelEnv['TWILIO_ACCOUNT_SID'] = await input({ message: 'Twilio Account SID:' });
     channelEnv['TWILIO_AUTH_TOKEN'] = await password({ message: 'Twilio Auth Token:' });
-    channelEnv['TWILIO_WHATSAPP_FROM'] = await input({ message: 'WhatsApp From number (e.g. whatsapp:+14155238886):' });
+    channelEnv['TWILIO_WHATSAPP_FROM'] = await input({ message: 'WhatsApp From (e.g. whatsapp:+14155238886):' });
     channelEnv['WHATSAPP_APPROVAL_TO'] = await input({ message: 'Approval destination number:' });
   }
 
-  console.log('\n' + chalk.bold('Step 3 of 4: Admin Account\n'));
+  // ── Step 3: Domain integrations (XIQ / XCO) ──────────────────────────────
+  console.log('\n' + chalk.bold('Step 3 of 5 — Network Integrations\n'));
+  console.log(chalk.dim('  These are optional. You can add credentials later via the dashboard Vault.\n'));
+
+  const domainEnv: Record<string, string> = {};
+
+  const setupXiq = await confirm({ message: 'Configure ExtremeCloud IQ (XIQ)?', default: false });
+  if (setupXiq) {
+    console.log(chalk.dim('  XIQ credentials are used to query your wireless network via the XIQ cloud API.\n'));
+    domainEnv['XCIQ_USERNAME'] = await input({
+      message: 'XIQ username (email):',
+      validate: (v: string) => v.includes('@') || 'Enter a valid email',
+    });
+    domainEnv['XCIQ_PASSWORD'] = await password({ message: 'XIQ password:' });
+  }
+
+  const setupXco = await confirm({ message: 'Configure ExtremeCloud Orchestrator (XCO)?', default: false });
+  if (setupXco) {
+    console.log(chalk.dim('  XCO is your on-premises fabric orchestrator. Provide the management IP/hostname.\n'));
+    domainEnv['XCO_HOST'] = await input({
+      message: 'XCO host (IP or hostname, e.g. 10.1.1.1):',
+      validate: (v: string) => v.trim().length > 0 || 'Required',
+    });
+    domainEnv['XCO_USERNAME'] = await input({ message: 'XCO admin username:' });
+    domainEnv['XCO_PASSWORD'] = await password({ message: 'XCO admin password:' });
+  }
+
+  // ── Step 4: Admin account ────────────────────────────────────────────────
+  console.log('\n' + chalk.bold('Step 4 of 5 — Admin Account\n'));
 
   const adminEmail = await input({
     message: 'Admin email:',
@@ -135,19 +168,24 @@ export async function initCommand(): Promise<void> {
     process.exit(1);
   }
 
-  console.log('\n' + chalk.bold('Step 4 of 4: Generating configuration\n'));
+  // ── Step 5: Generate config ───────────────────────────────────────────────
+  console.log('\n' + chalk.bold('Step 5 of 5 — Generating configuration\n'));
 
   const spinner = ora('Generating secrets...').start();
   const jwtSecret = randomBytes(32).toString('hex');
   const vaultKey = randomBytes(32).toString('hex');
   const pgPassword = randomBytes(16).toString('hex');
+  const redisPassword = randomBytes(16).toString('hex');
   spinner.succeed('Secrets generated');
 
   const envVars: Record<string, string> = {
     NODE_ENV: 'production',
     DATABASE_URL: `postgresql://forge:${pgPassword}@localhost:5432/forge?schema=public`,
     POSTGRES_PASSWORD: pgPassword,
-    REDIS_URL: 'redis://localhost:6379',
+    POSTGRES_USER: 'forge',
+    POSTGRES_DB: 'forge',
+    REDIS_URL: `redis://:${redisPassword}@localhost:6379`,
+    REDIS_PASSWORD: redisPassword,
     JWT_SECRET: jwtSecret,
     VAULT_ENCRYPTION_KEY: vaultKey,
     CREDENTIAL_VAULT_KEY: vaultKey,
@@ -157,30 +195,27 @@ export async function initCommand(): Promise<void> {
     AZURE_OPENAI_API_KEY: llmProvider === 'azure' ? llmApiKey : '',
     LLM_MODEL: llmModel,
     PORT: '4000',
+    ADMIN_API_PORT: '4001',
     DASHBOARD_PORT: '3000',
     KNOWLEDGE_DIR: './knowledge',
     KNOWLEDGE_BASE_DIR: './knowledge',
-    REGISTRY_URL: '',
+    SKILL_REGISTRY_URL: 'http://localhost:5050',
+    SKILL_REGISTRY_TOKEN: 'forge-registry-dev',
     LOG_LEVEL: 'info',
     CORS_ORIGIN: 'http://localhost:3000',
     RATE_LIMIT_MAX: '100',
+    DEFAULT_APPROVAL_CHANNEL: channel !== 'dashboard' ? channel : '',
     ...channelEnv,
-    // Store admin credentials for setup API call
+    ...domainEnv,
     FORGE_ADMIN_EMAIL: adminEmail,
     FORGE_ADMIN_PASSWORD: adminPassword,
-    FORGE_LLM_PROVIDER: llmProvider,
-    FORGE_LLM_API_KEY: llmApiKey,
-    FORGE_LLM_MODEL: llmModel,
     FORGE_CHANNEL: channel,
   };
 
   writeEnv(envVars);
   printSuccess('.env written');
 
-  const shouldStart = await confirm({
-    message: 'Start the platform now?',
-    default: true,
-  });
+  const shouldStart = await confirm({ message: 'Start the platform now?', default: true });
 
   if (!shouldStart) {
     console.log('\n' + chalk.dim('Run `bex start` when ready.'));
@@ -192,67 +227,79 @@ export async function initCommand(): Promise<void> {
     process.exit(1);
   }
 
+  // ── Start infrastructure (postgres + redis) ───────────────────────────────
   console.log('');
-  const startSpinner = ora('Starting services...').start();
-  const result = composeCommand(['up', '-d', '--build'], root);
-  if (result.status !== 0) {
-    startSpinner.fail('Docker Compose failed to start services');
-    process.exit(1);
+  const infraSpinner = ora('Starting infrastructure (postgres, redis)…').start();
+  try {
+    ensureInfraRunning(root);
+    infraSpinner.succeed('Infrastructure ready');
+  } catch {
+    infraSpinner.warn('Could not start Docker infra — ensure postgres + redis are running');
   }
+  await new Promise((r) => setTimeout(r, 2000));
+
+  // ── Run DB migrations ────────────────────────────────────────────────────
+  const migrateSpinner = ora('Running database migrations…').start();
+  const migrateEnv = { ...process.env, ...envVars };
+  const migrateResult = spawnSync(
+    'npx', ['prisma', 'migrate', 'deploy', '--schema', resolve(root, 'packages/shared/prisma/schema.prisma')],
+    { cwd: root, env: migrateEnv, stdio: 'pipe', encoding: 'utf-8' },
+  );
+  if (migrateResult.status !== 0) {
+    migrateSpinner.warn('Migration warning — check `bex logs` if services fail to start');
+    if (migrateResult.stderr) console.error(chalk.dim(migrateResult.stderr.slice(0, 400)));
+  } else {
+    migrateSpinner.succeed('Database migrations applied');
+  }
+
+  // ── Build dashboard (first time) ─────────────────────────────────────────
+  if (!existsSync(resolve(root, 'apps/dashboard/.next/standalone/apps/dashboard/server.js'))) {
+    const dashSpinner = ora('Building dashboard (first run, ~60s)…').start();
+    const result = spawnSync('npm', ['run', 'build', '--silent'], {
+      cwd: resolve(root, 'apps/dashboard'),
+      stdio: 'pipe',
+      encoding: 'utf-8',
+      env: migrateEnv,
+    });
+    if (result.status !== 0) {
+      dashSpinner.warn('Dashboard build had warnings — check `bex logs dashboard`');
+    } else {
+      ensureDashboardBuilt(root);
+      dashSpinner.succeed('Dashboard built');
+    }
+  }
+
+  // ── Start all app services via pm2 ───────────────────────────────────────
+  const startSpinner = ora('Starting services via pm2…').start();
+  startLocalServices(root);
   startSpinner.succeed('Services started');
 
-  console.log('');
+  await new Promise((r) => setTimeout(r, 5000));
+
+  // ── Wait for API ─────────────────────────────────────────────────────────
   const apiReady = await waitForService('http://localhost:4000/health', 'API Gateway', 90_000);
   if (!apiReady) {
-    printWarning('API Gateway did not start in time. Check logs with: bex logs api-gateway');
+    printWarning('API Gateway did not start in time. Check: bex logs api');
     return;
   }
 
-  // Run database migrations
-  const migrateSpinner = ora('Running database migrations...').start();
-  const migrateResult = composeCommand(['exec', 'api-gateway', 'node', 'scripts/init-db.sh'], root);
-  if (migrateResult.status !== 0) {
-    // Try direct
-    const { spawnSync } = await import('node:child_process');
-    const r = spawnSync('bash', [`${root}/scripts/init-db.sh`], { stdio: 'pipe', env: { ...process.env, ...envVars } });
-    if (r.status !== 0) {
-      migrateSpinner.warn('Migration script not found — run `npx prisma migrate deploy` manually');
-    } else {
-      migrateSpinner.succeed('Migrations applied');
-    }
-  } else {
-    migrateSpinner.succeed('Migrations applied');
-  }
-
-  // Bootstrap admin via setup API
-  const setupSpinner = ora('Creating admin account...').start();
+  // ── Bootstrap admin account ───────────────────────────────────────────────
+  const setupSpinner = ora('Creating admin account…').start();
   try {
     const { default: fetch } = await import('node-fetch');
     const res = await fetch('http://localhost:4000/admin/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        adminEmail,
-        adminPassword,
-        llmProvider,
-        llmApiKey,
-        llmModel,
-        channel,
-      }),
+      body: JSON.stringify({ adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, channel }),
     });
-
     const json = (await res.json()) as { ok: boolean; data?: { adminToken?: string }; error?: { message?: string } };
-
     if (res.status === 409) {
-      setupSpinner.info('Platform already configured');
+      setupSpinner.info('Platform already configured — admin account exists');
     } else if (json.ok) {
       setupSpinner.succeed('Admin account created');
-      // Store admin token in .env for convenience
-      if (json.data?.adminToken) {
-        writeEnv({ FORGE_ADMIN_TOKEN: json.data.adminToken });
-      }
+      if (json.data?.adminToken) writeEnv({ FORGE_ADMIN_TOKEN: json.data.adminToken });
     } else {
-      setupSpinner.warn(`Setup warning: ${json.error?.message ?? 'unknown'}`);
+      setupSpinner.warn(`Setup: ${json.error?.message ?? 'unknown'}`);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -261,12 +308,57 @@ export async function initCommand(): Promise<void> {
 
   await waitForService('http://localhost:3000', 'Dashboard', 60_000);
 
+  // ── Auto-seed domain skills if credentials were provided ──────────────────
+  if (setupXiq && domainEnv['XCIQ_USERNAME']) {
+    console.log('');
+    const xiqSpinner = ora('Building ExtremeCloud IQ skill set from OpenAPI spec…').start();
+    const xiqResult = spawnSync(
+      'npx', ['tsx', 'scripts/seed-xciq-full.ts'],
+      { cwd: root, env: { ...migrateEnv, ...domainEnv }, stdio: 'pipe', encoding: 'utf-8' },
+    );
+    if (xiqResult.status !== 0) {
+      xiqSpinner.warn('XIQ skill build had issues — run manually: npx tsx scripts/seed-xciq-full.ts');
+      if (xiqResult.stderr) console.error(chalk.dim(xiqResult.stderr.slice(0, 400)));
+    } else {
+      xiqSpinner.succeed('ExtremeCloud IQ skills built and linked to monitoring agent');
+    }
+  }
+
+  if (setupXco && domainEnv['XCO_HOST']) {
+    console.log('');
+    const xcoSpinner = ora('Building ExtremeCloud Orchestrator skill set…').start();
+    const xcoResult = spawnSync(
+      'node', ['scripts/setup-xco.js'],
+      { cwd: root, env: { ...migrateEnv, ...domainEnv }, stdio: 'pipe', encoding: 'utf-8' },
+    );
+    if (xcoResult.status !== 0) {
+      xcoSpinner.warn('XCO skill build had issues — run manually: node scripts/setup-xco.js');
+    } else {
+      xcoSpinner.succeed('ExtremeCloud Orchestrator skills built');
+    }
+  }
+
+  // ── Done ──────────────────────────────────────────────────────────────────
   console.log('');
-  console.log(chalk.bold.cyan('╔══════════════════════════════════════════════════════╗'));
-  console.log(chalk.bold.cyan('║') + chalk.bold.green('  ✓ Forge is running!                                ') + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('║') + chalk.white(`  Dashboard:  http://localhost:3000                  `) + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('║') + chalk.white(`  API:        http://localhost:4000                  `) + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('║') + chalk.dim(`  Login:      ${adminEmail.padEnd(36)}`) + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('╚══════════════════════════════════════════════════════╝'));
+  const V = chalk.bold.magenta;
+  const D = chalk.dim;
+  const B = chalk.bold;
+  console.log(V('  ╔══════════════════════════════════════════════════════╗'));
+  console.log(V('  ║') + B('  ✓ Forge is running!                                ') + V('║'));
+  console.log(V('  ╠══════════════════════════════════════════════════════╣'));
+  console.log(V('  ║') + chalk.white('  Dashboard  →  http://localhost:3000               ') + V('║'));
+  console.log(V('  ║') + chalk.white('  API        →  http://localhost:4000               ') + V('║'));
+  console.log(V('  ║') + chalk.white('  Registry   →  http://localhost:5050               ') + V('║'));
+  console.log(V('  ╠══════════════════════════════════════════════════════╣'));
+  console.log(V('  ║') + D(`  Login: ${adminEmail.padEnd(44)}`) + V('║'));
+  console.log(V('  ╠══════════════════════════════════════════════════════╣'));
+  if (setupXiq) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud IQ skills ready                     ') + V('║'));
+  if (setupXco) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud Orchestrator skills ready           ') + V('║'));
+  if (!setupXiq) console.log(V('  ║') + D('  XIQ: add credentials via Vault → run seed-xciq-full') + V('║'));
+  if (!setupXco) console.log(V('  ║') + D('  XCO: add endpoint+creds via dashboard then setup-xco') + V('║'));
+  console.log(V('  ╠══════════════════════════════════════════════════════╣'));
+  console.log(V('  ║') + D('  bex status   — health check all services          ') + V('║'));
+  console.log(V('  ║') + D('  bex logs     — tail all logs                      ') + V('║'));
+  console.log(V('  ╚══════════════════════════════════════════════════════╝'));
   console.log('');
 }
