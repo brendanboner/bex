@@ -194,8 +194,9 @@ export async function initCommand(): Promise<void> {
   const spinner = ora('Generating secrets...').start();
   const jwtSecret = randomBytes(32).toString('hex');
   const vaultKey = randomBytes(32).toString('hex');
-  const pgPassword = randomBytes(16).toString('hex');
-  const redisPassword = randomBytes(16).toString('hex');
+  // Postgres and Redis use hardcoded defaults matching infra/docker-compose.yml
+  const pgPassword = 'bexpassword';
+  const redisPassword = 'bexpassword';
   spinner.succeed('Secrets generated');
 
   const envVars: Record<string, string> = {
