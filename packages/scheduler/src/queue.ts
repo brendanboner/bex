@@ -15,9 +15,22 @@ export type AgentJobData = {
 export const AGENT_QUEUE_NAME = 'agent-jobs';
 
 function getRedis(): IORedis {
-  return new IORedis(process.env['REDIS_URL'] ?? 'redis://localhost:6379', {
+  const client = new IORedis(process.env['REDIS_URL'] ?? 'redis://localhost:6379', {
     maxRetriesPerRequest: null,
+    // Required by BullMQ — prevents READY check racing during reconnect
+    enableReadyCheck: false,
+    // Retry forever with capped exponential backoff so the worker survives Redis restarts
+    retryStrategy: (times: number) => Math.min(times * 100, 5_000),
   });
+
+  client.on('error', (err) => {
+    console.error('[scheduler] Redis connection error:', err.message);
+  });
+  client.on('reconnecting', () => {
+    console.warn('[scheduler] Redis reconnecting...');
+  });
+
+  return client;
 }
 
 export function createAgentQueue(): Queue<AgentJobData> {

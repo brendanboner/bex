@@ -43,6 +43,14 @@ async function main(): Promise<void> {
     console.error(`[scheduler] Job ${job?.id} failed:`, err);
   });
 
+  worker.on('error', (err) => {
+    console.error('[scheduler] Worker error:', err.message);
+  });
+
+  worker.on('stalled', (jobId) => {
+    console.warn(`[scheduler] Job ${jobId} stalled — will be retried`);
+  });
+
   void cronTick();
   setInterval(() => void cronTick(), 60_000);
 

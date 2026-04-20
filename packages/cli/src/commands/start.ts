@@ -131,7 +131,7 @@ export async function startCommand(args: string[] = []): Promise<void> {
   console.log(chalk.bold('  │') + chalk.magenta('  Admin API     →  http://localhost:4001           ') + chalk.bold('│'));
   console.log(chalk.bold('  │') + chalk.magenta('  Skill Registry→  http://localhost:5050           ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
-  console.log(chalk.bold('  │') + chalk.dim('  Login:  admin@bex.local  /  bex-admin-2026       ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.dim('  Login:  use credentials set during bex init      ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
   console.log(chalk.bold('  │') + chalk.dim('  bex status   — service health                   ') + chalk.bold('│'));
   console.log(chalk.bold('  │') + chalk.dim('  bex logs     — tail all logs                    ') + chalk.bold('│'));

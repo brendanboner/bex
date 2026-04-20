@@ -10,8 +10,8 @@ dotenvConfig({ path: resolve(__dirname, '../../../.env') });
 
 const BOT_TOKEN = requireEnv('TELEGRAM_BOT_TOKEN');
 const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
-const DEFAULT_AGENT_ID = requireEnv('TELEGRAM_DEFAULT_AGENT_ID');
-const BOT_API_KEY = requireEnv('BFORGE_BOT_API_KEY');
+const DEFAULT_AGENT_ID = process.env.TELEGRAM_DEFAULT_AGENT_ID ?? '';
+const BOT_API_KEY = process.env.BEX_BOT_API_KEY ?? process.env.BEX_ADMIN_TOKEN ?? '';
 
 const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
 
@@ -247,6 +247,10 @@ bot.on('message:text', async (ctx) => {
  * Route a message (text or synthesised command) to the api-gateway agent.
  */
 async function routeToAgent(ctx: BotContext, input: string): Promise<void> {
+  if (!DEFAULT_AGENT_ID) {
+    await ctx.reply('⚠️ Bot not fully configured: set TELEGRAM_DEFAULT_AGENT_ID in .env and restart.');
+    return;
+  }
   const telegramUserId = String(ctx.from?.id ?? 'unknown');
   const chatId = ctx.chat?.id ?? 0;
 

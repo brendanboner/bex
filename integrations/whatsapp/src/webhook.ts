@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { fetch } from 'undici';
 
-const BFORGE_API_URL = requireEnv('BFORGE_API_URL');
+const BFORGE_API_URL = process.env.BEX_API_URL ?? requireEnv('API_GATEWAY_URL');
 
 export function buildWebhookServer(): ReturnType<typeof Fastify> {
   const app = Fastify({ logger: true });

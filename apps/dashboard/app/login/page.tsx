@@ -8,7 +8,7 @@ const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@bex.local');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -98,7 +98,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-xs text-[rgb(var(--text-muted))]">
-            Default: admin@bex.local · bex-admin-2026
+            Use the admin email and password you set during <code>bex init</code>.
           </p>
         </div>
       </div>
