@@ -8,6 +8,7 @@ export interface GeneratePersonaOptions {
   goal: string;
   domain?: string;
   existingSkills?: string[];
+  schedule?: string; // explicit cron override — skips LLM inference
 }
 
 export interface GeneratedPersona {
@@ -71,7 +72,8 @@ export class PersonaFactory {
         systemPrompt: object.systemPrompt,
         requiredSkills: object.requiredSkills,
         suggestedPermissions: object.suggestedPermissions,
-        ...(object.schedule !== undefined ? { schedule: object.schedule } : {}),
+        // Explicit schedule from user takes precedence over LLM-inferred
+        schedule: options.schedule ?? object.schedule ?? null,
         tags: object.tags,
       },
     });

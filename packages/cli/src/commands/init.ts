@@ -159,6 +159,7 @@ export async function initCommand(): Promise<void> {
     PORT: '4000',
     DASHBOARD_PORT: '3000',
     KNOWLEDGE_DIR: './knowledge',
+    KNOWLEDGE_BASE_DIR: './knowledge',
     REGISTRY_URL: '',
     LOG_LEVEL: 'info',
     CORS_ORIGIN: 'http://localhost:3000',

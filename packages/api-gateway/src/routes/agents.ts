@@ -1,7 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient, Prisma } from '@prisma/client';
+import { KnowledgeStore } from '@bclaw/knowledge-store';
 
 import { CreateAgentSchema, UpdateAgentSchema, ok, err, ErrorCodes } from '@bclaw/shared';
+
+const WORKSPACE_TOPICS = ['instructions', 'context', 'memory'] as const;
+type WorkspaceTopic = typeof WORKSPACE_TOPICS[number];
+
+function getKnowledgeStore(): KnowledgeStore {
+  return new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+}
+
+function agentDomain(agentId: string): string {
+  return `agent/${agentId}`;
+}
 
 export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   // GET /agents
@@ -105,4 +117,57 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
     await prisma.agent.delete({ where: { id: request.params.id } });
     return reply.status(204).send();
   });
+
+  // ─── Workspace Docs (OpenClaw-style soul/memory documents) ─────────────────
+
+  // GET /agents/:id/workspace — list all workspace topics for an agent
+  app.get<{ Params: { id: string } }>('/agents/:id/workspace', async (request, reply) => {
+    const store = getKnowledgeStore();
+    const topics = await store.list(agentDomain(request.params.id));
+    return reply.send(ok(topics));
+  });
+
+  // GET /agents/:id/workspace/:topic — get a workspace doc
+  app.get<{ Params: { id: string; topic: string } }>(
+    '/agents/:id/workspace/:topic',
+    async (request, reply) => {
+      const { id, topic } = request.params;
+      const store = getKnowledgeStore();
+      const entry = await store.read(agentDomain(id), topic);
+      if (!entry) {
+        // Return empty doc for standard topics so the UI can render an editor
+        if ((WORKSPACE_TOPICS as readonly string[]).includes(topic)) {
+          return reply.send(ok({ domain: agentDomain(id), topic, content: '', updatedAt: new Date() }));
+        }
+        return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Workspace doc not found'));
+      }
+      return reply.send(ok(entry));
+    },
+  );
+
+  // PUT /agents/:id/workspace/:topic — create or update a workspace doc
+  app.put<{ Params: { id: string; topic: string }; Body: unknown }>(
+    '/agents/:id/workspace/:topic',
+    async (request, reply) => {
+      const { id, topic } = request.params;
+      const body = request.body as { content?: string };
+      if (typeof body?.content !== 'string') {
+        return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'body.content is required'));
+      }
+      const store = getKnowledgeStore();
+      const entry = await store.write(agentDomain(id), topic, body.content);
+      return reply.send(ok(entry));
+    },
+  );
+
+  // DELETE /agents/:id/workspace/:topic — delete a workspace doc
+  app.delete<{ Params: { id: string; topic: string } }>(
+    '/agents/:id/workspace/:topic',
+    async (request, reply) => {
+      const { id, topic } = request.params;
+      const store = getKnowledgeStore();
+      await store.delete(agentDomain(id), topic);
+      return reply.status(204).send();
+    },
+  );
 }

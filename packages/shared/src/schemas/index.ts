@@ -201,10 +201,11 @@ export const GeneratePersonaSchema = z.object({
   goal: z.string().min(1).max(2000),
   domain: z.string().optional(),
   existingSkills: z.array(z.string()).optional(),
+  schedule: z.string().optional().describe('Override cron expression (e.g. "0 * * * *") — if not provided, LLM infers from goal'),
 });
 
 export const SpawnPersonaSchema = z.object({
-  ownerId: z.string().cuid(),
+  ownerId: z.string().optional(), // defaults to authenticated user on the server
   name: z.string().optional(),
   llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']).optional(),
   llmModel: z.string().optional(),

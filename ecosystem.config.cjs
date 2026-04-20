@@ -23,6 +23,8 @@ const sharedEnv = {
   CORS_ORIGIN:          process.env.CORS_ORIGIN      ?? 'http://localhost:3000',
   SKILL_REGISTRY_URL:   process.env.SKILL_REGISTRY_URL ?? 'http://localhost:5050',
   SKILL_REGISTRY_TOKEN: process.env.SKILL_REGISTRY_TOKEN ?? 'forge-registry-dev',
+  KNOWLEDGE_BASE_DIR:   process.env.KNOWLEDGE_BASE_DIR ?? './knowledge',
+  KNOWLEDGE_DIR:        process.env.KNOWLEDGE_DIR ?? './knowledge',
 };
 
 module.exports = {

@@ -1,5 +1,8 @@
 import type { CoreMessage, CoreTool } from 'ai';
 import { PrismaClient } from '@prisma/client';
+import { tool } from 'ai';
+import { z } from 'zod';
+import { KnowledgeStore } from '@bclaw/knowledge-store';
 
 import type { ExecutionContext, LlmProvider, SkillTool } from '@bclaw/shared';
 import { ErrorCodes } from '@bclaw/shared';
@@ -12,6 +15,48 @@ import { buildLlmModel, buildTools, runLlm, getCachedReachability } from './llm-
 import { resolveCharter, buildCharterPrompt, isRestrictedAction } from './charter.js';
 import { routeTools, filterUnavailableSkills, buildSkillDomainMap } from './tool-router.js';
 import { buildSkillLearningTool, buildEnrichedSystemPrompt } from './skill-learning.js';
+
+const knowledgeStore = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+
+/** Load workspace docs for an agent and return a formatted prompt section. */
+async function loadWorkspaceDocs(agentId: string): Promise<string> {
+  const domain = `agent/${agentId}`;
+  const [instructions, context, memory] = await Promise.all([
+    knowledgeStore.read(domain, 'instructions').catch(() => null),
+    knowledgeStore.read(domain, 'context').catch(() => null),
+    knowledgeStore.read(domain, 'memory').catch(() => null),
+  ]);
+  const parts: string[] = [];
+  if (instructions?.content) parts.push(`## Agent Instructions\n${instructions.content}`);
+  if (context?.content) parts.push(`## Workspace Context\n${context.content}`);
+  if (memory?.content) parts.push(`## Agent Memory\n${memory.content}`);
+  return parts.join('\n\n');
+}
+
+/** Build a write_memory tool that persists notes to the agent's memory doc. */
+function buildWriteMemoryTool(agentId: string): CoreTool {
+  return tool({
+    description: 'Persist important notes, observations, or facts to long-term agent memory. Call this when you want to remember something for future runs.',
+    parameters: z.object({
+      content: z.string().describe('The markdown content to save as agent memory. Append to existing notes rather than replacing unless asked to reset.'),
+      mode: z.enum(['append', 'replace']).default('append').describe('append adds to existing memory; replace overwrites it'),
+    }),
+    execute: async ({ content, mode }) => {
+      const domain = `agent/${agentId}`;
+      if (mode === 'append') {
+        const existing = await knowledgeStore.read(domain, 'memory').catch(() => null);
+        const timestamp = new Date().toISOString();
+        const newContent = existing?.content
+          ? `${existing.content}\n\n<!-- ${timestamp} -->\n${content}`
+          : `<!-- ${timestamp} -->\n${content}`;
+        await knowledgeStore.write(domain, 'memory', newContent);
+      } else {
+        await knowledgeStore.write(domain, 'memory', content);
+      }
+      return { saved: true, mode };
+    },
+  });
+}
 
 /**
  * Thrown when a tool call needs approval before executing.
@@ -342,21 +387,27 @@ export class OrchestratorService {
         linkedSkills.map((s) => ({ domain: s.domain, learnedNotes: (s as typeof s & { learnedNotes?: string | null }).learnedNotes })),
       );
 
+      // Load agent workspace docs (instructions, context, memory) from KnowledgeStore
+      const workspaceDocs = await loadWorkspaceDocs(agent.id);
+
       const systemParts = [
         charterPrompt,
         personaPrompt,
         enrichedSkillPrompt,
+        workspaceDocs,
       ].filter(Boolean);
 
       const systemPrompt = systemParts.join('\n\n');
       const messages: CoreMessage[] = [{ role: 'user', content: ctx.input }];
 
-      // 9. Run LLM
-      const toolsArg = Object.keys(tools).length > 0 ? tools : undefined;
+      // 9. Run LLM — always add write_memory tool
+      const writeMemoryTool = buildWriteMemoryTool(agent.id);
+      const allTools = { ...tools, write_memory: writeMemoryTool };
+      const toolsArg = allTools;
       const result = await runLlm({
         model,
         messages,
-        ...(toolsArg !== undefined ? { tools: toolsArg } : {}),
+        tools: toolsArg,
         systemPrompt,
         maxSteps: 8,  // prevent infinite tool-call loops
       });

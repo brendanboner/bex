@@ -16,6 +16,7 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
         goal: parse.data.goal,
         ...(parse.data.domain !== undefined ? { domain: parse.data.domain } : {}),
         ...(parse.data.existingSkills !== undefined ? { existingSkills: parse.data.existingSkills } : {}),
+        ...(parse.data.schedule !== undefined ? { schedule: parse.data.schedule } : {}),
       });
       return reply.send(ok(persona));
     } catch (e) {
@@ -48,12 +49,13 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
 
     try {
       const spawner = new PersonaSpawner(prisma);
-      const agent = await spawner.spawnAgent(id, parse.data.ownerId, {
+      const userId = (request.user as { sub: string }).sub;
+      const { agent, scheduledJob } = await spawner.spawnAgent(id, parse.data.ownerId ?? userId, {
         ...(parse.data.name !== undefined ? { name: parse.data.name } : {}),
         ...(parse.data.llmProvider !== undefined ? { llmProvider: parse.data.llmProvider } : {}),
         ...(parse.data.llmModel !== undefined ? { llmModel: parse.data.llmModel } : {}),
       });
-      return reply.status(201).send(ok(agent));
+      return reply.status(201).send(ok({ agent, scheduledJob }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('not found')) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, msg));
