@@ -6,11 +6,11 @@
 
 install: ## Install dependencies, build all packages, and link bex globally
 	@echo "📦 Installing dependencies..."
-	npm install
+	npm install --loglevel=error
 	@echo "🔨 Building all packages..."
-	npm run build
+	npm run build --silent
 	@echo "🔗 Linking bex CLI globally..."
-	cd packages/cli && npm link
+	cd packages/cli && npm link --loglevel=error
 	@echo ""
 	@echo "✅ Done! Run: bex init"
 
