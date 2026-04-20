@@ -620,11 +620,12 @@ model MeshEvent {
 
 model LLMConfig {
   id           String   @id @default(cuid())
-  name         String   @unique    // e.g. "OpenAI Production", "Anthropic Dev"
-  provider     String              // openai | anthropic | azure-openai
-  model        String              // e.g. gpt-4o, claude-3-5-sonnet-20241022
+  name         String   @unique    // e.g. "OpenAI Production", "Anthropic Dev", "Local Ollama"
+  provider     String              // openai | anthropic | azure-openai | ollama
+  model        String              // e.g. gpt-4o, claude-3-5-sonnet-20241022, llama3
+  baseUrl      String?             // optional base URL — required for ollama (e.g. http://host:11434)
   isDefault    Boolean  @default(false)
-  // FK to Credential (API_TOKEN type) holding the API key
+  // FK to Credential (API_TOKEN type) holding the API key — optional for Ollama
   credentialId String?
   credential   Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
 

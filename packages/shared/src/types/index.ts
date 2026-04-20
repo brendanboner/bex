@@ -44,7 +44,7 @@ export type ApiResponse<T> = ApiSuccess<T> | ApiError;
 
 // ─── LLM provider config ─────────────────────────────────────────────────────
 
-export type LlmProvider = 'openai' | 'anthropic' | 'azure-openai';
+export type LlmProvider = 'openai' | 'anthropic' | 'azure-openai' | 'ollama';
 
 export type LlmMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';

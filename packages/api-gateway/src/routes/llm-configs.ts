@@ -8,6 +8,7 @@ type LLMConfigBody = {
   provider: string;
   model: string;
   apiKey?: string;
+  baseUrl?: string;
   isDefault?: boolean;
 };
 
@@ -25,9 +26,12 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
 
   // POST /llm-configs — create a new LLM configuration
   app.post<{ Body: LLMConfigBody }>('/llm-configs', async (request, reply) => {
-    const { name, provider, model, apiKey, isDefault } = request.body;
+    const { name, provider, model, apiKey, baseUrl, isDefault } = request.body;
     if (!name || !provider || !model) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'name, provider, and model are required'));
+    }
+    if (provider === 'ollama' && !baseUrl) {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'baseUrl is required for Ollama provider'));
     }
 
     let credentialId: string | undefined;
@@ -54,7 +58,11 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
     }
 
     const config = await prisma.lLMConfig.create({
-      data: { name, provider, model, isDefault: isDefault ?? false, ...(credentialId ? { credentialId } : {}) },
+      data: {
+        name, provider, model, isDefault: isDefault ?? false,
+        ...(baseUrl ? { baseUrl } : {}),
+        ...(credentialId ? { credentialId } : {}),
+      },
     });
 
     return reply.status(201).send(ok(config));

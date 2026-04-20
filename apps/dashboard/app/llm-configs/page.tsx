@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Star, Bot, Layers, Cloud, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, Star, Bot, Layers, Cloud, CheckCircle, Server } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,40 +13,46 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
-type LLMProvider = 'openai' | 'anthropic' | 'azure-openai';
+type LLMProvider = 'openai' | 'anthropic' | 'azure-openai' | 'ollama';
 
 type LLMConfig = {
   id: string;
   name: string;
   provider: LLMProvider;
   model: string;
+  baseUrl?: string;
   isDefault: boolean;
   credentialId?: string;
   createdAt: string;
 };
 
-const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string }[] = [
-  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, defaultModel: 'gpt-4o' },
-  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022' },
-  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud, defaultModel: 'gpt-4o' },
+const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
+  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true, needsBaseUrl: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
+  { value: 'ollama', label: 'Ollama', color: 'bg-orange-500', Icon: Server, defaultModel: 'llama3', needsApiKey: false, needsBaseUrl: true },
 ];
 
 const PROVIDER_COLOURS: Record<LLMProvider, string> = {
   openai: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
   anthropic: 'bg-cyan-600/20 text-slate-200 border border-cyan-500/30',
   'azure-openai': 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+  ollama: 'bg-orange-500/20 text-orange-300 border border-orange-500/30',
+};
+
+const EMPTY_FORM = {
+  name: '',
+  provider: 'openai' as LLMProvider,
+  model: 'gpt-4o',
+  apiKey: '',
+  baseUrl: '',
+  isDefault: false,
 };
 
 export default function LLMConfigsPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    provider: 'openai' as LLMProvider,
-    model: 'gpt-4o',
-    apiKey: '',
-    isDefault: false,
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const { data: configs = [], isLoading } = useQuery<LLMConfig[]>({
     queryKey: ['llm-configs'],
@@ -61,10 +67,10 @@ export default function LLMConfigsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['llm-configs'] });
       setShowForm(false);
-      setForm({ name: '', provider: 'openai', model: 'gpt-4o', apiKey: '', isDefault: false });
+      setForm(EMPTY_FORM);
       toast({ title: 'LLM config added' });
     },
-    onError: (err: Error) => toast({ title: 'Error', description: err.message, variant: 'destructive' }),
+    onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
 
   const defaultMutation = useMutation({
@@ -84,6 +90,11 @@ export default function LLMConfigsPage() {
   });
 
   const selectedProvider = PROVIDERS.find((p) => p.value === form.provider);
+  const isSaveDisabled =
+    !form.name ||
+    (selectedProvider?.needsApiKey && !form.apiKey) ||
+    (selectedProvider?.needsBaseUrl && !form.baseUrl) ||
+    createMutation.isPending;
 
   return (
     <div className="space-y-6 p-6">
@@ -108,12 +119,12 @@ export default function LLMConfigsPage() {
             {/* Provider selector */}
             <div className="space-y-2">
               <Label>Provider</Label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 {PROVIDERS.map((p) => (
                   <button
                     key={p.value}
                     type="button"
-                    onClick={() => setForm((v) => ({ ...v, provider: p.value, model: p.defaultModel }))}
+                    onClick={() => setForm((v) => ({ ...v, provider: p.value, model: p.defaultModel, apiKey: '', baseUrl: '' }))}
                     className={cn(
                       'flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-sm font-medium transition-colors',
                       form.provider === p.value
@@ -149,15 +160,30 @@ export default function LLMConfigsPage() {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <Label>API Key</Label>
-              <Input
-                type="password"
-                placeholder="sk-..."
-                value={form.apiKey}
-                onChange={(e) => setForm((v) => ({ ...v, apiKey: e.target.value }))}
-              />
-            </div>
+            {/* Ollama: show Base URL; other providers: show API Key */}
+            {selectedProvider?.needsBaseUrl ? (
+              <div className="space-y-1">
+                <Label>Ollama Base URL</Label>
+                <Input
+                  placeholder="http://192.168.1.10:11434"
+                  value={form.baseUrl}
+                  onChange={(e) => setForm((v) => ({ ...v, baseUrl: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Remote or local Ollama instance. No API key needed — Ollama&apos;s OpenAI-compatible API is used.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label>API Key</Label>
+                <Input
+                  type="password"
+                  placeholder="sk-..."
+                  value={form.apiKey}
+                  onChange={(e) => setForm((v) => ({ ...v, apiKey: e.target.value }))}
+                />
+              </div>
+            )}
 
             <div className="flex items-center gap-2">
               <input
@@ -173,7 +199,7 @@ export default function LLMConfigsPage() {
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
               <Button
-                disabled={!form.name || !form.apiKey || createMutation.isPending}
+                disabled={isSaveDisabled}
                 onClick={() => createMutation.mutate(form)}
               >
                 {createMutation.isPending ? 'Saving…' : 'Save'}
@@ -197,7 +223,7 @@ export default function LLMConfigsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Provider</TableHead>
-                  <TableHead>Model</TableHead>
+                  <TableHead>Model / Endpoint</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-24" />
                 </TableRow>
@@ -207,11 +233,16 @@ export default function LLMConfigsPage() {
                   <TableRow key={cfg.id}>
                     <TableCell className="font-medium">{cfg.name}</TableCell>
                     <TableCell>
-                      <span className={cn('rounded px-2 py-0.5 text-xs font-medium', PROVIDER_COLOURS[cfg.provider])}>
+                      <span className={cn('rounded px-2 py-0.5 text-xs font-medium', PROVIDER_COLOURS[cfg.provider] ?? 'bg-slate-700 text-slate-200')}>
                         {PROVIDERS.find((p) => p.value === cfg.provider)?.label ?? cfg.provider}
                       </span>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{cfg.model}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      <span>{cfg.model}</span>
+                      {cfg.baseUrl && (
+                        <span className="ml-2 text-xs text-slate-500">@ {cfg.baseUrl}</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {cfg.isDefault ? (
                         <Badge variant="secondary" className="gap-1">

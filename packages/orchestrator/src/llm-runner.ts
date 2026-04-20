@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { LlmProvider, SkillTool, ToolCallResult } from '@bclaw/shared';
 import type { CredentialVaultService } from '@bclaw/credential-vault';
 
-export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: string): LanguageModel {
+export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: string, baseUrl?: string): LanguageModel {
   const openaiKey = apiKey ?? process.env['OPENAI_API_KEY'];
   const anthropicKey = apiKey ?? process.env['ANTHROPIC_API_KEY'];
   const azureKey = apiKey ?? process.env['AZURE_OPENAI_API_KEY'];
@@ -24,6 +24,10 @@ export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: str
     case 'azure-openai':
       if (!azureKey || !azureResource) throw new Error('AZURE_OPENAI_API_KEY and AZURE_OPENAI_RESOURCE_NAME must be set');
       return createAzure({ apiKey: azureKey, resourceName: azureResource })(model);
+    case 'ollama': {
+      const ollamaBase = baseUrl ?? process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434';
+      return createOpenAI({ baseURL: `${ollamaBase.replace(/\/$/, '')}/v1`, apiKey: 'ollama' })(model);
+    }
     default:
       throw new Error(`Unknown LLM provider: ${String(provider)}`);
   }

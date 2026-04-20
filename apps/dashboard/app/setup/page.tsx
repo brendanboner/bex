@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, Settings, Send, Building2, Smartphone, Bot, Cloud, Layers } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Settings, Send, Building2, Smartphone, Bot, Cloud, Layers, Server } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,12 +13,13 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
-type LLMProvider = 'openai' | 'anthropic' | 'azure-openai';
+type LLMProvider = 'openai' | 'anthropic' | 'azure-openai' | 'ollama';
 type NotificationChannel = 'telegram' | 'teams' | 'whatsapp';
 
 type LLMConfig = {
   provider: LLMProvider;
   apiKey: string;
+  baseUrl: string;
   model: string;
 };
 
@@ -37,12 +38,14 @@ const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openai: 'gpt-4o',
   anthropic: 'claude-3-5-sonnet-20241022',
   'azure-openai': 'gpt-4o',
+  ollama: 'llama3',
 };
 
-const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType }[] = [
-  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot },
-  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers },
-  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud },
+const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
+  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, needsApiKey: true, needsBaseUrl: false },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers, needsApiKey: true, needsBaseUrl: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud, needsApiKey: true, needsBaseUrl: false },
+  { value: 'ollama', label: 'Ollama', color: 'bg-orange-500', Icon: Server, needsApiKey: false, needsBaseUrl: true },
 ];
 
 const CHANNELS: { value: NotificationChannel; label: string; color: string; Icon: React.ElementType }[] = [
@@ -60,6 +63,7 @@ export default function SetupPage() {
   const [llm, setLlm] = useState<LLMConfig>({
     provider: 'openai',
     apiKey: '',
+    baseUrl: '',
     model: DEFAULT_MODELS.openai,
   });
 
@@ -75,7 +79,7 @@ export default function SetupPage() {
   });
 
   const llmMutation = useMutation({
-    mutationFn: () => api.post('/setup/llm', { provider: llm.provider, apiKey: llm.apiKey, model: llm.model }),
+    mutationFn: () => api.post('/setup/llm', { provider: llm.provider, apiKey: llm.apiKey, baseUrl: llm.baseUrl, model: llm.model }),
     onSuccess: () => { toast({ title: 'LLM configured' }); setStep(1); },
     onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
   });
@@ -94,7 +98,7 @@ export default function SetupPage() {
   }
 
   function handleProviderChange(p: LLMProvider) {
-    setLlm((v) => ({ ...v, provider: p, model: DEFAULT_MODELS[p] }));
+    setLlm((v) => ({ ...v, provider: p, model: DEFAULT_MODELS[p], apiKey: '', baseUrl: '' }));
   }
 
   return (
@@ -136,7 +140,7 @@ export default function SetupPage() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label>Provider</Label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 {PROVIDERS.map((p) => (
                   <button
                     key={p.value}
@@ -158,15 +162,27 @@ export default function SetupPage() {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <Label>API Key</Label>
-              <Input
-                type="password"
-                placeholder="sk-..."
-                value={llm.apiKey}
-                onChange={(e) => setLlm((v) => ({ ...v, apiKey: e.target.value }))}
-              />
-            </div>
+            {PROVIDERS.find((p) => p.value === llm.provider)?.needsBaseUrl ? (
+              <div className="space-y-1">
+                <Label>Ollama Base URL</Label>
+                <Input
+                  placeholder="http://192.168.1.10:11434"
+                  value={llm.baseUrl}
+                  onChange={(e) => setLlm((v) => ({ ...v, baseUrl: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">Remote or local Ollama instance — no API key required.</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <Label>API Key</Label>
+                <Input
+                  type="password"
+                  placeholder="sk-..."
+                  value={llm.apiKey}
+                  onChange={(e) => setLlm((v) => ({ ...v, apiKey: e.target.value }))}
+                />
+              </div>
+            )}
 
             <div className="space-y-1">
               <Label>Model <span className="text-muted-foreground font-normal">(optional)</span></Label>
@@ -178,7 +194,13 @@ export default function SetupPage() {
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={() => llmMutation.mutate()} disabled={!llm.apiKey || llmMutation.isPending}>
+              <Button
+                onClick={() => llmMutation.mutate()}
+                disabled={
+                  (PROVIDERS.find((p) => p.value === llm.provider)?.needsApiKey ? !llm.apiKey : !llm.baseUrl) ||
+                  llmMutation.isPending
+                }
+              >
                 {llmMutation.isPending ? 'Saving…' : 'Next'} <ChevronRight className="h-4 w-4" />
               </Button>
             </div>

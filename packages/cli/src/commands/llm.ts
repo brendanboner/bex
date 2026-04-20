@@ -85,6 +85,7 @@ async function addLlmConfig(): Promise<void> {
       { name: 'OpenAI', value: 'openai' },
       { name: 'Anthropic', value: 'anthropic' },
       { name: 'Azure OpenAI', value: 'azure-openai' },
+      { name: 'Ollama (remote/local)', value: 'ollama' },
     ],
   });
 
@@ -92,12 +93,24 @@ async function addLlmConfig(): Promise<void> {
     openai: 'gpt-4o',
     anthropic: 'claude-3-5-sonnet-20241022',
     'azure-openai': 'gpt-4o',
+    ollama: 'llama3',
   };
   const model = await input({
     message: `Model (default: ${defaultModels[provider] ?? 'gpt-4o'}):`,
     default: defaultModels[provider] ?? 'gpt-4o',
   });
-  const apiKey = await input({ message: 'API Key:' });
+
+  let baseUrl: string | undefined;
+  let apiKey: string | undefined;
+
+  if (provider === 'ollama') {
+    baseUrl = await input({
+      message: 'Ollama base URL (e.g. http://192.168.1.10:11434):',
+      default: 'http://localhost:11434',
+    });
+  } else {
+    apiKey = await input({ message: 'API Key:' });
+  }
   const isDefault = await select({
     message: 'Set as default?',
     choices: [{ name: 'Yes', value: true }, { name: 'No', value: false }],
@@ -106,7 +119,7 @@ async function addLlmConfig(): Promise<void> {
   const res = await fetch(`${apiUrl}/llm-configs`, {
     method: 'POST',
     headers: headers(token),
-    body: JSON.stringify({ name, provider, model, apiKey, isDefault }),
+    body: JSON.stringify({ name, provider, model, apiKey, baseUrl, isDefault }),
   });
 
   if (res.ok) {

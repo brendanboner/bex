@@ -156,4 +156,67 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
     return { ok: true, data: { token, expiresIn: '7d' } };
   });
+
+  // POST /setup/llm — wizard step: configure initial LLM (authenticated)
+  app.post<{ Body: { provider: string; apiKey?: string; baseUrl?: string; model?: string; name?: string } }>(
+    '/setup/llm',
+    async (request, reply) => {
+      const { provider, apiKey, baseUrl, model = 'gpt-4o', name } = request.body;
+      if (!provider) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'provider is required' } });
+      if (provider === 'ollama' && !baseUrl) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'baseUrl is required for ollama' } });
+      if (provider !== 'ollama' && !apiKey) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'apiKey is required for this provider' } });
+
+      let credentialId: string | undefined;
+      if (apiKey) {
+        const cred = await vault.create({
+          name: `llm-${provider}-setup`,
+          description: `API key for ${provider}`,
+          scope: 'SYSTEM',
+          credentialType: 'API_TOKEN',
+          allowedAgentPermissions: [],
+          value: { apiKey },
+        }, undefined);
+        credentialId = cred.id;
+      }
+
+      // Upsert — clear existing defaults and create/update
+      await prisma.lLMConfig.updateMany({ data: { isDefault: false } });
+      const configName = name ?? `${provider} (default)`;
+      const existing = await prisma.lLMConfig.findFirst({ where: { name: configName } });
+      if (existing) {
+        await prisma.lLMConfig.update({
+          where: { id: existing.id },
+          data: { provider, model, isDefault: true, ...(baseUrl ? { baseUrl } : {}), ...(credentialId ? { credentialId } : {}) },
+        });
+      } else {
+        await prisma.lLMConfig.create({
+          data: { name: configName, provider, model, isDefault: true, ...(baseUrl ? { baseUrl } : {}), ...(credentialId ? { credentialId } : {}) },
+        });
+      }
+
+      return reply.send({ ok: true, data: { provider, model } });
+    },
+  );
+
+  // POST /setup/notifications — wizard step: configure notification channel (authenticated)
+  app.post<{ Body: { channel: string; [key: string]: unknown } }>(
+    '/setup/notifications',
+    async (request, reply) => {
+      const { channel, ...channelConfig } = request.body;
+      if (!channel) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'channel is required' } });
+
+      if (channel !== 'dashboard') {
+        await vault.create({
+          name: `forge.channel.${channel}`,
+          description: `${channel} channel config`,
+          scope: 'SYSTEM',
+          credentialType: 'API_TOKEN',
+          allowedAgentPermissions: [],
+          value: channelConfig as Record<string, string>,
+        }, undefined);
+      }
+
+      return reply.send({ ok: true, data: { channel } });
+    },
+  );
 }

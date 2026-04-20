@@ -303,6 +303,7 @@ export class OrchestratorService {
       // 8. Build LLM model and system prompt
       // Prefer default LLMConfig from DB over env vars if configured
       let llmApiKey: string | undefined;
+      let llmBaseUrl: string | undefined;
       let llmProvider = agent.llmProvider as LlmProvider;
       let llmModel = agent.llmModel;
 
@@ -318,12 +319,15 @@ export class OrchestratorService {
             const cred = await this.vault.resolve(defaultConfig.credentialId, []);
             llmApiKey = (cred as { apiKey?: string }).apiKey;
           }
+          if (defaultConfig.baseUrl) {
+            llmBaseUrl = defaultConfig.baseUrl;
+          }
         }
       } catch {
         // Fall through to env-var based config
       }
 
-      const model = buildLlmModel(llmProvider, llmModel, llmApiKey);
+      const model = buildLlmModel(llmProvider, llmModel, llmApiKey, llmBaseUrl);
 
       const charterPrompt = buildCharterPrompt(resolvedCharter);
       const personaData = agent.persona as { systemPromptOverride?: string; systemPrompt?: string } | null;
