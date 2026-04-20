@@ -1,184 +1,126 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, ChevronLeft, ChevronRight, Settings, Send, Building2,
-  Smartphone, AlertCircle, Loader2, CheckCircle2, RefreshCw,
+  Bot, Building2, CheckCircle2, Cloud, Edit2, Loader2,
+  Plus, Send, Server, Smartphone, Star, Trash2,
 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
 
 type LLMProvider = 'openai' | 'anthropic' | 'azure-openai' | 'ollama';
-type NotificationChannel = 'telegram' | 'teams' | 'whatsapp';
-
-type LLMConfig = {
-  provider: LLMProvider;
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-};
+type NotifChannel = 'telegram' | 'teams' | 'whatsapp';
 
 type LLMConfigRecord = {
-  id: string;
-  name: string;
-  provider: LLMProvider;
-  model: string;
-  baseUrl?: string;
-  isDefault: boolean;
+  id: string; name: string; provider: LLMProvider; model: string;
+  baseUrl?: string; isDefault: boolean; credentialId?: string;
 };
 
-type NotificationConfig = {
-  channel: NotificationChannel;
-  botToken: string;
-  chatId: string;
-  webhookUrl: string;
-  twilioSid: string;
-  twilioAuth: string;
-  fromNumber: string;
-  toNumber: string;
-};
-
-const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: 'gpt-4o',
-  anthropic: 'claude-3-5-sonnet-20241022',
-  'azure-openai': 'gpt-4o',
-  ollama: 'llama3',
-};
-
-const PROVIDERS: { value: LLMProvider; label: string; needsApiKey: boolean; needsBaseUrl: boolean; placeholder: string }[] = [
-  { value: 'openai',      label: 'OpenAI',       needsApiKey: true,  needsBaseUrl: false, placeholder: 'gpt-4o' },
-  { value: 'anthropic',   label: 'Anthropic',    needsApiKey: true,  needsBaseUrl: false, placeholder: 'claude-3-5-sonnet-20241022' },
-  { value: 'azure-openai',label: 'Azure OpenAI', needsApiKey: true,  needsBaseUrl: false, placeholder: 'gpt-4o' },
-  { value: 'ollama',      label: 'Ollama',       needsApiKey: false, needsBaseUrl: true,  placeholder: 'llama3' },
+const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
+  { value: 'openai',       label: 'OpenAI',       color: 'bg-emerald-600', Icon: Bot,    defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
+  { value: 'anthropic',    label: 'Anthropic',    color: 'bg-violet-600',  Icon: Bot,    defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true,  needsBaseUrl: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-600',    Icon: Cloud,  defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
+  { value: 'ollama',       label: 'Ollama',       color: 'bg-orange-600',  Icon: Server, defaultModel: 'llama3',                    needsApiKey: false, needsBaseUrl: true  },
 ];
 
-const CHANNELS: { value: NotificationChannel; label: string; Icon: React.ElementType }[] = [
-  { value: 'telegram', label: 'Telegram',         Icon: Send },
-  { value: 'teams',    label: 'Microsoft Teams',  Icon: Building2 },
-  { value: 'whatsapp', label: 'WhatsApp',         Icon: Smartphone },
+const PROVIDER_BADGE: Record<LLMProvider, string> = {
+  openai:        'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25',
+  anthropic:     'bg-violet-500/15 text-violet-300 border border-violet-500/25',
+  'azure-openai':'bg-blue-500/15 text-blue-300 border border-blue-500/25',
+  ollama:        'bg-orange-500/15 text-orange-300 border border-orange-500/25',
+};
+
+const CHANNELS: { value: NotifChannel; label: string; Icon: React.ElementType }[] = [
+  { value: 'telegram', label: 'Telegram',        Icon: Send },
+  { value: 'teams',    label: 'Microsoft Teams', Icon: Building2 },
+  { value: 'whatsapp', label: 'WhatsApp',        Icon: Smartphone },
 ];
 
-const STEPS = ['LLM Provider', 'Notifications', 'Done'];
+const EMPTY_LLM = { name: '', provider: 'openai' as LLMProvider, model: 'gpt-4o', apiKey: '', baseUrl: '' };
 
-export default function SetupPage() {
-  const router = useRouter();
-  const [step, setStep] = useState(0);
-  const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
-  const [testMsg, setTestMsg] = useState('');
-  const [notifTestState, setNotifTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
+type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 
-  const [llm, setLlm] = useState<LLMConfig>({
-    provider: 'openai', apiKey: '', baseUrl: '', model: DEFAULT_MODELS.openai,
+function TestBadge({ state, msg }: { state: TestState; msg?: string }) {
+  if (state === 'idle') return null;
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium',
+      state === 'testing' ? 'bg-[rgb(var(--bg-muted))] text-[rgb(var(--text-secondary))]' :
+      state === 'ok'      ? 'bg-emerald-500/12 text-emerald-300 border border-emerald-500/20' :
+                            'bg-red-500/12 text-red-300 border border-red-500/20',
+    )}>
+      {state === 'testing' && <Loader2 className="h-3 w-3 animate-spin" />}
+      {state === 'ok'      && <CheckCircle2 className="h-3 w-3" />}
+      {state === 'testing' ? 'Testing…' : state === 'ok' ? (msg ?? 'OK') : (msg ?? 'Failed')}
+    </span>
+  );
+}
+
+export default function ConfigPage() {
+  const qc = useQueryClient();
+  const [showAddLLM, setShowAddLLM] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_LLM);
+  const [editForm, setEditForm] = useState<Partial<typeof EMPTY_LLM>>({});
+  const [llmTestStates, setLlmTestStates] = useState<Record<string, TestState>>({});
+  const [llmTestMsgs, setLlmTestMsgs] = useState<Record<string, string>>({});
+
+  const [notifChannel, setNotifChannel] = useState<NotifChannel>('telegram');
+  const [notifFields, setNotifFields] = useState({ botToken: '', chatId: '', webhookUrl: '', twilioSid: '', twilioAuth: '', fromNumber: '', toNumber: '' });
+  const [notifTestState, setNotifTestState] = useState<TestState>('idle');
+
+  const { data: rawConfigs, isLoading } = useQuery({
+    queryKey: ['llm-configs'],
+    queryFn: () => api.get<LLMConfigRecord[] | { data?: LLMConfigRecord[] }>('/llm-configs'),
+  });
+  const configs: LLMConfigRecord[] = Array.isArray(rawConfigs) ? rawConfigs : (rawConfigs as { data?: LLMConfigRecord[] })?.data ?? [];
+
+  const addMutation = useMutation({
+    mutationFn: (data: typeof form) => api.post('/llm-configs', { ...data, isDefault: configs.length === 0 }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-configs'] }); setShowAddLLM(false); setForm(EMPTY_LLM); toast({ title: 'LLM config added' }); },
+    onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
 
-  const [notif, setNotif] = useState<NotificationConfig>({
-    channel: 'telegram', botToken: '', chatId: '', webhookUrl: '',
-    twilioSid: '', twilioAuth: '', fromNumber: '', toNumber: '',
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<typeof EMPTY_LLM> }) =>
+      api.patch(`/llm-configs/${id}`, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-configs'] }); setEditingId(null); toast({ title: 'Config updated' }); },
+    onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
 
-  // Load existing LLM configs to pre-populate and allow skipping
-  const { data: existingConfigs = [] } = useQuery<LLMConfigRecord[]>({
-    queryKey: ['llm-configs-setup'],
-    queryFn: async () => {
-      const res = await api.get<{ data?: LLMConfigRecord[] }>('/llm-configs');
-      return (res as { data?: LLMConfigRecord[] }).data ?? [];
-    },
+  const defaultMutation = useMutation({
+    mutationFn: (id: string) => api.patch(`/llm-configs/${id}`, { isDefault: true }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-configs'] }); toast({ title: 'Default LLM updated' }); },
   });
 
-  const defaultConfig = existingConfigs.find((c) => c.isDefault) ?? existingConfigs[0];
-
-  // Pre-fill form from existing default config
-  useEffect(() => {
-    if (defaultConfig) {
-      setLlm((v) => ({
-        ...v,
-        provider: defaultConfig.provider,
-        model: defaultConfig.model,
-        baseUrl: defaultConfig.baseUrl ?? '',
-      }));
-    }
-  }, [defaultConfig?.id]);
-
-  const llmMutation = useMutation({
-    mutationFn: () => api.post('/setup/llm', {
-      provider: llm.provider,
-      apiKey: llm.apiKey || undefined,
-      baseUrl: llm.baseUrl || undefined,
-      model: llm.model,
-    }),
-    onSuccess: () => { toast({ title: 'LLM configured' }); setStep(1); },
-    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/llm-configs/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-configs'] }); toast({ title: 'Config deleted' }); },
   });
 
-  const notifMutation = useMutation({
-    mutationFn: () => api.post('/setup/notifications', buildNotifPayload()),
-    onSuccess: () => { toast({ title: 'Notification channel configured' }); setStep(2); },
-    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
-  });
-
-  function buildNotifPayload() {
-    const base = { channel: notif.channel };
-    if (notif.channel === 'telegram') return { ...base, botToken: notif.botToken, chatId: notif.chatId };
-    if (notif.channel === 'teams') return { ...base, webhookUrl: notif.webhookUrl };
-    return { ...base, twilioSid: notif.twilioSid, twilioAuth: notif.twilioAuth, fromNumber: notif.fromNumber, toNumber: notif.toNumber };
-  }
-
-  function handleProviderChange(p: LLMProvider) {
-    setLlm({ provider: p, model: DEFAULT_MODELS[p], apiKey: '', baseUrl: '' });
-    setTestState('idle');
-  }
-
-  async function testLLM() {
-    // If there's an existing config and no new credentials, test the existing one
-    if (defaultConfig && !llm.apiKey && !llm.baseUrl) {
-      setTestState('testing');
-      try {
-        await api.post(`/llm-configs/${defaultConfig.id}/test`);
-        setTestState('ok');
-        setTestMsg('Connection successful');
-      } catch (e) {
-        setTestState('fail');
-        setTestMsg((e as Error).message);
-      }
-      return;
-    }
-    // Otherwise save first, then test
-    setTestState('testing');
+  async function testLLM(id: string) {
+    setLlmTestStates(s => ({ ...s, [id]: 'testing' }));
+    setLlmTestMsgs(s => ({ ...s, [id]: '' }));
     try {
-      await api.post('/setup/llm', {
-        provider: llm.provider,
-        apiKey: llm.apiKey || undefined,
-        baseUrl: llm.baseUrl || undefined,
-        model: llm.model,
-        name: `${llm.provider} (setup)`,
-      });
-      // Reload to get the new id
-      const res = await api.get<{ data?: LLMConfigRecord[] }>('/llm-configs');
-      const configs = (res as { data?: LLMConfigRecord[] }).data ?? [];
-      const saved = configs.find((c) => c.isDefault) ?? configs[0];
-      if (saved) {
-        await api.post(`/llm-configs/${saved.id}/test`);
-        setTestState('ok');
-        setTestMsg('Connection successful — LLM is responding');
-      }
+      await api.post(`/llm-configs/${id}/test`);
+      setLlmTestStates(s => ({ ...s, [id]: 'ok' }));
+      setLlmTestMsgs(s => ({ ...s, [id]: 'Connected' }));
     } catch (e) {
-      setTestState('fail');
-      setTestMsg((e as Error).message.replace('Connection failed: ', ''));
+      setLlmTestStates(s => ({ ...s, [id]: 'fail' }));
+      setLlmTestMsgs(s => ({ ...s, [id]: (e as Error).message }));
     }
   }
 
-  async function testNotification() {
+  async function testNotif() {
     setNotifTestState('testing');
+    let payload: Record<string, string> = { channel: notifChannel };
+    if (notifChannel === 'telegram') payload = { ...payload, botToken: notifFields.botToken, chatId: notifFields.chatId };
+    else if (notifChannel === 'teams') payload = { ...payload, webhookUrl: notifFields.webhookUrl };
+    else payload = { ...payload, twilioSid: notifFields.twilioSid, twilioAuth: notifFields.twilioAuth, fromNumber: notifFields.fromNumber, toNumber: notifFields.toNumber };
     try {
-      await api.post('/setup/notifications/test', buildNotifPayload());
+      await api.post('/setup/notifications/test', payload);
       setNotifTestState('ok');
     } catch (e) {
       setNotifTestState('fail');
@@ -186,357 +128,322 @@ export default function SetupPage() {
     }
   }
 
-  const selectedProvider = PROVIDERS.find((p) => p.value === llm.provider)!;
-  const alreadyConfigured = !!defaultConfig;
+  async function saveNotif() {
+    let payload: Record<string, string> = { channel: notifChannel };
+    if (notifChannel === 'telegram') payload = { ...payload, botToken: notifFields.botToken, chatId: notifFields.chatId };
+    else if (notifChannel === 'teams') payload = { ...payload, webhookUrl: notifFields.webhookUrl };
+    else payload = { ...payload, twilioSid: notifFields.twilioSid, twilioAuth: notifFields.twilioAuth, fromNumber: notifFields.fromNumber, toNumber: notifFields.toNumber };
+    try {
+      await api.post('/setup/notifications', payload);
+      toast({ title: 'Notification channel saved' });
+    } catch (e) {
+      toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' });
+    }
+  }
 
-  // Next button logic: if already configured AND no new credentials entered, allow skip
-  const canProceedLLM = alreadyConfigured
-    ? true
-    : selectedProvider.needsApiKey
-      ? !!llm.apiKey
-      : !!llm.baseUrl;
-
-  const hasNewCredentials = selectedProvider.needsApiKey ? !!llm.apiKey : !!llm.baseUrl;
+  const selectedProvider = PROVIDERS.find(p => p.value === form.provider)!;
+  const isSaveDisabled = !form.name || !form.model ||
+    (selectedProvider.needsApiKey && !form.apiKey) ||
+    (selectedProvider.needsBaseUrl && !form.baseUrl) ||
+    addMutation.isPending;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-10 py-2">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Settings className="h-7 w-7" /> Configuration
-        </h1>
-        <p className="text-muted-foreground">Set up or reconfigure your platform</p>
+        <h1 className="text-xl font-bold text-[rgb(var(--text-primary))]">Configuration</h1>
+        <p className="text-sm text-[rgb(var(--text-secondary))] mt-0.5">Manage LLM providers and notification channels.</p>
       </div>
 
-      {/* Progress */}
-      <div className="flex items-center gap-2">
-        {STEPS.map((label, i) => (
-          <div key={label} className="flex items-center gap-2">
-            <button
-              onClick={() => i !== step && setStep(i)}
-              className={cn(
-                'flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold border-2 transition-colors',
-                i < step
-                  ? 'border-green-500 bg-green-500 text-white cursor-pointer'
-                  : i === step
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-muted-foreground text-muted-foreground cursor-pointer hover:border-primary/50',
-              )}
-            >
-              {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}
-            </button>
-            <span className={cn('text-sm font-medium', i === step ? 'text-foreground' : 'text-muted-foreground')}>
-              {label}
-            </span>
-            {i < STEPS.length - 1 && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+      {/* ─── LLM Providers ─────────────────────────────────────────── */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-[rgb(var(--text-primary))]">LLM Providers</h2>
+            <p className="text-xs text-[rgb(var(--text-muted))] mt-0.5">The default provider is used for all agent requests.</p>
           </div>
-        ))}
-      </div>
+          <button
+            onClick={() => { setShowAddLLM(v => !v); setForm(EMPTY_LLM); }}
+            className="flex items-center gap-1.5 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-xs font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add Provider
+          </button>
+        </div>
 
-      {/* Step 0 — LLM */}
-      {step === 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>LLM Provider</CardTitle>
-            <CardDescription>
-              {alreadyConfigured
-                ? `Currently using ${PROVIDERS.find((p) => p.value === defaultConfig.provider)?.label} — ${defaultConfig.model}. Update credentials below or skip to next step.`
-                : 'Choose your AI provider and enter credentials'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-
-            {/* Already-configured banner */}
-            {alreadyConfigured && (
-              <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/5 px-4 py-3">
-                <CheckCircle2 className="h-5 w-5 text-green-400 shrink-0" />
-                <div className="flex-1 text-sm">
-                  <span className="font-medium text-green-300">{defaultConfig.name}</span>
-                  <span className="text-muted-foreground ml-2">{defaultConfig.provider} / {defaultConfig.model}
-                    {defaultConfig.baseUrl ? ` @ ${defaultConfig.baseUrl}` : ''}</span>
-                </div>
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setStep(1)}>
-                  Skip <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
+        {/* Add form */}
+        {showAddLLM && (
+          <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-5 space-y-4">
+            <p className="text-xs font-semibold text-[rgb(var(--text-secondary))] uppercase tracking-wider">New Provider</p>
+            {/* Provider buttons */}
+            <div className="grid grid-cols-4 gap-2">
+              {PROVIDERS.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => setForm(v => ({ ...v, provider: p.value, model: p.defaultModel, apiKey: '', baseUrl: '' }))}
+                  className={cn(
+                    'flex flex-col items-center gap-1.5 rounded-lg border p-3 text-xs font-medium transition-all',
+                    form.provider === p.value
+                      ? 'border-[rgba(99,102,241,0.4)] bg-[rgba(99,102,241,0.08)] text-[rgb(var(--text-primary))]'
+                      : 'border-[rgb(var(--border))] text-[rgb(var(--text-secondary))] hover:border-[rgb(var(--border-subtle))] hover:text-[rgb(var(--text-primary))]',
+                  )}
+                >
+                  <span className={`flex h-7 w-7 items-center justify-center rounded-lg ${p.color}`}>
+                    <p.Icon className="h-4 w-4 text-white" />
+                  </span>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Name</label>
+                <input
+                  placeholder="e.g. GPT-4o Production"
+                  value={form.name}
+                  onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                />
               </div>
-            )}
-
-            {/* Provider selector — text pills only */}
-            <div className="space-y-2">
-              <Label>Provider</Label>
-              <div className="flex flex-wrap gap-2">
-                {PROVIDERS.map((p) => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => handleProviderChange(p.value)}
-                    className={cn(
-                      'rounded-full border px-4 py-1.5 text-sm font-medium transition-colors',
-                      llm.provider === p.value
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground',
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Model</label>
+                <input
+                  value={form.model}
+                  onChange={e => setForm(v => ({ ...v, model: e.target.value }))}
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                />
               </div>
             </div>
-
-            {/* Credential field */}
             {selectedProvider.needsBaseUrl ? (
               <div className="space-y-1">
-                <Label>Ollama Base URL</Label>
-                <Input
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Ollama Base URL</label>
+                <input
                   placeholder="http://192.168.1.10:11434"
-                  value={llm.baseUrl}
-                  onChange={(e) => setLlm((v) => ({ ...v, baseUrl: e.target.value }))}
+                  value={form.baseUrl}
+                  onChange={e => setForm(v => ({ ...v, baseUrl: e.target.value }))}
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
                 />
-                <p className="text-xs text-muted-foreground">Remote or local Ollama instance — no API key required.</p>
               </div>
             ) : (
               <div className="space-y-1">
-                <Label>API Key {alreadyConfigured && <span className="text-muted-foreground font-normal">(leave blank to keep existing)</span>}</Label>
-                <Input
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">API Key</label>
+                <input
                   type="password"
-                  placeholder={alreadyConfigured ? '••••••••• (unchanged)' : 'sk-...'}
-                  value={llm.apiKey}
-                  onChange={(e) => setLlm((v) => ({ ...v, apiKey: e.target.value }))}
+                  placeholder="sk-..."
+                  value={form.apiKey}
+                  onChange={e => setForm(v => ({ ...v, apiKey: e.target.value }))}
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
                 />
               </div>
             )}
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowAddLLM(false)} className="rounded-lg border border-[rgb(var(--border))] px-3.5 py-1.5 text-xs text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] transition-colors">Cancel</button>
+              <button
+                disabled={isSaveDisabled}
+                onClick={() => addMutation.mutate(form)}
+                className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+              >
+                {addMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
 
+        {/* Config list */}
+        <div className="rounded-xl border border-[rgb(var(--border))] overflow-hidden">
+          {isLoading ? (
+            <div className="p-6 text-sm text-[rgb(var(--text-muted))]">Loading…</div>
+          ) : configs.length === 0 ? (
+            <div className="p-6 text-center">
+              <p className="text-sm text-[rgb(var(--text-muted))]">No LLM providers configured.</p>
+              <button onClick={() => setShowAddLLM(true)} className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Add your first provider →</button>
+            </div>
+          ) : (
+            <div className="divide-y divide-[rgb(var(--border))]">
+              {configs.map((cfg, i) => (
+                <div key={cfg.id}>
+                  <div className={cn('flex items-center gap-3 px-4 py-3', i % 2 === 0 ? 'bg-[rgb(var(--bg-surface))]' : 'bg-[rgb(var(--bg-base))]')}>
+                    <div className="flex-1 min-w-0 flex items-center gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-[rgb(var(--text-primary))]">{cfg.name}</span>
+                          {cfg.isDefault && (
+                            <span className="rounded-full bg-indigo-500/15 border border-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold text-indigo-400">Default</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', PROVIDER_BADGE[cfg.provider])}>
+                            {PROVIDERS.find(p => p.value === cfg.provider)?.label ?? cfg.provider}
+                          </span>
+                          <span className="text-xs text-[rgb(var(--text-muted))]">{cfg.model}{cfg.baseUrl ? ` @ ${cfg.baseUrl}` : ''}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <TestBadge state={llmTestStates[cfg.id] ?? 'idle'} msg={llmTestMsgs[cfg.id]} />
+                      <button onClick={() => testLLM(cfg.id)} disabled={llmTestStates[cfg.id] === 'testing'} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] disabled:opacity-40 transition-all">
+                        Test
+                      </button>
+                      {!cfg.isDefault && (
+                        <button onClick={() => defaultMutation.mutate(cfg.id)} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all">
+                          <Star className="h-3 w-3" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => { setEditingId(editingId === cfg.id ? null : cfg.id); setEditForm({ name: cfg.name, model: cfg.model }); }}
+                        className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => deleteMutation.mutate(cfg.id)}
+                        disabled={deleteMutation.isPending}
+                        className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-red-400/60 hover:border-red-500/30 hover:text-red-400 disabled:opacity-40 transition-all"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Inline edit */}
+                  {editingId === cfg.id && (
+                    <div className="px-4 py-3 bg-[rgb(var(--bg-muted))] border-t border-[rgb(var(--border))] flex gap-3 items-end">
+                      <div className="space-y-1 flex-1">
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Name</label>
+                        <input
+                          value={editForm.name ?? ''}
+                          onChange={e => setEditForm(v => ({ ...v, name: e.target.value }))}
+                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                        />
+                      </div>
+                      <div className="space-y-1 flex-1">
+                        <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Model</label>
+                        <input
+                          value={editForm.model ?? ''}
+                          onChange={e => setEditForm(v => ({ ...v, model: e.target.value }))}
+                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                        />
+                      </div>
+                      {(cfg.provider === 'ollama') && (
+                        <div className="space-y-1 flex-1">
+                          <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Base URL</label>
+                          <input
+                            value={editForm.baseUrl ?? cfg.baseUrl ?? ''}
+                            onChange={e => setEditForm(v => ({ ...v, baseUrl: e.target.value }))}
+                            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                          />
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <button onClick={() => setEditingId(null)} className="rounded-lg border border-[rgb(var(--border))] px-3 py-1.5 text-xs text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] transition-colors">Cancel</button>
+                        <button
+                          onClick={() => updateMutation.mutate({ id: cfg.id, data: editForm })}
+                          disabled={updateMutation.isPending}
+                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+                        >
+                          {updateMutation.isPending ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ─── Notification Channels ─────────────────────────────────── */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-[rgb(var(--text-primary))]">Notification Channel</h2>
+          <p className="text-xs text-[rgb(var(--text-muted))] mt-0.5">Used to send approval requests and alerts.</p>
+        </div>
+
+        <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-5 space-y-4">
+          {/* Channel selector */}
+          <div className="flex gap-2">
+            {CHANNELS.map(ch => (
+              <button
+                key={ch.value}
+                onClick={() => { setNotifChannel(ch.value); setNotifTestState('idle'); }}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-all',
+                  notifChannel === ch.value
+                    ? 'border-[rgba(99,102,241,0.4)] bg-[rgba(99,102,241,0.08)] text-[rgb(var(--text-primary))]'
+                    : 'border-[rgb(var(--border))] text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] hover:border-[rgb(var(--border-subtle))]',
+                )}
+              >
+                <ch.Icon className="h-3.5 w-3.5" />
+                {ch.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Channel fields */}
+          {notifChannel === 'telegram' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Bot Token</label>
+                <input
+                  type="password"
+                  placeholder="123456:ABC-..."
+                  value={notifFields.botToken}
+                  onChange={e => setNotifFields(v => ({ ...v, botToken: e.target.value }))}
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Chat ID</label>
+                <input
+                  placeholder="e.g. 6878129583"
+                  value={notifFields.chatId}
+                  onChange={e => setNotifFields(v => ({ ...v, chatId: e.target.value }))}
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                />
+              </div>
+            </div>
+          )}
+          {notifChannel === 'teams' && (
             <div className="space-y-1">
-              <Label>Model</Label>
-              <Input
-                placeholder={selectedProvider.placeholder}
-                value={llm.model}
-                onChange={(e) => setLlm((v) => ({ ...v, model: e.target.value }))}
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Incoming Webhook URL</label>
+              <input
+                placeholder="https://outlook.office.com/webhook/..."
+                value={notifFields.webhookUrl}
+                onChange={e => setNotifFields(v => ({ ...v, webhookUrl: e.target.value }))}
+                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
               />
             </div>
-
-            {/* Test result */}
-            {testState !== 'idle' && (
-              <div className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
-                testState === 'ok' ? 'bg-green-500/10 text-green-300 border border-green-500/20' :
-                testState === 'fail' ? 'bg-red-500/10 text-red-300 border border-red-500/20' :
-                'bg-muted text-muted-foreground',
-              )}>
-                {testState === 'testing' && <Loader2 className="h-4 w-4 animate-spin" />}
-                {testState === 'ok' && <CheckCircle2 className="h-4 w-4" />}
-                {testState === 'fail' && <AlertCircle className="h-4 w-4" />}
-                <span>{testState === 'testing' ? 'Testing connection…' : testMsg}</span>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={testLLM}
-                  disabled={
-                    testState === 'testing' ||
-                    (!alreadyConfigured && !hasNewCredentials)
-                  }
-                  className="gap-1.5"
-                >
-                  {testState === 'testing'
-                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Testing…</>
-                    : <><RefreshCw className="h-3.5 w-3.5" /> Test Connection</>}
-                </Button>
-              </div>
-              <Button
-                onClick={() => {
-                  if (alreadyConfigured && !hasNewCredentials) {
-                    setStep(1);
-                  } else {
-                    llmMutation.mutate();
-                  }
-                }}
-                disabled={!canProceedLLM || llmMutation.isPending}
-              >
-                {llmMutation.isPending ? 'Saving…' : 'Next'} <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Step 1 — Notifications */}
-      {step === 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Notification Channel</CardTitle>
-            <CardDescription>Configure how agents send alerts and approval requests</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-
-            {/* Channel selector — text pills */}
-            <div className="space-y-2">
-              <Label>Channel</Label>
-              <div className="flex flex-wrap gap-2">
-                {CHANNELS.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => { setNotif((v) => ({ ...v, channel: c.value })); setNotifTestState('idle'); }}
-                    className={cn(
-                      'rounded-full border px-4 py-1.5 text-sm font-medium transition-colors',
-                      notif.channel === c.value
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border text-muted-foreground hover:border-primary/50 hover:text-foreground',
-                    )}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {notif.channel === 'telegram' && (
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <Label>Bot Token</Label>
-                  <Input
-                    type="password"
-                    placeholder="123456:ABC-DEF..."
-                    value={notif.botToken}
-                    onChange={(e) => setNotif((v) => ({ ...v, botToken: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>Chat ID</Label>
-                  <Input
-                    placeholder="-1001234567890"
-                    value={notif.chatId}
-                    onChange={(e) => setNotif((v) => ({ ...v, chatId: e.target.value }))}
-                  />
-                </div>
-              </div>
-            )}
-
-            {notif.channel === 'teams' && (
-              <div className="space-y-1">
-                <Label>Webhook URL</Label>
-                <Input
-                  placeholder="https://outlook.office.com/webhook/..."
-                  value={notif.webhookUrl}
-                  onChange={(e) => setNotif((v) => ({ ...v, webhookUrl: e.target.value }))}
-                />
-              </div>
-            )}
-
-            {notif.channel === 'whatsapp' && (
-              <div className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Twilio Account SID</Label>
-                    <Input type="password" placeholder="ACxxxxxxxxxxxxxxxx" value={notif.twilioSid}
-                      onChange={(e) => setNotif((v) => ({ ...v, twilioSid: e.target.value }))} />
+          )}
+          {notifChannel === 'whatsapp' && (
+            <div className="grid grid-cols-2 gap-3">
+              {(['twilioSid', 'twilioAuth', 'fromNumber', 'toNumber'] as const).map((key) => {
+                const labels: Record<string, string> = { twilioSid: 'Account SID', twilioAuth: 'Auth Token', fromNumber: 'From Number', toNumber: 'To Number' };
+                return (
+                  <div key={key} className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">{labels[key]}</label>
+                    <input
+                      type={key === 'twilioAuth' || key === 'twilioSid' ? 'password' : 'text'}
+                      value={notifFields[key]}
+                      onChange={e => setNotifFields(v => ({ ...v, [key]: e.target.value }))}
+                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                    />
                   </div>
-                  <div className="space-y-1">
-                    <Label>Twilio Auth Token</Label>
-                    <Input type="password" placeholder="Auth token" value={notif.twilioAuth}
-                      onChange={(e) => setNotif((v) => ({ ...v, twilioAuth: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>From Number</Label>
-                    <Input placeholder="whatsapp:+14155238886" value={notif.fromNumber}
-                      onChange={(e) => setNotif((v) => ({ ...v, fromNumber: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>To Number</Label>
-                    <Input placeholder="whatsapp:+1234567890" value={notif.toNumber}
-                      onChange={(e) => setNotif((v) => ({ ...v, toNumber: e.target.value }))} />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Notification test status */}
-            {notifTestState !== 'idle' && (
-              <div className={cn(
-                'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
-                notifTestState === 'ok' ? 'bg-green-500/10 text-green-300 border border-green-500/20' :
-                notifTestState === 'fail' ? 'bg-red-500/10 text-red-300 border border-red-500/20' :
-                'bg-muted text-muted-foreground',
-              )}>
-                {notifTestState === 'testing' && <Loader2 className="h-4 w-4 animate-spin" />}
-                {notifTestState === 'ok' && <CheckCircle2 className="h-4 w-4" />}
-                {notifTestState === 'fail' && <AlertCircle className="h-4 w-4" />}
-                <span>
-                  {notifTestState === 'testing' ? 'Sending test message…' :
-                   notifTestState === 'ok' ? 'Test message sent — check your channel' :
-                   'Test failed — check your credentials'}
-                </span>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setStep(0)}>
-                  <ChevronLeft className="h-3.5 w-3.5" /> Back
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={notifTestState === 'testing'}
-                  onClick={testNotification}
-                >
-                  {notifTestState === 'testing'
-                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending…</>
-                    : <><RefreshCw className="h-3.5 w-3.5" /> Send Test</>}
-                </Button>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="ghost" onClick={() => setStep(2)}>Skip</Button>
-                <Button onClick={() => notifMutation.mutate()} disabled={notifMutation.isPending}>
-                  {notifMutation.isPending ? 'Saving…' : 'Save & Continue'} <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+                );
+              })}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {/* Step 2 — Done */}
-      {step === 2 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10">
-                <Check className="h-5 w-5 text-green-400" />
-              </span>
-              Configuration Complete
-            </CardTitle>
-            <CardDescription>Your platform is ready</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-md border p-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">LLM Provider</span>
-                <Badge variant="secondary">{PROVIDERS.find((p) => p.value === llm.provider)?.label}</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Model</span>
-                <span>{llm.model}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Notification Channel</span>
-                <Badge variant="secondary">{CHANNELS.find((c) => c.value === notif.channel)?.label}</Badge>
-              </div>
+          <div className="flex items-center gap-2 pt-1">
+            <TestBadge state={notifTestState} />
+            <div className="flex gap-2 ml-auto">
+              <button onClick={testNotif} disabled={notifTestState === 'testing'} className="rounded-lg border border-[rgb(var(--border))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] disabled:opacity-40 transition-all">
+                {notifTestState === 'testing' ? 'Testing…' : 'Test'}
+              </button>
+              <button onClick={saveNotif} className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors">
+                Save
+              </button>
             </div>
-            <div className="flex gap-3">
-              <Button className="flex-1" onClick={() => router.push('/')}>Go to Dashboard</Button>
-              <Button variant="outline" onClick={() => setStep(0)}>
-                <RefreshCw className="h-4 w-4 mr-2" /> Reconfigure
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
