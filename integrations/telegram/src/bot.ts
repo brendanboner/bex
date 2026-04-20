@@ -339,9 +339,33 @@ async function backgroundPoll(chatId: number, requestId: string): Promise<void> 
   );
 }
 
+const TELEGRAM_MAX = 4096;
+
+/**
+ * Split a string into chunks of at most `max` characters, preferring to
+ * break at newlines so responses stay readable.
+ */
+function chunkText(text: string, max = TELEGRAM_MAX): string[] {
+  if (text.length <= max) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= max) {
+      chunks.push(remaining);
+      break;
+    }
+    // Try to break at the last newline within the window
+    let cut = remaining.lastIndexOf('\n', max);
+    if (cut <= 0) cut = max; // no newline found — hard cut
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).replace(/^\n/, '');
+  }
+  return chunks;
+}
+
 /**
  * Send directly to a chat ID (not via ctx) — used from background poller.
- * Falls back to plain text if MarkdownV2 parsing fails.
+ * Falls back to plain text if MarkdownV2 parsing fails. Chunks long messages.
  */
 async function safeSendDirect(chatId: number, text: string): Promise<void> {
   const toMdV2 = (s: string): string =>
@@ -350,14 +374,16 @@ async function safeSendDirect(chatId: number, text: string): Promise<void> {
       .replace(/\\\*\\\*(.*?)\\\*\\\*/g, '*$1*')
       .replace(/(?<!\\\*)\\\*((?!\\\*).*?)\\\*/g, '_$1_');
 
-  try {
-    await bot.api.sendMessage(chatId, toMdV2(text), { parse_mode: 'MarkdownV2' });
-  } catch {
-    const plain = text.replace(/[*_`[\]]/g, '');
+  for (const chunk of chunkText(text)) {
     try {
-      await bot.api.sendMessage(chatId, plain);
-    } catch (err) {
-      console.error('[telegram] Failed to send message:', err);
+      await bot.api.sendMessage(chatId, toMdV2(chunk), { parse_mode: 'MarkdownV2' });
+    } catch {
+      const plain = chunk.replace(/[*_`[\]]/g, '');
+      try {
+        await bot.api.sendMessage(chatId, plain);
+      } catch (err) {
+        console.error('[telegram] Failed to send message:', err);
+      }
     }
   }
 }
@@ -456,6 +482,7 @@ function requireEnv(key: string): string {
  * Send a message to Telegram safely. LLM output may contain Markdown that
  * doesn't parse cleanly (e.g. **bold** vs *bold*, unmatched backticks).
  * Try MarkdownV2 first (with escaping), fall back to plain text on error.
+ * Chunks messages that exceed Telegram's 4096-character limit.
  */
 async function safeSend(ctx: BotContext, text: string): Promise<void> {
   // Convert common Markdown patterns to MarkdownV2 and escape special chars
@@ -468,15 +495,17 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
       // Convert *italic* that are real italic (single *) back
       .replace(/(?<!\\\*)\\\*((?!\\\*).*?)\\\*/g, '_$1_');
 
-  try {
-    await ctx.reply(toMdV2(text), { parse_mode: 'MarkdownV2' });
-  } catch {
-    // Fall back to plain text — strip any remaining markdown symbols
-    const plain = text.replace(/[*_`[\]]/g, '');
+  for (const chunk of chunkText(text)) {
     try {
-      await ctx.reply(plain);
-    } catch (err) {
-      console.error('[telegram] Failed to send message:', err);
+      await ctx.reply(toMdV2(chunk), { parse_mode: 'MarkdownV2' });
+    } catch {
+      // Fall back to plain text — strip any remaining markdown symbols
+      const plain = chunk.replace(/[*_`[\]]/g, '');
+      try {
+        await ctx.reply(plain);
+      } catch (err) {
+        console.error('[telegram] Failed to send message:', err);
+      }
     }
   }
 }
