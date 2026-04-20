@@ -1,13 +1,13 @@
 /**
- * bforge skill <subcommand>
+ * bex skill <subcommand>
  *
  * Commands:
- *   bforge skill list              — list skills in the local registry
- *   bforge skill push <domain>     — push a DB skill to the registry
- *   bforge skill push --all        — push all DB skills to the registry
- *   bforge skill pull <domain>     — pull a skill from the registry into DB
- *   bforge skill delete <domain>   — delete a skill from the registry
- *   bforge skill info <domain>     — show skill details
+ *   bex skill list              — list skills in the local registry
+ *   bex skill push <domain>     — push a DB skill to the registry
+ *   bex skill push --all        — push all DB skills to the registry
+ *   bex skill pull <domain>     — pull a skill from the registry into DB
+ *   bex skill delete <domain>   — delete a skill from the registry
+ *   bex skill info <domain>     — show skill details
  */
 import { Command } from 'commander';
 import path from 'path';

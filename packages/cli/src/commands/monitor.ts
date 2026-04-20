@@ -29,11 +29,11 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
   try {
     root = findProjectRoot();
   } catch {
-    printError('Run bforge from inside the Forge project directory.');
+    printError('Run bex from inside the Forge project directory.');
     process.exit(1);
   }
 
-  // ── bforge monitor stop ───────────────────────────────────────────────────
+  // ── bex monitor stop ───────────────────────────────────────────────────
   if (options.stop) {
     const { stopLocalServices } = await import('../utils.js');
     stopLocalServices();
@@ -45,10 +45,10 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
     return;
   }
 
-  // ── bforge monitor attach ─────────────────────────────────────────────────
+  // ── bex monitor attach ─────────────────────────────────────────────────
   if (options.attach) {
     if (!sessionExists()) {
-      printError('No forge tmux session running. Run `bforge monitor` first.');
+      printError('No forge tmux session running. Run `bex monitor` first.');
       process.exit(1);
     }
     spawnSync('tmux', ['attach-session', '-t', SESSION], { stdio: 'inherit' });
@@ -58,14 +58,14 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
   // ── tmux requirement check ────────────────────────────────────────────────
   if (!tmuxAvailable()) {
     console.log('');
-    console.log(chalk.red('  ✗ tmux is required for bforge monitor'));
+    console.log(chalk.red('  ✗ tmux is required for bex monitor'));
     console.log('');
     console.log(chalk.bold('  Install tmux:'));
     console.log(chalk.dim('    macOS:   brew install tmux'));
     console.log(chalk.dim('    Ubuntu:  sudo apt install tmux'));
     console.log(chalk.dim('    RHEL:    sudo yum install tmux'));
     console.log('');
-    console.log(chalk.dim('  Alternatively, use `bforge start` to run services without a monitor view.'));
+    console.log(chalk.dim('  Alternatively, use `bex start` to run services without a monitor view.'));
     console.log('');
     process.exit(1);
   }

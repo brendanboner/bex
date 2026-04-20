@@ -38,7 +38,7 @@ export async function statusCommand(): Promise<void> {
   try {
     root = findProjectRoot();
   } catch {
-    printError('Run bforge from inside the Forge project directory.');
+    printError('Run bex from inside the Forge project directory.');
     process.exit(1);
   }
 
@@ -79,7 +79,7 @@ export async function statusCommand(): Promise<void> {
       const file = resolve(logsDir, `${name}.log`);
       const exists = existsSync(file);
       const icon = exists ? chalk.green('●') : chalk.dim('○');
-      const hint = exists ? chalk.dim(`  bforge logs ${name}`) : chalk.dim('  (not started)');
+      const hint = exists ? chalk.dim(`  bex logs ${name}`) : chalk.dim('  (not started)');
       console.log(`  ${icon} ${name.padEnd(20)}${hint}`);
     }
   }

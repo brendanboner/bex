@@ -4,7 +4,7 @@ import { handleActivity } from './bot.js';
 const PORT = Number(process.env['PORT'] ?? 3978);
 
 async function main(): Promise<void> {
-  restify.createServer({ name: 'bforge-teams-bot' });
+  restify.createServer({ name: 'bex-teams-bot' });
 
   server.use(restify.plugins.bodyParser());
 

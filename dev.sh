@@ -1,18 +1,18 @@
 #!/bin/bash
-# dev.sh — deprecated wrapper. Use `bforge monitor` instead.
+# dev.sh — deprecated wrapper. Use `bex monitor` instead.
 echo ""
-echo "  ⚠  dev.sh is deprecated. Please use the bforge CLI:"
+echo "  ⚠  dev.sh is deprecated. Please use the bex CLI:"
 echo ""
-echo "     bforge monitor          # start services + open tmux monitor"
-echo "     bforge monitor --attach # re-attach to a running session"
-echo "     bforge monitor --stop   # stop services + close session"
-echo "     bforge start            # start services without a monitor view"
+echo "     bex monitor          # start services + open tmux monitor"
+echo "     bex monitor --attach # re-attach to a running session"
+echo "     bex monitor --stop   # stop services + close session"
+echo "     bex start            # start services without a monitor view"
 echo ""
 
-if command -v bforge &>/dev/null; then
-  exec bforge monitor "$@"
+if command -v bex &>/dev/null; then
+  exec bex monitor "$@"
 else
-  echo "  bforge not found in PATH."
+  echo "  bex not found in PATH."
   echo "  Install: cd packages/cli && npm install && npm run build && npm link"
   echo ""
   exit 1

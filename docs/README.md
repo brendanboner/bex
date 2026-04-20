@@ -15,7 +15,7 @@
 ### Guides
 - [**Getting Started**](guides/getting-started.md) — install, configure, first agent
 - [**Configuration**](guides/configuration.md) — full `.env` reference
-- [**CLI Reference**](guides/cli.md) — all `bforge` commands
+- [**CLI Reference**](guides/cli.md) — all `bex` commands
 - [**Skill Registry**](guides/skill-registry.md) — publishing, pulling, and sharing skills
 - [**Credential Management**](guides/credentials.md) — vault, types, assignment
 - [**Approval Workflows**](guides/approvals.md) — human-in-the-loop for write operations
@@ -34,13 +34,13 @@
 ```bash
 # Clone and start
 git clone https://github.com/your-org/forge && cd forge
-npm install && npx bforge init
+npm install && npx bex init
 
 # Daily operations
-bforge start        # start all services
-bforge status       # health check
-bforge logs         # tail all logs
-bforge monitor      # tmux log viewer
+bex start        # start all services
+bex status       # health check
+bex logs         # tail all logs
+bex monitor      # tmux log viewer
 ```
 
 **Service ports:**

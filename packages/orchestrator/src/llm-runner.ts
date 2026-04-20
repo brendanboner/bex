@@ -8,10 +8,10 @@ import { z } from 'zod';
 import type { LlmProvider, SkillTool, ToolCallResult } from '@bclaw/shared';
 import type { CredentialVaultService } from '@bclaw/credential-vault';
 
-export function buildLlmModel(provider: LlmProvider, model: string): LanguageModel {
-  const openaiKey = process.env['OPENAI_API_KEY'];
-  const anthropicKey = process.env['ANTHROPIC_API_KEY'];
-  const azureKey = process.env['AZURE_OPENAI_API_KEY'];
+export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: string): LanguageModel {
+  const openaiKey = apiKey ?? process.env['OPENAI_API_KEY'];
+  const anthropicKey = apiKey ?? process.env['ANTHROPIC_API_KEY'];
+  const azureKey = apiKey ?? process.env['AZURE_OPENAI_API_KEY'];
   const azureResource = process.env['AZURE_OPENAI_RESOURCE_NAME'];
 
   switch (provider) {

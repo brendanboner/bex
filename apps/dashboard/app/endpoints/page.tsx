@@ -20,6 +20,7 @@ type Endpoint = {
   description?: string;
   baseUrl: string;
   tags: string[];
+  aliases: string[];
 };
 
 const schema = z.object({
@@ -27,6 +28,7 @@ const schema = z.object({
   description: z.string().optional(),
   baseUrl: z.string().url(),
   tags: z.string(),
+  aliases: z.string().optional(),
   notes: z.string().optional(),
 });
 type FormData = z.infer<typeof schema>;
@@ -41,10 +43,11 @@ export default function EndpointsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: ({ tags, ...rest }: FormData) =>
+    mutationFn: ({ tags, aliases, ...rest }: FormData) =>
       adminApi.post<Endpoint>('/admin/endpoints', {
         ...rest,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+        aliases: (aliases ?? '').split(',').map((t) => t.trim()).filter(Boolean),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['endpoints'] });
@@ -98,6 +101,10 @@ export default function EndpointsPage() {
                 <Label>Tags (comma-separated)</Label>
                 <Input {...form.register('tags')} placeholder="networking, extreme-xco" />
               </div>
+              <div className="space-y-1">
+                <Label>Aliases for smart routing (comma-separated)</Label>
+                <Input {...form.register('aliases')} placeholder="office network, home xco, lab xco" />
+              </div>
               <div className="sm:col-span-2 space-y-1">
                 <Label>Notes (markdown)</Label>
                 <textarea
@@ -125,6 +132,7 @@ export default function EndpointsPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Base URL</TableHead>
                 <TableHead>Tags</TableHead>
+                <TableHead>Aliases</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
@@ -141,6 +149,13 @@ export default function EndpointsPage() {
                     <div className="flex flex-wrap gap-1">
                       {e.tags.map((t) => (
                         <span key={t} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs">{t}</span>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {(e.aliases ?? []).map((a) => (
+                        <span key={a} className="inline-flex items-center rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2 py-0.5 text-xs">{a}</span>
                       ))}
                     </div>
                   </TableCell>

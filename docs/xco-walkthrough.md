@@ -6,7 +6,7 @@ This guide walks through the complete journey from a fresh Forge installation to
 
 ## Prerequisites
 
-- Forge running (`bforge init` (first time) or `bforge start`)
+- Forge running (`bex init` (first time) or `bex start`)
 - An Extreme Networks XCO site with REST API access
 - LLM API key configured (OpenAI, Anthropic, or Azure)
 - Notification channel configured (Telegram, Teams, or WhatsApp)

@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Settings, Send, Building2, Smartphone, Bot, Cloud, Layers } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,16 +39,16 @@ const DEFAULT_MODELS: Record<LLMProvider, string> = {
   'azure-openai': 'gpt-4o',
 };
 
-const PROVIDERS: { value: LLMProvider; label: string; logo: string }[] = [
-  { value: 'openai', label: 'OpenAI', logo: '🟢' },
-  { value: 'anthropic', label: 'Anthropic', logo: '🟣' },
-  { value: 'azure-openai', label: 'Azure OpenAI', logo: '🔵' },
+const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType }[] = [
+  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-violet-500', Icon: Layers },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud },
 ];
 
-const CHANNELS: { value: NotificationChannel; label: string; icon: string }[] = [
-  { value: 'telegram', label: 'Telegram', icon: '✈️' },
-  { value: 'teams', label: 'Microsoft Teams', icon: '💼' },
-  { value: 'whatsapp', label: 'WhatsApp', icon: '📱' },
+const CHANNELS: { value: NotificationChannel; label: string; color: string; Icon: React.ElementType }[] = [
+  { value: 'telegram', label: 'Telegram', color: 'bg-sky-500', Icon: Send },
+  { value: 'teams', label: 'Microsoft Teams', color: 'bg-indigo-600', Icon: Building2 },
+  { value: 'whatsapp', label: 'WhatsApp', color: 'bg-green-500', Icon: Smartphone },
 ];
 
 const STEPS = ['LLM Configuration', 'Notification Channel', 'Done'];
@@ -149,7 +149,9 @@ export default function SetupPage() {
                         : 'border-border hover:border-primary/50',
                     )}
                   >
-                    <span className="text-2xl">{p.logo}</span>
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${p.color}`}>
+                      <p.Icon className="h-5 w-5 text-white" />
+                    </span>
                     {p.label}
                   </button>
                 ))}
@@ -207,7 +209,9 @@ export default function SetupPage() {
                         : 'border-border hover:border-primary/50',
                     )}
                   >
-                    <span className="text-2xl">{c.icon}</span>
+                    <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${c.color}`}>
+                      <c.Icon className="h-5 w-5 text-white" />
+                    </span>
                     {c.label}
                   </button>
                 ))}

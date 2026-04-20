@@ -173,7 +173,7 @@ Always be concise and format output in a readable way for Telegram messages.`,
 
   // ── 3. Get system owner ────────────────────────────────────────────────────
   const owner = await prisma.user.findFirst({ select: { id: true } });
-  if (!owner) throw new Error('No users found — run bforge init first');
+  if (!owner) throw new Error('No users found — run bex init first');
 
   // ── 4. Create/update agent ────────────────────────────────────────────────
   let agentId: string;

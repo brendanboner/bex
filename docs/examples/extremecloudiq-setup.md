@@ -12,7 +12,7 @@ Estimated time: **20 minutes**
 
 ## Prerequisites
 
-- Forge running with `bforge start` (see [Getting Started](../guides/getting-started.md))
+- Forge running with `bex start` (see [Getting Started](../guides/getting-started.md))
 - Telegram bot configured (or use the dashboard chat)
 - ExtremeCloud IQ account: `you@yourcompany.com` / your password
 

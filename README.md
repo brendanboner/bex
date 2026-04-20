@@ -1,4 +1,4 @@
-# Forge
+# BEX — Brendan's Extreme eXchange
 
 **Enterprise Agentic Platform.** One command to configure, deploy, and start building autonomous domain agents — with secure credential management, federated skill sharing, and approval workflows baked in.
 
@@ -10,10 +10,10 @@
 git clone https://github.com/your-org/forge
 cd forge
 npm install
-npx bforge init
+npx bex init
 ```
 
-The `bforge init` wizard will:
+The `bex init` wizard will:
 1. Ask for your LLM provider + API key (validated live)
 2. Choose your interface channel (Web Dashboard / Telegram / Teams / WhatsApp)
 3. Create your admin account
@@ -28,12 +28,12 @@ The `bforge init` wizard will:
 ## CLI Reference
 
 ```bash
-bforge init       # First-run setup wizard
-bforge start      # Start all services
-bforge stop       # Stop all services
-bforge status     # Health check all services
-bforge logs       # Tail all service logs
-bforge logs api   # Tail API gateway logs only
+bex init       # First-run setup wizard
+bex start      # Start all services
+bex stop       # Stop all services
+bex status     # Health check all services
+bex logs       # Tail all service logs
+bex logs api   # Tail API gateway logs only
 ```
 
 ---
@@ -108,7 +108,7 @@ Go to **Scheduled Jobs** and set the agent to run hourly. It will:
 ## Key Concepts
 
 ### Skill Registry
-Skills are versioned, tested, and published. When an agent encounters an unknown domain, it automatically triggers skill discovery. Skills can be published to a central registry and shared across Forge instances.
+Skills are versioned, tested, and published. When an agent encounters an unknown domain, it automatically triggers skill discovery. Skills can be published to a central registry and shared across BEX instances.
 
 ### Credential Vault
 All credentials are encrypted at rest (AES-256-GCM). Agents never see raw credentials — all API calls and SSH sessions are proxied through the vault service.
@@ -117,7 +117,7 @@ All credentials are encrypted at rest (AES-256-GCM). Agents never see raw creden
 Sensitive operations (write access, new skill publishing, remediation execution) require explicit approval via your configured notification channel before proceeding.
 
 ### Central Skill Registry
-Any Forge instance can act as a skill registry. Set `SKILL_REGISTRY_URL` to share skills across your fleet.
+Any BEX instance can act as a skill registry. Set `SKILL_REGISTRY_URL` to share skills across your fleet.
 
 ---
 

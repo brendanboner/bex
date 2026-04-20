@@ -1,23 +1,23 @@
 # CLI Reference
 
-The `bforge` CLI is the primary management interface for Forge. Install it globally or use `npx bforge`.
+The `bex` CLI is the primary management interface for BEX. Install it globally or use `npx bex`.
 
 ```bash
 npm install -g @bclaw/cli   # global install
 # or
-npx bforge <command>         # one-off via npx
+npx bex <command>         # one-off via npx
 ```
 
 ---
 
 ## Commands
 
-### `bforge init`
+### `bex init`
 
 First-run setup wizard. Run once on a fresh install.
 
 ```bash
-bforge init
+bex init
 ```
 
 Interactively configures:
@@ -30,12 +30,12 @@ Interactively configures:
 
 ---
 
-### `bforge start`
+### `bex start`
 
-Start all Forge services.
+Start all BEX services.
 
 ```bash
-bforge start
+bex start
 ```
 
 Services started (in order):
@@ -45,26 +45,26 @@ Services started (in order):
 4. `scheduler/worker`
 5. Configured integration bot (telegram / teams / whatsapp)
 
-Requires a foreground TTY. For background operation, use `bforge start` inside a tmux session, or use the Docker Compose approach (`make up`).
+Requires a foreground TTY. For background operation, use `bex start` inside a tmux session, or use the Docker Compose approach (`make up`).
 
 ---
 
-### `bforge stop`
+### `bex stop`
 
-Stop all running Forge services.
+Stop all running BEX services.
 
 ```bash
-bforge stop
+bex stop
 ```
 
 ---
 
-### `bforge status`
+### `bex status`
 
 Health check all services and show port/PID status.
 
 ```bash
-bforge status
+bex status
 
 # Example output:
 ✔ skill-registry  :5050  healthy
@@ -76,39 +76,39 @@ bforge status
 
 ---
 
-### `bforge logs [service]`
+### `bex logs [service]`
 
 Tail log files. With no argument, tails all logs.
 
 ```bash
-bforge logs              # all services
-bforge logs api          # api-gateway only
-bforge logs worker       # scheduler/worker
-bforge logs telegram     # telegram bot
-bforge logs registry     # skill registry
-bforge logs dashboard    # dashboard-api
+bex logs              # all services
+bex logs api          # api-gateway only
+bex logs worker       # scheduler/worker
+bex logs telegram     # telegram bot
+bex logs registry     # skill registry
+bex logs dashboard    # dashboard-api
 ```
 
 ---
 
-### `bforge monitor`
+### `bex monitor`
 
 Opens a tmux session with split panes showing live logs for all services. Detach at any time with **Ctrl+B, D**.
 
 ```bash
-bforge monitor
+bex monitor
 ```
 
 Requires `tmux` to be installed.
 
 ---
 
-### `bforge build`
+### `bex build`
 
 Build all TypeScript packages.
 
 ```bash
-bforge build
+bex build
 ```
 
 Equivalent to `npm run build` from the repo root (uses Turborepo).
@@ -119,7 +119,7 @@ Equivalent to `npm run build` from the repo root (uses Turborepo).
 
 The CLI reads from `.env` in the current directory (repo root). All commands inherit the full environment.
 
-If `.env` doesn't exist, run `bforge init` first.
+If `.env` doesn't exist, run `bex init` first.
 
 ---
 

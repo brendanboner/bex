@@ -20,7 +20,7 @@ export async function logsCommand(service: string | undefined, options: { lines:
   try {
     root = findProjectRoot();
   } catch {
-    printError('Run bforge from inside the Forge project directory.');
+    printError('Run bex from inside the Forge project directory.');
     process.exit(1);
   }
 
@@ -31,7 +31,7 @@ export async function logsCommand(service: string | undefined, options: { lines:
     const resolved = LOG_ALIASES[service] ?? service;
     const logFile = resolve(logsDir, `${resolved}.log`);
     if (!existsSync(logFile)) {
-      printWarning(`No log file found for "${resolved}". Has bforge start been run?`);
+      printWarning(`No log file found for "${resolved}". Has bex start been run?`);
       printError(`Expected: ${logFile}`);
       process.exit(1);
     }
@@ -43,7 +43,7 @@ export async function logsCommand(service: string | undefined, options: { lines:
       .filter(existsSync);
 
     if (files.length === 0) {
-      printWarning('No log files found. Has bforge start been run?');
+      printWarning('No log files found. Has bex start been run?');
       process.exit(1);
     }
 

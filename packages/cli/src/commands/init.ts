@@ -57,12 +57,12 @@ export async function initCommand(): Promise<void> {
         default: false,
       });
       if (!overwrite) {
-        console.log('\n' + chalk.dim('Run `bforge start` to start the platform.'));
+        console.log('\n' + chalk.dim('Run `bex start` to start the platform.'));
         return;
       }
     }
   } catch {
-    printError('Could not locate project root. Run bforge from inside the Forge directory.');
+    printError('Could not locate project root. Run bex from inside the Forge directory.');
     process.exit(1);
   }
 
@@ -131,7 +131,7 @@ export async function initCommand(): Promise<void> {
 
   const confirmPass = await password({ message: 'Confirm password:' });
   if (adminPassword !== confirmPass) {
-    printError('Passwords do not match. Run `bforge init` again.');
+    printError('Passwords do not match. Run `bex init` again.');
     process.exit(1);
   }
 
@@ -182,12 +182,12 @@ export async function initCommand(): Promise<void> {
   });
 
   if (!shouldStart) {
-    console.log('\n' + chalk.dim('Run `bforge start` when ready.'));
+    console.log('\n' + chalk.dim('Run `bex start` when ready.'));
     return;
   }
 
   if (!isDockerRunning()) {
-    printError('Docker is not running. Please start Docker and run `bforge start`.');
+    printError('Docker is not running. Please start Docker and run `bex start`.');
     process.exit(1);
   }
 
@@ -203,7 +203,7 @@ export async function initCommand(): Promise<void> {
   console.log('');
   const apiReady = await waitForService('http://localhost:4000/health', 'API Gateway', 90_000);
   if (!apiReady) {
-    printWarning('API Gateway did not start in time. Check logs with: bforge logs api-gateway');
+    printWarning('API Gateway did not start in time. Check logs with: bex logs api-gateway');
     return;
   }
 

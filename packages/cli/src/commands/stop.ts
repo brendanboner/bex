@@ -7,7 +7,7 @@ export async function stopCommand(): Promise<void> {
   try {
     root = findProjectRoot();
   } catch {
-    printError('Run bforge from inside the Forge project directory.');
+    printError('Run bex from inside the Forge project directory.');
     process.exit(1);
   }
 

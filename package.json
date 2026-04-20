@@ -9,7 +9,7 @@
     "integrations/*"
   ],
   "scripts": {
-    "bforge": "node packages/cli/dist/bin/bforge.js",
+    "bex": "node packages/cli/dist/bin/bex.js",
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",

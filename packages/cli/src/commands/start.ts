@@ -20,18 +20,18 @@ export async function startCommand(): Promise<void> {
   try {
     root = findProjectRoot();
   } catch {
-    printError('Run bforge from inside the Forge project directory.');
+    printError('Run bex from inside the Forge project directory.');
     process.exit(1);
   }
 
   // Auto-init on first run
   if (!existsSync(resolve(root, '.env'))) {
-    console.log(chalk.cyan('  First run detected — running bforge init...'));
+    console.log(chalk.cyan('  First run detected — running bex init...'));
     console.log('');
     try {
       execSync(`bash "${resolve(root, 'init.sh')}"`, { stdio: 'inherit', cwd: root });
     } catch {
-      printError('Init failed. Run `bforge init` manually to configure.');
+      printError('Init failed. Run `bex init` manually to configure.');
       process.exit(1);
     }
   }
@@ -92,7 +92,7 @@ export async function startCommand(): Promise<void> {
   if (allOk) {
     console.log(chalk.bold.green('  ✓ Forge is running'));
   } else {
-    printWarning('Some services are still starting. Check logs with: bforge logs');
+    printWarning('Some services are still starting. Check logs with: bex logs');
   }
   console.log('');
   console.log(chalk.bold('  ┌──────────────────────────────────────────────────┐'));
@@ -103,7 +103,7 @@ export async function startCommand(): Promise<void> {
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
   console.log(chalk.bold('  │') + chalk.dim('  Login:  admin@forge.local  /  Forge2024!         ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
-  console.log(chalk.bold('  │') + chalk.dim('  Logs:   bforge logs [service]                    ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.dim('  Logs:   bex logs [service]                    ') + chalk.bold('│'));
   console.log(chalk.bold('  └──────────────────────────────────────────────────┘'));
   console.log('');
 }

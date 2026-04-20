@@ -298,6 +298,8 @@ model Credential {
 
   // Agents that have this credential directly assigned
   agents    Agent[]
+  // LLM configs that reference this credential
+  llmConfigs LLMConfig[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -383,6 +385,8 @@ model Endpoint {
   baseUrl     String
   // Tags for discovery (e.g. ["networking", "extreme-xco"])
   tags        String[] @default([])
+  // Natural-language aliases for smart routing (e.g. ["office network", "home xco"])
+  aliases     String[] @default([])
   // Markdown notes / setup info
   notes       String?
 
@@ -609,4 +613,23 @@ model MeshEvent {
   @@index([sessionId])
   @@index([status])
   @@index([assignedAgentId])
+}
+
+// ─── LLM Configurations ──────────────────────────────────────────────────────
+// Named LLM configs allowing multiple providers to be registered and switched.
+
+model LLMConfig {
+  id           String   @id @default(cuid())
+  name         String   @unique    // e.g. "OpenAI Production", "Anthropic Dev"
+  provider     String              // openai | anthropic | azure-openai
+  model        String              // e.g. gpt-4o, claude-3-5-sonnet-20241022
+  isDefault    Boolean  @default(false)
+  // FK to Credential (API_TOKEN type) holding the API key
+  credentialId String?
+  credential   Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isDefault])
 }

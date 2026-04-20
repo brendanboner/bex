@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide takes you from a fresh clone to a working Forge instance with an agent responding in Telegram in under 15 minutes.
+This guide takes you from a fresh clone to a working BEX instance with an agent responding in Telegram in under 15 minutes.
 
 ---
 
@@ -39,7 +39,7 @@ This starts `docker-compose.dev.yml` — just Postgres and Redis, no application
 ## Step 3 — Run the Setup Wizard
 
 ```bash
-npx bforge init
+npx bex init
 ```
 
 The wizard will ask for:
@@ -50,7 +50,7 @@ The wizard will ask for:
 4. **Admin password** — for the dashboard
 5. **Notification channel** — Telegram / Teams / WhatsApp / None
 
-At the end, `bforge init` will:
+At the end, `bex init` will:
 - Write a `.env` file with all generated secrets
 - Run Prisma migrations
 - Seed the database with a system user and default agent
@@ -61,7 +61,7 @@ At the end, `bforge init` will:
 ## Step 4 — Verify Services are Running
 
 ```bash
-bforge status
+bex status
 ```
 
 Expected output:
@@ -163,14 +163,14 @@ The platform will:
 
 **Services won't start:**
 ```bash
-bforge status          # check which service is unhealthy
-bforge logs api        # tail api-gateway logs
-bforge logs worker     # tail worker logs
+bex status          # check which service is unhealthy
+bex logs api        # tail api-gateway logs
+bex logs worker     # tail worker logs
 ```
 
 **Telegram bot not responding:**
 ```bash
-bforge logs telegram   # check for errors
+bex logs telegram   # check for errors
 # Ensure TELEGRAM_BOT_TOKEN and TELEGRAM_DEFAULT_AGENT_ID are set in .env
 ```
 

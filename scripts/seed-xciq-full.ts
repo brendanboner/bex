@@ -108,7 +108,7 @@ async function main() {
 
   // ── 3. Get system owner ───────────────────────────────────────────────────
   const owner = await prisma.user.findFirst({ select: { id: true } });
-  if (!owner) throw new Error('No users found — run bforge init first');
+  if (!owner) throw new Error('No users found — run bex init first');
 
   // ── 4. Create/update the main monitoring agent ────────────────────────────
   let agentId: string;

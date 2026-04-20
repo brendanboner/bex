@@ -136,13 +136,37 @@ export class OrchestratorService {
       }
 
       // 6c. Resolve endpoint host map: Endpoint tags → baseUrl.
-      // Used to substitute {tag-host} placeholders in skill tool URL templates.
+      // Uses smart routing: extract endpoint hints from user input, prefer matched endpoints.
       // e.g. Endpoint{tags:["xco"], baseUrl:"http://10.64.160.109"} → hostMap["xco-host"] = "http://10.64.160.109"
-      const endpointRows = await this.prisma.endpoint.findMany({ select: { tags: true, baseUrl: true } });
+      const endpointRows = await this.prisma.endpoint.findMany({
+        select: { name: true, tags: true, aliases: true, baseUrl: true },
+      });
+
+      // Smart endpoint resolution: match input against endpoint name/aliases/tags
+      const inputLower = ctx.input.toLowerCase();
+      const matchedEndpoint = endpointRows.find((ep) => {
+        const candidates = [ep.name, ...ep.aliases, ...ep.tags].map((s) => s.toLowerCase());
+        return candidates.some((c) => inputLower.includes(c));
+      });
+
       const hostMap: Record<string, string> = {};
       for (const ep of endpointRows) {
-        for (const tag of ep.tags) {
-          hostMap[`${tag}-host`] = ep.baseUrl.replace(/\/$/, '');
+        // If we matched a specific endpoint, only use that endpoint for its tags
+        const useThisEp = !matchedEndpoint || matchedEndpoint.name === ep.name;
+        if (useThisEp) {
+          for (const tag of ep.tags) {
+            hostMap[`${tag}-host`] = ep.baseUrl.replace(/\/$/, '');
+          }
+        }
+      }
+      // If no match, fallback to all endpoints (first one wins per tag)
+      if (matchedEndpoint === undefined) {
+        for (const ep of endpointRows) {
+          for (const tag of ep.tags) {
+            if (!hostMap[`${tag}-host`]) {
+              hostMap[`${tag}-host`] = ep.baseUrl.replace(/\/$/, '');
+            }
+          }
         }
       }
 
@@ -277,7 +301,29 @@ export class OrchestratorService {
       }
 
       // 8. Build LLM model and system prompt
-      const model = buildLlmModel(agent.llmProvider as LlmProvider, agent.llmModel);
+      // Prefer default LLMConfig from DB over env vars if configured
+      let llmApiKey: string | undefined;
+      let llmProvider = agent.llmProvider as LlmProvider;
+      let llmModel = agent.llmModel;
+
+      try {
+        const defaultConfig = await this.prisma.lLMConfig.findFirst({
+          where: { isDefault: true },
+          include: { credential: { select: { id: true } } },
+        });
+        if (defaultConfig) {
+          llmProvider = defaultConfig.provider as LlmProvider;
+          llmModel = defaultConfig.model;
+          if (defaultConfig.credentialId) {
+            const cred = await this.vault.resolve(defaultConfig.credentialId, []);
+            llmApiKey = (cred as { apiKey?: string }).apiKey;
+          }
+        }
+      } catch {
+        // Fall through to env-var based config
+      }
+
+      const model = buildLlmModel(llmProvider, llmModel, llmApiKey);
 
       const charterPrompt = buildCharterPrompt(resolvedCharter);
       const personaData = agent.persona as { systemPromptOverride?: string; systemPrompt?: string } | null;

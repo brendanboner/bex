@@ -1,14 +1,14 @@
 {
   "name": "@bclaw/cli",
   "version": "0.1.0",
-  "description": "bforge — Forge Enterprise Agentic Platform CLI",
+  "description": "bex — BEX Brendan's Extreme eXchange CLI",
   "bin": {
-    "bforge": "./dist/bin/bforge.js"
+    "bex": "./dist/bin/bex.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/bin/bforge.ts",
-    "start": "node dist/bin/bforge.js",
+    "dev": "tsx src/bin/bex.ts",
+    "start": "node dist/bin/bex.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo"
   },

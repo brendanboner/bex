@@ -38,7 +38,7 @@ gen_secret() { openssl rand -hex "${1:-32}"; }
 
 wait_for_postgres() {
   local max=30 i=0
-  while ! PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bforge -d bforge -c "SELECT 1" >/dev/null 2>&1; do
+  while ! PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bex -d bex -c "SELECT 1" >/dev/null 2>&1; do
     i=$((i+1))
     [ "$i" -ge "$max" ] && { err "Postgres did not become ready in time."; exit 1; }
     printf "."
@@ -86,7 +86,7 @@ LOG_LEVEL=info
 # ─── Database ────────────────────────────────────────────────────────────────
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 REDIS_PASSWORD=${REDIS_PASSWORD}
-DATABASE_URL=postgresql://bforge:${POSTGRES_PASSWORD}@localhost:5432/bforge?schema=public
+DATABASE_URL=postgresql://bex:${POSTGRES_PASSWORD}@localhost:5432/bex?schema=public
 REDIS_URL=redis://:${REDIS_PASSWORD}@localhost:6379
 
 # ─── Security ────────────────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-forge-dev-postgres}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-forge-dev-redis}"
 
 # Check if postgres is already up
-if PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bforge -d bforge -c "SELECT 1" >/dev/null 2>&1; then
+if PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U bex -d bex -c "SELECT 1" >/dev/null 2>&1; then
   success "Postgres already running"
   POSTGRES_WAS_RUNNING=true
 else

@@ -6,7 +6,7 @@ This document walks through every way to interact with the Forge Enterprise Agen
 
 ## Table of Contents
 
-1. [First Run — CLI (`bforge init`)](#1-first-run--cli-bforge-init)
+1. [First Run — CLI (`bex init`)](#1-first-run--cli-bex-init)
 2. [Dashboard GUI Walkthrough](#2-dashboard-gui-walkthrough)
 3. [Authentication & Token Management](#3-authentication--token-management)
 4. [Building and Publishing a Skill](#4-building-and-publishing-a-skill)
@@ -22,7 +22,7 @@ This document walks through every way to interact with the Forge Enterprise Agen
 
 ---
 
-## 1. First Run — CLI (`bforge init`)
+## 1. First Run — CLI (`bex init`)
 
 ### Prerequisites
 
@@ -38,21 +38,21 @@ cd forge
 npm install
 ```
 
-### Running `bforge init`
+### Running `bex init`
 
 ```bash
-node packages/cli/dist/bin/bforge.js init
+node packages/cli/dist/bin/bex.js init
 
 # Or after global install:
 npm install -g ./packages/cli
-bforge init
+bex init
 ```
 
 **Full annotated wizard output:**
 
 ```
 ╔══════════════════════════════════════════════════════╗
-║   Forge — Enterprise Agentic Platform                ║
+║   BEX — Brendan's Extreme eXchange                ║
 ║   Autonomous agents. Domain skills. Secure by design.║
 ╚══════════════════════════════════════════════════════╝
 
@@ -113,7 +113,7 @@ Step 4 of 4: Generating configuration
 
 ```bash
 # Check service health
-bforge status
+bex status
 
 # Output:
 # Forge Service Status
@@ -130,16 +130,16 @@ bforge status
 # forge-redis-1            Up 3 hours (healthy)
 
 # Tail all logs
-bforge logs
+bex logs
 
 # Tail API gateway only
-bforge logs api
+bex logs api
 
 # Stop everything
-bforge stop
+bex stop
 
 # Restart
-bforge start
+bex start
 ```
 
 ---
@@ -942,9 +942,9 @@ curl -X POST http://localhost:4000/requests/$REQUEST_ID/escalate \
 
 ## 11. Telegram Channel Integration
 
-### Configure in bforge init
+### Configure in bex init
 
-During `bforge init`, select **Telegram Bot** as your channel and enter:
+During `bex init`, select **Telegram Bot** as your channel and enter:
 - **Telegram Bot Token** (from [@BotFather](https://t.me/botfather))
 - **Approval Chat ID** (your personal chat ID or a group for approvals)
 

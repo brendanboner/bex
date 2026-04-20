@@ -143,7 +143,7 @@ async function main() {
     systemUser = await prisma.user.findFirst({ where: { email: 'admin@forge.local' } });
   }
   if (!systemUser) {
-    throw new Error('No system or admin user found — run bforge init first');
+    throw new Error('No system or admin user found — run bex init first');
   }
 
   console.log('Creating weather agent...');

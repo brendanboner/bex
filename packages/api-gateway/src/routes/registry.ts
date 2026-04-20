@@ -249,4 +249,33 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
       }
     },
   );
+
+  // ─── Registry Configuration ────────────────────────────────────────────────
+
+  // GET /registry/config — get the current registry URL config
+  app.get('/registry/config', async (_request, reply) => {
+    const url = process.env['SKILL_REGISTRY_URL'] ?? 'https://skills.octorapidlabs.com';
+    return reply.send(ok({ url, isDefault: !process.env['SKILL_REGISTRY_URL'] }));
+  });
+
+  // PUT /registry/config — update the registry URL (writes to process env for the session)
+  app.put<{ Body: { url?: string; authToken?: string } }>('/registry/config', async (request, reply) => {
+    const { url } = request.body ?? {};
+    if (!url) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'url is required'));
+    process.env['SKILL_REGISTRY_URL'] = url;
+    return reply.send(ok({ url }));
+  });
+
+  // POST /registry/config/test — test connectivity to the configured registry
+  app.post('/registry/config/test', async (_request, reply) => {
+    const url = process.env['SKILL_REGISTRY_URL'] ?? 'https://skills.octorapidlabs.com';
+    try {
+      const testClient = new SkillRegistryClient({ registryUrl: url });
+      const skills = await testClient.list();
+      return reply.send(ok({ connected: true, url, skillCount: skills.length }));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return reply.send(ok({ connected: false, url, error: msg }));
+    }
+  });
 }
