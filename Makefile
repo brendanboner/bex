@@ -1,50 +1,35 @@
-# OpenClaw — Makefile
+# Forge — Makefile
 
-.PHONY: setup dev prod stop clean build test logs help
+.PHONY: install bootstrap start stop restart status logs build test db-studio db-migrate db-reset clean help
 
-##@ Setup
+##@ First-time Setup
 
-setup: ## First-time setup: generate secrets and create .env
-	@echo "🔐 Generating secrets..."
-	@bash scripts/generate-env.sh
+install: ## Install dependencies, build all packages, and link bex globally
+	@echo "📦 Installing dependencies..."
+	npm install
+	@echo "🔨 Building all packages..."
+	npm run build
+	@echo "🔗 Linking bex CLI globally..."
+	cd packages/cli && npm link
 	@echo ""
-	@echo "✅ .env created. Edit it to add your LLM API keys and notification tokens."
-	@echo "   Then run: make run"
+	@echo "✅ Done! Run: bex init"
 
 ##@ Running
 
-run: ## Start all services (builds if needed)
-	@echo "🚀 Starting OpenClaw..."
-	docker compose up -d --build
-	@echo ""
-	@echo "⏳ Waiting for services to be ready..."
-	@sleep 8
-	@bash scripts/init-db.sh
-	@echo ""
-	@echo "✅ OpenClaw is running!"
-	@echo "   Dashboard:    http://localhost:3000"
-	@echo "   API:          http://localhost:4000"
-	@echo "   Admin API:    http://localhost:4001"
-	@echo ""
-	@echo "   Default admin token is in .env as BCLAW_ADMIN_TOKEN"
+start: ## Start all services (alias for: bex start)
+	bex start
 
-run-with-telegram: ## Start all services including the Telegram bot
-	docker compose --profile telegram up -d --build
-	@bash scripts/init-db.sh
+stop: ## Stop all services (alias for: bex stop)
+	bex stop
 
-dev: ## Start services for local development (no dashboard build)
-	docker compose up -d postgres redis
-	@echo "▶  Run: npm run dev"
+restart: ## Restart all services (alias for: bex restart)
+	bex restart
 
-stop: ## Stop all services
-	docker compose down
+status: ## Health-check all services (alias for: bex status)
+	bex status
 
-clean: ## Stop and remove all data volumes
-	docker compose down -v
-	@echo "🗑️  All data removed."
-
-restart: ## Restart all services
-	docker compose restart
+logs: ## Tail all service logs (alias for: bex logs)
+	bex logs
 
 ##@ Development
 
@@ -54,20 +39,22 @@ build: ## Build all packages
 test: ## Run all tests
 	npm run test
 
-logs: ## Tail all service logs
-	docker compose logs -f
+##@ Database
 
-logs-api: ## Tail api-gateway logs
-	docker compose logs -f api-gateway
-
-db-studio: ## Open Prisma Studio (requires DATABASE_URL to be set)
+db-studio: ## Open Prisma Studio
 	cd packages/shared && npx prisma studio
 
 db-migrate: ## Run pending migrations
-	@bash scripts/init-db.sh
+	cd packages/shared && npx prisma migrate deploy
 
-db-reset: ## Reset database (WARNING: destroys all data)
+db-reset: ## Reset database — WARNING: destroys all data
 	cd packages/shared && npx prisma migrate reset --force
+
+##@ Cleanup
+
+clean: ## Stop services and remove Docker data volumes
+	docker compose -f infra/docker-compose.yml down -v
+	@echo "🗑️  All Docker volumes removed."
 
 ##@ Help
 

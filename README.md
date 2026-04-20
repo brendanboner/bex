@@ -1,6 +1,6 @@
-# BEX — Brendan's Extreme eXchange
+# Forge — Enterprise Agentic Platform
 
-**Enterprise Agentic Platform.** One command to configure, deploy, and start building autonomous domain agents — with secure credential management, federated skill sharing, and approval workflows baked in.
+**Autonomous domain agents with secure credential management, federated skill sharing, and approval workflows baked in.**
 
 ---
 
@@ -9,19 +9,20 @@
 ```bash
 git clone https://github.com/your-org/forge
 cd forge
-npm install
-npx bex init
+make install     # npm install + build all packages + link bex globally
+bex init         # interactive setup wizard
 ```
 
-The `bex init` wizard will:
-1. Ask for your LLM provider + API key (validated live)
-2. Choose your interface channel (Web Dashboard / Telegram / Teams / WhatsApp)
-3. Create your admin account
-4. Generate a secure `.env` with all secrets
-5. Start all services via Docker Compose
-6. Open the dashboard at `http://localhost:3000`
-
 > **Prerequisites:** Node.js 20+, Docker (running)
+
+`bex init` will guide you through:
+1. LLM provider + API key (validated live)
+2. Interface channel (Web Dashboard / Telegram / Teams / WhatsApp)
+3. Network integrations — optional ExtremeCloud IQ and/or XCO setup
+4. Admin account creation
+5. Generates a secure `.env`, runs migrations, and starts everything via pm2
+
+Dashboard is live at `http://localhost:3000` when done.
 
 ---
 
@@ -29,12 +30,15 @@ The `bex init` wizard will:
 
 ```bash
 bex init       # First-run setup wizard
-bex start      # Start all services
+bex start      # Start all services (pm2 + Docker infra)
 bex stop       # Stop all services
+bex restart    # Restart all services
 bex status     # Health check all services
 bex logs       # Tail all service logs
 bex logs api   # Tail API gateway logs only
 ```
+
+> If `bex` is not in your PATH, run `make install` from the repo root (links it globally), or use `npm run bex -- <command>` as a fallback.
 
 ---
 
