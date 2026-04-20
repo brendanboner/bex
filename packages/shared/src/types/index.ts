@@ -162,6 +162,12 @@ export type MonitoringResult = {
 
 // ─── Skill Registry ───────────────────────────────────────────────────────────
 
+export type SkillManifestKnowledgeDoc = {
+  domain: string;
+  topic: string;
+  content: string;
+};
+
 export type SkillManifest = {
   name: string;
   domain: string;
@@ -173,6 +179,8 @@ export type SkillManifest = {
   checksum: string;
   publishedBy?: string;
   publishedAt: string;
+  /** Optional knowledge docs bundled with this skill — installed into KnowledgeStore on pull */
+  knowledgeDocs?: SkillManifestKnowledgeDoc[];
 };
 
 // ─── Agent Charter ────────────────────────────────────────────────────────────

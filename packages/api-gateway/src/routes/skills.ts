@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { CreateSkillSchema, ok, err, ErrorCodes } from '@bclaw/shared';
 import { SkillBuilderService, SkillRegistryService, SkillTestRunner } from '@bclaw/skill-engine';
 import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
+import { KnowledgeStore } from '@bclaw/knowledge-store';
 import type { BuildSkillSource } from '@bclaw/skill-engine';
 
 export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
@@ -150,8 +151,19 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
         try {
           const tools = (skill.tools as unknown[]) ?? [];
           const checksum = computeSkillChecksum(tools, skill.systemPrompt ?? undefined);
-          // Build manifest — cast to satisfy exactOptionalPropertyTypes
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
+          // Bundle matching knowledge docs with the manifest
+          const store = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+          const rootDomain = skill.domain.split('.')[0] ?? skill.domain;
+          const allTopics = await store.list().catch(() => [] as Awaited<ReturnType<typeof store.list>>);
+          const matchingTopics = allTopics.filter((t) => t.domain === rootDomain || t.domain.startsWith(`${rootDomain}/`));
+          const knowledgeDocs = (await Promise.all(
+            matchingTopics.map(async (t) => {
+              const entry = await store.read(t.domain, t.topic);
+              return entry ? { domain: t.domain, topic: t.topic, content: entry.content } : null;
+            }),
+          )).filter((d): d is NonNullable<typeof d> => d !== null);
+
           const manifest = {
             domain: skill.domain,
             version: skill.version,
@@ -162,6 +174,7 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
             capabilities: skill.capabilities,
             checksum,
             publishedAt: new Date().toISOString(),
+            ...(knowledgeDocs.length > 0 && { knowledgeDocs }),
           } as import('@bclaw/shared').SkillManifest;
 
           const { url } = await remoteRegistry.publish(manifest);

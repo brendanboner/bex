@@ -10,6 +10,7 @@ import { buildSkillCommand } from '../commands/skill.js';
 import { buildLlmCommand } from '../commands/llm.js';
 import { buildCredentialCommand } from '../commands/credential.js';
 import { buildRegistryCommand } from '../commands/registry.js';
+import { buildKnowledgeCommand } from '../commands/knowledge.js';
 
 const program = new Command();
 
@@ -55,6 +56,7 @@ program.addCommand(buildSkillCommand());
 program.addCommand(buildLlmCommand());
 program.addCommand(buildCredentialCommand());
 program.addCommand(buildRegistryCommand());
+program.addCommand(buildKnowledgeCommand());
 
 program.parse();
 

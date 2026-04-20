@@ -1,10 +1,41 @@
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 
 import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
+import { KnowledgeStore } from '@bclaw/knowledge-store';
 import { ok, err, ErrorCodes } from '@bclaw/shared';
 import type { SkillManifest } from '@bclaw/shared';
+
+/** Write any bundled knowledge docs from a manifest to the local KnowledgeStore. */
+async function installKnowledgeDocs(manifest: SkillManifest): Promise<number> {
+  const docs = manifest.knowledgeDocs;
+  if (!docs || docs.length === 0) return 0;
+  const store = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+  await Promise.all(docs.map((d) => store.write(d.domain, d.topic, d.content)));
+  return docs.length;
+}
+
+/** Read all knowledge docs for a given domain prefix from the local KnowledgeStore. */
+async function readKnowledgeDocsForDomain(skillDomain: string): Promise<SkillManifest['knowledgeDocs']> {
+  const store = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+  // Match docs whose domain equals the skill domain or starts with the skill root domain
+  // e.g. skill domain "extremecloudiq.devices" → read from "extremecloudiq" prefix
+  const rootDomain = skillDomain.split('.')[0] ?? skillDomain;
+  const allTopics = await store.list().catch(() => [] as Awaited<ReturnType<typeof store.list>>);
+  const matching = allTopics.filter((t) => t.domain === rootDomain || t.domain.startsWith(`${rootDomain}/`));
+  if (matching.length === 0) return undefined;
+
+  const docs = await Promise.all(
+    matching.map(async (t) => {
+      const entry = await store.read(t.domain, t.topic);
+      return entry ? { domain: t.domain, topic: t.topic, content: entry.content } : null;
+    }),
+  );
+  return docs.filter((d): d is NonNullable<typeof d> => d !== null);
+}
 
 export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const client = new SkillRegistryClient();
@@ -179,7 +210,10 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
           },
         });
 
-        return reply.send(ok({ skillId: skill.id, domain: skill.domain, version: skill.version }));
+        // Install any bundled knowledge docs
+        const docsInstalled = await installKnowledgeDocs(manifest);
+
+        return reply.send(ok({ skillId: skill.id, domain: skill.domain, version: skill.version, docsInstalled }));
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         return reply.status(502).send(err(ErrorCodes.INTERNAL, msg));
