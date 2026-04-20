@@ -330,33 +330,52 @@ export async function initCommand(): Promise<void> {
 
   await waitForService('http://localhost:3000', 'Dashboard', 60_000);
 
-  // ── Auto-seed domain skills if credentials were provided ──────────────────
-  if (setupXiq && domainEnv['XCIQ_USERNAME']) {
+  // ── Pull domain skills from registry (fast path) ──────────────────────────
+  const { default: fetch } = await import('node-fetch');
+  const authToken = process.env['FORGE_ADMIN_TOKEN'] ?? '';
+  const authHeader = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+
+  async function pullSkillFromRegistry(
+    label: string,
+    domain: string,
+    version = '1.0.0',
+  ): Promise<boolean> {
     console.log('');
-    const xiqSpinner = ora('Building ExtremeCloud IQ skill set from OpenAPI spec…').start();
-    const xiqResult = spawnSync(
-      'npx', ['tsx', 'scripts/seed-xciq-full.ts'],
-      { cwd: root, env: { ...migrateEnv, ...domainEnv }, stdio: 'pipe', encoding: 'utf-8' },
-    );
-    if (xiqResult.status !== 0) {
-      xiqSpinner.warn('XIQ skill build had issues — run manually: npx tsx scripts/seed-xciq-full.ts');
-      if (xiqResult.stderr) console.error(chalk.dim(xiqResult.stderr.slice(0, 400)));
-    } else {
-      xiqSpinner.succeed('ExtremeCloud IQ skills built and linked to monitoring agent');
+    const sp = ora(`Installing ${label} skill from registry…`).start();
+    try {
+      const res = await fetch(
+        `http://localhost:4000/registry/install/${encodeURIComponent(domain)}/${encodeURIComponent(version)}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader } },
+      );
+      const json = (await res.json()) as { ok: boolean; error?: unknown };
+      if (json.ok) {
+        sp.succeed(`${label} skill installed from registry`);
+        return true;
+      }
+      sp.warn(`${label} not in registry — build manually: bex skill build`);
+      return false;
+    } catch {
+      sp.warn(`Could not reach registry — build manually: bex skill build`);
+      return false;
     }
   }
 
-  if (setupXco && domainEnv['XCO_HOST']) {
-    console.log('');
-    const xcoSpinner = ora('Building ExtremeCloud Orchestrator skill set…').start();
-    const xcoResult = spawnSync(
-      'node', ['scripts/setup-xco.js'],
-      { cwd: root, env: { ...migrateEnv, ...domainEnv }, stdio: 'pipe', encoding: 'utf-8' },
-    );
-    if (xcoResult.status !== 0) {
-      xcoSpinner.warn('XCO skill build had issues — run manually: node scripts/setup-xco.js');
-    } else {
-      xcoSpinner.succeed('ExtremeCloud Orchestrator skills built');
+  let xiqReady = false;
+  let xcoReady = false;
+
+  if (setupXiq) {
+    xiqReady = await pullSkillFromRegistry('ExtremeCloud IQ', 'extremecloudiq.networking');
+    if (!xiqReady) {
+      console.log(chalk.dim('  To build from scratch: npx tsx scripts/seed-xciq-full.ts'));
+    }
+  }
+
+  if (setupXco) {
+    const monitorOk = await pullSkillFromRegistry('XCO Monitor', 'networking.extreme-xco.monitor');
+    const opsOk = await pullSkillFromRegistry('XCO Operations', 'networking.extreme-xco.operations');
+    xcoReady = monitorOk && opsOk;
+    if (!xcoReady) {
+      console.log(chalk.dim('  To build from scratch: node scripts/setup-xco.js'));
     }
   }
 
@@ -366,7 +385,7 @@ export async function initCommand(): Promise<void> {
   const D = chalk.dim;
   const B = chalk.bold;
   console.log(V('  ╔══════════════════════════════════════════════════════╗'));
-  console.log(V('  ║') + B('  ✓ Forge is running!                                ') + V('║'));
+  console.log(V('  ║') + B('  ✓ BEX is running!                                  ') + V('║'));
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));
   console.log(V('  ║') + chalk.white('  Dashboard  →  http://localhost:3000               ') + V('║'));
   console.log(V('  ║') + chalk.white('  API        →  http://localhost:4000               ') + V('║'));
@@ -374,10 +393,12 @@ export async function initCommand(): Promise<void> {
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));
   console.log(V('  ║') + D(`  Login: ${adminEmail.padEnd(44)}`) + V('║'));
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));
-  if (setupXiq) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud IQ skills ready                     ') + V('║'));
-  if (setupXco) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud Orchestrator skills ready           ') + V('║'));
-  if (!setupXiq) console.log(V('  ║') + D('  XIQ: add credentials via Vault → run seed-xciq-full') + V('║'));
-  if (!setupXco) console.log(V('  ║') + D('  XCO: add endpoint+creds via dashboard then setup-xco') + V('║'));
+  if (setupXiq && xiqReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud IQ skills ready                     ') + V('║'));
+  if (setupXco && xcoReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud Orchestrator skills ready           ') + V('║'));
+  if (setupXiq && !xiqReady) console.log(V('  ║') + chalk.yellow('  ⚠ XIQ: run npx tsx scripts/seed-xciq-full.ts      ') + V('║'));
+  if (setupXco && !xcoReady) console.log(V('  ║') + chalk.yellow('  ⚠ XCO: run node scripts/setup-xco.js              ') + V('║'));
+  if (!setupXiq) console.log(V('  ║') + D('  XIQ: re-run bex init or add creds via dashboard    ') + V('║'));
+  if (!setupXco) console.log(V('  ║') + D('  XCO: re-run bex init or add creds via dashboard    ') + V('║'));
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));
   console.log(V('  ║') + D('  bex status   — health check all services          ') + V('║'));
   console.log(V('  ║') + D('  bex logs     — tail all logs                      ') + V('║'));
