@@ -7,8 +7,8 @@
 ## Quickstart
 
 ```bash
-git clone https://github.com/your-org/forge
-cd forge
+git clone https://github.com/your-org/bex
+cd bex
 make install     # npm install + build all packages + link bex globally
 bex init         # interactive setup wizard
 ```

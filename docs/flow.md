@@ -33,8 +33,8 @@ This document walks through every way to interact with the Forge Enterprise Agen
 ### Installation
 
 ```bash
-git clone https://github.com/your-org/forge
-cd forge
+git clone https://github.com/your-org/bex
+cd bex
 npm install
 ```
 
@@ -124,10 +124,10 @@ bex status
 # Docker Containers
 # ──────────────────────────────────────────────────
 # NAME                     STATUS          PORTS
-# forge-api-gateway-1      Up 3 hours      0.0.0.0:4000->4000/tcp
-# forge-dashboard-1        Up 3 hours      0.0.0.0:3000->3000/tcp
-# forge-postgres-1         Up 3 hours (healthy)
-# forge-redis-1            Up 3 hours (healthy)
+# bex-api-gateway-1      Up 3 hours      0.0.0.0:4000->4000/tcp
+# bex-dashboard-1        Up 3 hours      0.0.0.0:3000->3000/tcp
+# bex-postgres-1         Up 3 hours (healthy)
+# bex-redis-1            Up 3 hours (healthy)
 
 # Tail all logs
 bex logs
@@ -848,18 +848,18 @@ curl -X POST http://localhost:4000/registry/publish \
 
 ```bash
 # List available skills
-curl http://other-forge-instance:4000/registry/skills \
+curl http://other-bex-instance:4000/registry/skills \
   -H "Authorization: Bearer $OTHER_TOKEN" | jq '.data'
 
 # Search for a specific skill
-curl "http://other-forge-instance:4000/registry/skills?q=extreme-xco" \
+curl "http://other-bex-instance:4000/registry/skills?q=extreme-xco" \
   -H "Authorization: Bearer $OTHER_TOKEN"
 ```
 
 ### Install a skill from the registry
 
 ```bash
-curl -X POST http://other-forge-instance:4000/registry/skills/networking.extreme-xco/1.0.0/install \
+curl -X POST http://other-bex-instance:4000/registry/skills/networking.extreme-xco/1.0.0/install \
   -H "Authorization: Bearer $OTHER_TOKEN"
 
 # The skill is downloaded, checksum-verified, and added to the local registry.
@@ -1224,7 +1224,7 @@ All endpoints require `Authorization: Bearer <token>` except `/health`, `/admin/
 
 ```bash
 # Core (required)
-DATABASE_URL=postgresql://forge:password@localhost:5432/forge
+DATABASE_URL=postgresql://bex:password@localhost:5432/bex
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=64-char-hex-secret
 CREDENTIAL_VAULT_KEY=64-char-hex-secret

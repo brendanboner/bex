@@ -217,7 +217,7 @@ Telegram message:
 2. SW-SPINE-01: Interface eth1/24 errors (2,847/hr)
 
 XCO Remediation Agent has proposed fixes.
-Review and approve at: http://forge.corp/approvals/abc123
+Review and approve at: http://bex.corp/approvals/abc123
 
 [✅ Approve remediation] [❌ Deny]
 ```

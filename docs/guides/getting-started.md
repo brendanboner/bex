@@ -18,8 +18,8 @@ This guide takes you from a fresh clone to a working BEX instance with an agent 
 ## Step 1 — Clone and Install
 
 ```bash
-git clone https://github.com/your-org/forge
-cd forge
+git clone https://github.com/your-org/bex
+cd bex
 npm install
 ```
 
