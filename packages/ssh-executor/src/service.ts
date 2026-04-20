@@ -26,7 +26,7 @@ export class SshExecutorService {
     // Resolve credentials from vault — never exposed outside this service
     const creds = await this.vault.resolve(target.credentialId, ['ssh:exec']);
 
-    const sshCreds = creds as {
+    const sshCreds = (creds as unknown) as {
       username: string;
       password?: string;
       privateKey?: string;

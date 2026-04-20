@@ -4,12 +4,12 @@ import { handleActivity } from './bot.js';
 const PORT = Number(process.env['PORT'] ?? 3978);
 
 async function main(): Promise<void> {
-  restify.createServer({ name: 'bex-teams-bot' });
+  const server = restify.createServer({ name: 'bex-teams-bot' });
 
   server.use(restify.plugins.bodyParser());
 
   // Bot Framework messaging endpoint
-  server.post('/api/messages', async (req, res) => {
+  server.post('/api/messages', async (req: restify.Request, res: restify.Response) => {
     await handleActivity(req, res);
   });
 
