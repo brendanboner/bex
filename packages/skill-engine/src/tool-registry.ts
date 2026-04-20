@@ -190,17 +190,17 @@ export class ToolRegistry {
       create: {
         name: definition.name,
         description: definition.description,
-        parameters: definition.parameters as Prisma.InputJsonObject,
+        parameters: definition.parameters as Prisma.JsonObject,
         handlerType: definition.handlerType,
-        config: definition.config as Prisma.InputJsonObject,
+        config: definition.config as Prisma.JsonObject,
         ...(definition.domain !== undefined ? { domain: definition.domain } : {}),
         ...(definition.skillId !== undefined ? { skillId: definition.skillId } : {}),
       },
       update: {
         description: definition.description,
-        parameters: definition.parameters as Prisma.InputJsonObject,
+        parameters: definition.parameters as Prisma.JsonObject,
         handlerType: definition.handlerType,
-        config: definition.config as Prisma.InputJsonObject,
+        config: definition.config as Prisma.JsonObject,
         ...(definition.domain !== undefined ? { domain: definition.domain } : {}),
       },
     });

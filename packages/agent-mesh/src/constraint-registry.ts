@@ -30,7 +30,7 @@ export class DomainConstraintRegistry {
         compatible: constraint.compatible,
         ...(constraint.notes !== undefined && { notes: constraint.notes }),
         ...(constraint.conditions !== undefined && {
-          conditions: constraint.conditions as Prisma.InputJsonObject,
+          conditions: constraint.conditions as Prisma.JsonObject,
         }),
       },
       create: {
@@ -39,7 +39,7 @@ export class DomainConstraintRegistry {
         compatible: constraint.compatible,
         ...(constraint.notes !== undefined && { notes: constraint.notes }),
         ...(constraint.conditions !== undefined && {
-          conditions: constraint.conditions as Prisma.InputJsonObject,
+          conditions: constraint.conditions as Prisma.JsonObject,
         }),
       },
     });

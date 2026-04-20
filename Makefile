@@ -7,6 +7,8 @@
 install: ## Install dependencies, build all packages, and link bex globally
 	@echo "📦 Installing dependencies..."
 	npm install --loglevel=error
+	@echo "⚙️  Generating Prisma client..."
+	cd packages/shared && npx prisma generate --schema=prisma/schema.prisma
 	@echo "🔨 Building all packages..."
 	npm run build --silent
 	@echo "🔗 Linking bex CLI globally..."

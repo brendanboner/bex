@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
-import type { MeshEvent, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import { DomainConstraintRegistry } from './constraint-registry.js';
@@ -41,7 +41,7 @@ export class AgentMesh {
     const event = await this.prisma.meshEvent.create({
       data: {
         taskType,
-        taskPayload: taskPayload as Prisma.InputJsonObject,
+        taskPayload: taskPayload as Prisma.JsonObject,
         requiredCapabilities,
         status: 'ROUTING',
         ...(sessionId !== undefined && { sessionId }),
@@ -106,7 +106,7 @@ export class AgentMesh {
     const event = await this.prisma.meshEvent.create({
       data: {
         taskType: 'direct-delegation',
-        taskPayload: taskPayload as Prisma.InputJsonObject,
+        taskPayload: taskPayload as Prisma.JsonObject,
         requiredCapabilities: [],
         assignedAgentId: agentId,
         status: 'RUNNING',
@@ -148,7 +148,7 @@ export class AgentMesh {
     return constraint.compatible !== 'NONE';
   }
 
-  async listEvents(sessionId?: string, limit = 50): Promise<MeshEvent[]> {
+  async listEvents(sessionId?: string, limit = 50): Promise<Prisma.MeshEventGetPayload<object>[]> {
     return this.prisma.meshEvent.findMany({
       ...(sessionId !== undefined && { where: { sessionId } }),
       orderBy: { createdAt: 'desc' },
