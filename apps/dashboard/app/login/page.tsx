@@ -32,6 +32,8 @@ export default function LoginPage() {
       localStorage.setItem('bex_token', json.data.token);
       // Keep legacy key for backwards compat
       localStorage.setItem('bforge_token', json.data.token);
+      // Set cookie so middleware can protect routes server-side
+      document.cookie = `bex_token=${json.data.token}; path=/; max-age=${7 * 24 * 3600}; SameSite=Lax`;
       router.replace('/');
     } catch {
       setError('Could not reach the API gateway. Is BEX running?');
@@ -96,7 +98,7 @@ export default function LoginPage() {
           </form>
 
           <p className="text-center text-xs text-[rgb(var(--text-muted))]">
-            Default: admin@bex.local · BEX2024!
+            Default: admin@bex.local · bex-admin-2026
           </p>
         </div>
       </div>

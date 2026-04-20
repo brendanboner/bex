@@ -5,7 +5,16 @@ const ADMIN_URL = process.env['NEXT_PUBLIC_ADMIN_API_URL'] ?? 'http://localhost:
 
 function getToken(): string {
   if (typeof window !== 'undefined') {
-    return localStorage.getItem('bex_token') ?? '';
+    const ls = localStorage.getItem('bex_token');
+    if (ls) return ls;
+    // Fallback: read from cookie (set after login, available to client JS)
+    const cookie = document.cookie.split('; ').find(r => r.startsWith('bex_token='));
+    const cookieVal = cookie ? cookie.split('=')[1] : '';
+    if (cookieVal) {
+      // Sync back to localStorage
+      localStorage.setItem('bex_token', cookieVal);
+    }
+    return cookieVal;
   }
   return '';
 }
@@ -28,7 +37,15 @@ async function apiFetch<T>(
   const json = (await res.json()) as ApiResponse<T>;
 
   if (!json.ok) {
-    throw new Error(json.error.message ?? 'API error');
+    const msg = json.error.message ?? 'API error';
+    // Redirect to login on auth failure
+    if (res.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('bex_token');
+      localStorage.removeItem('bforge_token');
+      document.cookie = 'bex_token=; path=/; max-age=0';
+      window.location.href = '/login';
+    }
+    throw new Error(msg);
   }
 
   return json.data;

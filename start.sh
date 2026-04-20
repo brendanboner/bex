@@ -55,8 +55,16 @@ WORKER_PID=$!; disown $WORKER_PID
 echo "    PID $WORKER_PID"
 
 echo "  → Starting Dashboard (port 3000)..."
-# Unset PORT so Next.js uses -p 3000, not the API gateway's PORT=4000
-nohup bash -c "unset PORT; cd '$ROOT/apps/dashboard' && exec node_modules/.bin/next dev -p 3000" >> "$ROOT/logs/dashboard.log" 2>&1 &
+# Use standalone server if built, otherwise fall back to next dev
+STANDALONE="$ROOT/apps/dashboard/.next/standalone/apps/dashboard/server.js"
+if [ -f "$STANDALONE" ]; then
+  # Ensure static assets are available to the standalone server
+  cp -r "$ROOT/apps/dashboard/.next/static" \
+    "$ROOT/apps/dashboard/.next/standalone/apps/dashboard/.next/static" 2>/dev/null || true
+  nohup bash -c "PORT=3000 HOSTNAME=0.0.0.0 NEXT_PUBLIC_API_URL='http://localhost:4000' NEXT_PUBLIC_ADMIN_API_URL='http://localhost:4001' node '$STANDALONE'" >> "$ROOT/logs/dashboard.log" 2>&1 &
+else
+  nohup bash -c "unset PORT; cd '$ROOT/apps/dashboard' && exec node_modules/.bin/next dev -p 3000" >> "$ROOT/logs/dashboard.log" 2>&1 &
+fi
 DASH_PID=$!; disown $DASH_PID
 echo "    PID $DASH_PID"
 

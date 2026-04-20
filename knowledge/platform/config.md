@@ -8,5 +8,5 @@
 - Active: dashboard
 
 ## Admin
-- Email: admin@forge.local
-- Configured: 2026-04-17T19:36:40.663Z
+- Email: admin@bex.local
+- Configured: 2026-04-20T15:35:21.884Z

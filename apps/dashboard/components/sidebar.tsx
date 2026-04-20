@@ -78,6 +78,7 @@ export function Sidebar() {
   function logout() {
     localStorage.removeItem('bex_token');
     localStorage.removeItem('bforge_token');
+    document.cookie = 'bex_token=; path=/; max-age=0';
     router.replace('/login');
   }
 
