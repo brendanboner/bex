@@ -215,7 +215,7 @@ export async function initCommand(): Promise<void> {
     DASHBOARD_PORT: '3000',
     KNOWLEDGE_DIR: './knowledge',
     KNOWLEDGE_BASE_DIR: './knowledge',
-    SKILL_REGISTRY_URL: 'http://localhost:5050',
+    SKILL_REGISTRY_URL: 'https://bexregistry.brendanbonner.com',
     SKILL_REGISTRY_TOKEN: 'bex-registry-dev',
     LOG_LEVEL: 'info',
     CORS_ORIGIN: 'http://localhost:3000',
