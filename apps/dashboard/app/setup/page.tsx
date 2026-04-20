@@ -212,14 +212,14 @@ export default function SetupPage() {
         {STEPS.map((label, i) => (
           <div key={label} className="flex items-center gap-2">
             <button
-              onClick={() => i < step && setStep(i)}
+              onClick={() => i !== step && setStep(i)}
               className={cn(
                 'flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold border-2 transition-colors',
                 i < step
                   ? 'border-green-500 bg-green-500 text-white cursor-pointer'
                   : i === step
                     ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-muted-foreground text-muted-foreground',
+                    : 'border-muted-foreground text-muted-foreground cursor-pointer hover:border-primary/50',
               )}
             >
               {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}

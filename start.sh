@@ -40,7 +40,7 @@ REG_PID=$!; disown $REG_PID
 echo "    PID $REG_PID"
 
 echo "  → Starting API Gateway (port 4000)..."
-nohup bash -c "SKILL_REGISTRY_URL='http://localhost:5050' SKILL_REGISTRY_TOKEN='$REGISTRY_TOKEN' DATABASE_URL='$DATABASE_URL' REDIS_URL='$REDIS_URL' JWT_SECRET='$JWT_SECRET' CREDENTIAL_VAULT_KEY='$CREDENTIAL_VAULT_KEY' CORS_ORIGIN='${CORS_ORIGIN:-http://localhost:3000}' OPENAI_API_KEY='${OPENAI_API_KEY:-}' node '$ROOT/packages/api-gateway/dist/server.js'" >> "$ROOT/logs/api-gateway.log" 2>&1 &
+nohup bash -c "SKILL_REGISTRY_URL='${SKILL_REGISTRY_URL:-http://localhost:5050}' SKILL_REGISTRY_TOKEN='$REGISTRY_TOKEN' DATABASE_URL='$DATABASE_URL' REDIS_URL='$REDIS_URL' JWT_SECRET='$JWT_SECRET' CREDENTIAL_VAULT_KEY='$CREDENTIAL_VAULT_KEY' CORS_ORIGIN='${CORS_ORIGIN:-http://localhost:3000}' OPENAI_API_KEY='${OPENAI_API_KEY:-}' ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:-}' node '$ROOT/packages/api-gateway/dist/server.js'" >> "$ROOT/logs/api-gateway.log" 2>&1 &
 API_PID=$!; disown $API_PID
 echo "    PID $API_PID"
 
@@ -88,7 +88,7 @@ echo "  │  API Gateway   →  http://localhost:4000           │"
 echo "  │  Admin API     →  http://localhost:4001           │"
 echo "  │  Skill Registry→  http://localhost:5050           │"
 echo "  ├──────────────────────────────────────────────────┤"
-echo "  │  Login:  admin@forge.local  /  Forge2024!        │"
+echo "  │  Login:  admin@bex.local  /  bex-admin-2026      │"
 echo "  ├──────────────────────────────────────────────────┤"
 echo "  │  Logs:   tail -f $ROOT/logs/<service>.log        │"
 echo "  └──────────────────────────────────────────────────┘"
