@@ -43,7 +43,7 @@ export class SkillRegistryClient {
 
   constructor(options?: { registryUrl?: string; authToken?: string }) {
     this.baseUrl = (options?.registryUrl ?? process.env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050').replace(/\/$/, '');
-    this.authToken = options?.authToken ?? process.env['SKILL_REGISTRY_TOKEN'] ?? 'forge-registry-dev';
+    this.authToken = options?.authToken ?? process.env['SKILL_REGISTRY_TOKEN'] ?? 'bex-registry-dev';
   }
 
   get isConfigured(): boolean {

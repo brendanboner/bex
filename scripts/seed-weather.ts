@@ -140,7 +140,7 @@ async function main() {
   // Find or create system user for agent ownership
   let systemUser = await prisma.user.findFirst({ where: { externalId: 'system' } });
   if (!systemUser) {
-    systemUser = await prisma.user.findFirst({ where: { email: 'admin@forge.local' } });
+    systemUser = await prisma.user.findFirst({ where: { email: 'admin@bex.local' } });
   }
   if (!systemUser) {
     throw new Error('No system or admin user found — run bex init first');

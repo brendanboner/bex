@@ -143,9 +143,9 @@ export function startLocalServices(root: string): void {
   mkdirSync(resolve(root, 'logs'), { recursive: true });
   ensureDashboardBuilt(root);
   const eco = resolve(root, ECOSYSTEM_FILE);
-  // If pm2 already knows about forge apps, restart them; otherwise start fresh.
-  const existing = spawnSync('pm2', ['id', 'forge-api'], { stdio: 'pipe', encoding: 'utf-8' });
-  const alreadyRunning = existing.stdout?.includes('forge-api');
+  // If pm2 already knows about bex apps, restart them; otherwise start fresh.
+  const existing = spawnSync('pm2', ['id', 'bex-api'], { stdio: 'pipe', encoding: 'utf-8' });
+  const alreadyRunning = existing.stdout?.includes('bex-api');
   if (alreadyRunning) {
     spawnSync('pm2', ['restart', eco], { stdio: 'inherit', cwd: root });
   } else {
@@ -153,7 +153,7 @@ export function startLocalServices(root: string): void {
   }
 }
 
-/** Stop all forge services via pm2. */
+/** Stop all bex services via pm2. */
 export function stopLocalServices(): void {
   try {
     const root = findProjectRoot();
@@ -161,7 +161,7 @@ export function stopLocalServices(): void {
   } catch { /* ignore if pm2 not running */ }
 }
 
-/** Restart a single named pm2 app (e.g. 'forge-dashboard'). */
+/** Restart a single named pm2 app (e.g. 'bex-dashboard'). */
 export function restartService(name: string): void {
   spawnSync('pm2', ['restart', name], { stdio: 'inherit' });
 }

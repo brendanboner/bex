@@ -1,5 +1,5 @@
 /**
- * PM2 ecosystem — Forge services
+ * PM2 ecosystem — BEX services
  * Start:   pm2 start ecosystem.config.cjs
  * Stop:    pm2 stop all
  * Restart: pm2 restart all
@@ -22,7 +22,7 @@ const sharedEnv = {
   ANTHROPIC_API_KEY:    process.env.ANTHROPIC_API_KEY ?? '',
   CORS_ORIGIN:          process.env.CORS_ORIGIN      ?? 'http://localhost:3000',
   SKILL_REGISTRY_URL:   process.env.SKILL_REGISTRY_URL ?? 'http://localhost:5050',
-  SKILL_REGISTRY_TOKEN: process.env.SKILL_REGISTRY_TOKEN ?? 'forge-registry-dev',
+  SKILL_REGISTRY_TOKEN: process.env.SKILL_REGISTRY_TOKEN ?? 'bex-registry-dev',
   KNOWLEDGE_BASE_DIR:   process.env.KNOWLEDGE_BASE_DIR ?? './knowledge',
   KNOWLEDGE_DIR:        process.env.KNOWLEDGE_DIR ?? './knowledge',
 };
@@ -30,7 +30,7 @@ const sharedEnv = {
 module.exports = {
   apps: [
     {
-      name: 'forge-registry',
+      name: 'bex-registry',
       script: path.join(root, 'packages/skill-registry/dist/server.js'),
       cwd: root,
       instances: 1,
@@ -41,11 +41,11 @@ module.exports = {
       env: {
         PORT: '5050',
         DATA_DIR: path.join(root, 'packages/skill-registry/data'),
-        REGISTRY_AUTH_TOKEN: process.env.SKILL_REGISTRY_TOKEN ?? 'forge-registry-dev',
+        REGISTRY_AUTH_TOKEN: process.env.SKILL_REGISTRY_TOKEN ?? 'bex-registry-dev',
       },
     },
     {
-      name: 'forge-api',
+      name: 'bex-api',
       script: path.join(root, 'packages/api-gateway/dist/server.js'),
       cwd: root,
       instances: 1,
@@ -56,7 +56,7 @@ module.exports = {
       env: { ...sharedEnv },
     },
     {
-      name: 'forge-admin',
+      name: 'bex-admin',
       script: path.join(root, 'packages/dashboard-api/dist/server.js'),
       cwd: root,
       instances: 1,
@@ -73,7 +73,7 @@ module.exports = {
       },
     },
     {
-      name: 'forge-worker',
+      name: 'bex-worker',
       script: path.join(root, 'packages/scheduler/dist/worker.js'),
       cwd: root,
       instances: 1,
@@ -84,7 +84,7 @@ module.exports = {
       env: { ...sharedEnv },
     },
     {
-      name: 'forge-dashboard',
+      name: 'bex-dashboard',
       script: path.join(root, 'apps/dashboard/.next/standalone/apps/dashboard/server.js'),
       cwd: root,
       instances: 1,
@@ -100,7 +100,7 @@ module.exports = {
       },
     },
     {
-      name: 'forge-telegram',
+      name: 'bex-telegram',
       script: path.join(root, 'integrations/telegram/dist/bot.js'),
       cwd: root,
       instances: 1,

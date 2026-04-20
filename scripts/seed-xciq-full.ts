@@ -35,7 +35,7 @@ const XCIQ_BASE_URL   = 'https://api.extremecloudiq.com';
 const XCIQ_LOGIN_URL  = 'https://api.extremecloudiq.com/login';
 const DOMAIN_PREFIX   = 'extremecloudiq';
 const REGISTRY_URL    = process.env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050';
-const REGISTRY_TOKEN  = process.env['SKILL_REGISTRY_TOKEN'] ?? 'forge-registry-dev';
+const REGISTRY_TOKEN  = process.env['SKILL_REGISTRY_TOKEN'] ?? 'bex-registry-dev';
 const TG_BOT_TOKEN    = process.env['TELEGRAM_BOT_TOKEN'] ?? '';
 const TG_CHAT_ID      = process.env['TELEGRAM_APPROVAL_CHAT_ID'] ?? '';
 

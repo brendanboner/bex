@@ -68,7 +68,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
     });
 
     await vault.create({
-      name: 'forge.llm.primary',
+      name: 'bex.llm.primary',
       description: `${llmProvider} LLM configuration`,
       scope: 'SYSTEM',
       credentialType: 'API_TOKEN',
@@ -78,7 +78,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
     if (channel !== 'dashboard' && Object.keys(channelConfig).length > 0) {
       await vault.create({
-        name: `forge.channel.${channel}`,
+        name: `bex.channel.${channel}`,
         description: `${channel} channel config`,
         scope: 'SYSTEM',
         credentialType: 'USER_PREFERENCE',
@@ -91,7 +91,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       'platform',
       'config',
       [
-        `# Forge Platform Configuration`,
+        `# BEX Platform Configuration`,
         ``,
         `## LLM`,
         `- Provider: ${llmProvider}`,
@@ -207,7 +207,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
       if (channel !== 'dashboard') {
         await vault.create({
-          name: `forge.channel.${channel}`,
+          name: `bex.channel.${channel}`,
           description: `${channel} channel config`,
           scope: 'SYSTEM',
           credentialType: 'API_TOKEN',

@@ -83,7 +83,7 @@ export function buildRouter(): Router {
 
   // GET /health
   router.get('/health', (_req, res) => {
-    res.json({ ok: true, service: 'forge-skill-registry' });
+    res.json({ ok: true, service: 'bex-skill-registry' });
   });
 
   // GET /registry/skills

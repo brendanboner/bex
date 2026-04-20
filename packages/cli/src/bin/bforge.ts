@@ -11,8 +11,8 @@ import { buildSkillCommand } from '../commands/skill.js';
 const program = new Command();
 
 program
-  .name('bforge')
-  .description('Forge — Enterprise Agentic Platform')
+  .name('bex')
+  .description('BEX — Agentic Platform')
   .version('0.1.0');
 
 program

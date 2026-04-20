@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import { findProjectRoot, printError, printSuccess } from '../utils.js';
 
-const SESSION = 'forge';
+const SESSION = 'bex';
 
 function tmuxAvailable(): boolean {
   try {
@@ -39,16 +39,16 @@ export async function monitorCommand(options: { attach?: boolean; stop?: boolean
     stopLocalServices();
     if (sessionExists()) {
       execSync(`tmux kill-session -t "${SESSION}"`, { stdio: 'pipe' });
-      printSuccess('tmux session "forge" closed');
+      printSuccess('tmux session "bex" closed');
     }
-    printSuccess('All Forge services stopped');
+    printSuccess('All BEX services stopped');
     return;
   }
 
   // ── bex monitor attach ─────────────────────────────────────────────────
   if (options.attach) {
     if (!sessionExists()) {
-      printError('No forge tmux session running. Run `bex monitor` first.');
+      printError('No bex tmux session running. Run `bex monitor` first.');
       process.exit(1);
     }
     spawnSync('tmux', ['attach-session', '-t', SESSION], { stdio: 'inherit' });

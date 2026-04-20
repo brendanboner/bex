@@ -195,10 +195,10 @@ export async function initCommand(): Promise<void> {
 
   const envVars: Record<string, string> = {
     NODE_ENV: 'production',
-    DATABASE_URL: `postgresql://forge:${pgPassword}@localhost:5432/forge?schema=public`,
+    DATABASE_URL: `postgresql://bex:${pgPassword}@localhost:5432/bex?schema=public`,
     POSTGRES_PASSWORD: pgPassword,
-    POSTGRES_USER: 'forge',
-    POSTGRES_DB: 'forge',
+    POSTGRES_USER: 'bex',
+    POSTGRES_DB: 'bex',
     REDIS_URL: `redis://:${redisPassword}@localhost:6379`,
     REDIS_PASSWORD: redisPassword,
     JWT_SECRET: jwtSecret,
@@ -216,7 +216,7 @@ export async function initCommand(): Promise<void> {
     KNOWLEDGE_DIR: './knowledge',
     KNOWLEDGE_BASE_DIR: './knowledge',
     SKILL_REGISTRY_URL: 'http://localhost:5050',
-    SKILL_REGISTRY_TOKEN: 'forge-registry-dev',
+    SKILL_REGISTRY_TOKEN: 'bex-registry-dev',
     LOG_LEVEL: 'info',
     CORS_ORIGIN: 'http://localhost:3000',
     RATE_LIMIT_MAX: '100',

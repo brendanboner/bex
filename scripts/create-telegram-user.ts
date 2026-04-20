@@ -11,7 +11,7 @@ async function main() {
   const u = await p.user.create({
     data: {
       externalId: 'telegram-bot',
-      email: 'telegram-bot@forge.internal',
+      email: 'telegram-bot@bex.internal',
       displayName: 'Telegram Bot',
       isSystemUser: true,
     },

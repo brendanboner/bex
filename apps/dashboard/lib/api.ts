@@ -41,7 +41,7 @@ async function apiFetch<T>(
     // Redirect to login on auth failure
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('bex_token');
-      localStorage.removeItem('bforge_token');
+      localStorage.removeItem('bex_token');
       document.cookie = 'bex_token=; path=/; max-age=0';
       window.location.href = '/login';
     }

@@ -50,7 +50,7 @@ vi.mock('ssh2', () => {
 
         // Simulate: send data then close
         setTimeout(() => {
-          stream._emitData('forge-verify\n');
+          stream._emitData('bex-verify\n');
           stream._emit('close', 0);
         }, 0);
 
@@ -71,11 +71,11 @@ describe('sshExec', () => {
       'localhost',
       22,
       { username: 'admin', password: 'secret' },
-      'echo forge-verify',
+      'echo bex-verify',
     );
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('forge-verify');
+    expect(result.stdout).toContain('bex-verify');
     expect(result.stderr).toBe('');
   });
 

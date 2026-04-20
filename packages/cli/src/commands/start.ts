@@ -49,14 +49,14 @@ export async function startCommand(args: string[] = []): Promise<void> {
     }
     ensureDashboardBuilt(root);
     dashSpinner.succeed('Dashboard rebuilt');
-    spawnSync('pm2', ['restart', 'forge-dashboard'], { stdio: 'inherit' });
+    spawnSync('pm2', ['restart', 'bex-dashboard'], { stdio: 'inherit' });
     printSuccess('Dashboard restarted');
     return;
   }
 
   const serviceMap: Record<string, string> = {
-    api: 'forge-api', registry: 'forge-registry', admin: 'forge-admin',
-    worker: 'forge-worker', telegram: 'forge-telegram',
+    api: 'bex-api', registry: 'bex-registry', admin: 'bex-admin',
+    worker: 'bex-worker', telegram: 'bex-telegram',
   };
   if (target && serviceMap[target]) {
     spawnSync('pm2', ['restart', serviceMap[target]], { stdio: 'inherit' });
@@ -66,7 +66,7 @@ export async function startCommand(args: string[] = []): Promise<void> {
 
   // ── Full startup ──────────────────────────────────────────────────────────
   console.log('');
-  console.log(chalk.bold.magenta('  Forge — Starting services…'));
+  console.log(chalk.bold.magenta('  BEX — Starting services…'));
   console.log('');
 
   const infraSpinner = ora('Starting infrastructure (postgres, redis)…').start();
