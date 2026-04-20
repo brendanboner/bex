@@ -13,7 +13,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 5050
-      REGISTRY_TOKEN: ${REGISTRY_TOKEN:-bex-registry-token}
+      REGISTRY_AUTH_TOKEN: ${REGISTRY_AUTH_TOKEN:-bex-registry-token}
       REGISTRY_DATA_DIR: /data
     volumes:
       - registry-data:/data
