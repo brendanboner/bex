@@ -15,6 +15,7 @@ const LLM_MODELS: Record<string, string[]> = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
   anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
   azure: ['gpt-4o', 'gpt-4-turbo'],
+  ollama: ['llama3.2', 'llama3.1', 'mistral', 'gemma2', 'phi3', 'qwen2.5'],
 };
 
 async function validateLlmKey(provider: string, apiKey: string): Promise<boolean> {
@@ -30,6 +31,9 @@ async function validateLlmKey(provider: string, apiKey: string): Promise<boolean
     } else if (provider === 'anthropic') {
       url = 'https://api.anthropic.com/v1/models';
       headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' };
+    } else if (provider === 'ollama') {
+      spinner.info('Ollama — no API key required');
+      return true;
     } else {
       spinner.info('Azure validation skipped — configure endpoint manually');
       return true;
@@ -82,16 +86,27 @@ export async function initCommand(): Promise<void> {
     choices: [
       { name: 'OpenAI (GPT-4o)', value: 'openai' },
       { name: 'Anthropic (Claude)', value: 'anthropic' },
+      { name: 'Ollama (local, no API key)', value: 'ollama' },
       { name: 'Azure OpenAI', value: 'azure' },
     ],
   });
 
-  const llmApiKey = await password({
-    message: `${llmProvider} API key:`,
-    validate: (v: string) => v.length > 10 || 'API key must be at least 10 characters',
-  });
+  let llmApiKey = '';
+  let ollamaBaseUrl = '';
 
-  await validateLlmKey(llmProvider, llmApiKey);
+  if (llmProvider === 'ollama') {
+    ollamaBaseUrl = await input({
+      message: 'Ollama base URL:',
+      default: 'http://localhost:11434',
+    });
+    console.log(chalk.dim('  Make sure Ollama is running and the model is pulled (e.g. ollama pull llama3.2)'));
+  } else {
+    llmApiKey = await password({
+      message: `${llmProvider} API key:`,
+      validate: (v: string) => v.length > 10 || 'API key must be at least 10 characters',
+    });
+    await validateLlmKey(llmProvider, llmApiKey);
+  }
 
   const modelChoices = (LLM_MODELS[llmProvider] ?? ['gpt-4o']).map((m) => ({ name: m, value: m }));
   const llmModel = await select({ message: 'Default model:', choices: modelChoices });
@@ -193,6 +208,7 @@ export async function initCommand(): Promise<void> {
     OPENAI_API_KEY: llmProvider === 'openai' ? llmApiKey : '',
     ANTHROPIC_API_KEY: llmProvider === 'anthropic' ? llmApiKey : '',
     AZURE_OPENAI_API_KEY: llmProvider === 'azure' ? llmApiKey : '',
+    OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : '',
     LLM_MODEL: llmModel,
     PORT: '4000',
     ADMIN_API_PORT: '4001',
@@ -290,16 +306,22 @@ export async function initCommand(): Promise<void> {
     const res = await fetch('http://localhost:4000/admin/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, channel }),
+      body: JSON.stringify({
+        adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, channel,
+        ...(ollamaBaseUrl && { ollamaBaseUrl }),
+      }),
     });
-    const json = (await res.json()) as { ok: boolean; data?: { adminToken?: string }; error?: { message?: string } };
+    const json = (await res.json()) as { ok: boolean; data?: { adminToken?: string }; error?: unknown };
     if (res.status === 409) {
       setupSpinner.info('Platform already configured — admin account exists');
     } else if (json.ok) {
       setupSpinner.succeed('Admin account created');
       if (json.data?.adminToken) writeEnv({ FORGE_ADMIN_TOKEN: json.data.adminToken });
     } else {
-      setupSpinner.warn(`Setup: ${json.error?.message ?? 'unknown'}`);
+      const errMsg = json.error && typeof json.error === 'object' && 'message' in json.error
+        ? String((json.error as { message: unknown }).message)
+        : JSON.stringify(json.error ?? 'unknown');
+      setupSpinner.warn(`Setup: ${errMsg}`);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
