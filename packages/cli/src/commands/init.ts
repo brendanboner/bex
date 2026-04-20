@@ -186,6 +186,11 @@ export async function initCommand(): Promise<void> {
   // ── Step 5: Generate config ───────────────────────────────────────────────
   console.log('\n' + chalk.bold('Step 5 of 5 — Generating configuration\n'));
 
+  const skillRegistryToken = await input({
+    message: 'Skill registry auth token (leave blank if registry is open):',
+    default: '',
+  });
+
   const spinner = ora('Generating secrets...').start();
   const jwtSecret = randomBytes(32).toString('hex');
   const vaultKey = randomBytes(32).toString('hex');
@@ -216,16 +221,16 @@ export async function initCommand(): Promise<void> {
     KNOWLEDGE_DIR: './knowledge',
     KNOWLEDGE_BASE_DIR: './knowledge',
     SKILL_REGISTRY_URL: 'https://bexregistry.brendanbonner.com',
-    SKILL_REGISTRY_TOKEN: 'bex-registry-dev',
+    SKILL_REGISTRY_TOKEN: skillRegistryToken,
     LOG_LEVEL: 'info',
     CORS_ORIGIN: 'http://localhost:3000',
     RATE_LIMIT_MAX: '100',
     DEFAULT_APPROVAL_CHANNEL: channel !== 'dashboard' ? channel : '',
     ...channelEnv,
     ...domainEnv,
-    FORGE_ADMIN_EMAIL: adminEmail,
-    FORGE_ADMIN_PASSWORD: adminPassword,
-    FORGE_CHANNEL: channel,
+    BEX_ADMIN_EMAIL: adminEmail,
+    BEX_ADMIN_PASSWORD: adminPassword,
+    BEX_CHANNEL: channel,
   };
 
   writeEnv(envVars);

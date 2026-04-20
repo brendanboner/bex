@@ -89,7 +89,7 @@ async function pushDocs(domain: string): Promise<void> {
 
   // Read API URL from env
   const apiUrl = process.env['API_URL'] ?? 'http://localhost:4000';
-  const token = process.env['FORGE_ADMIN_TOKEN'] ?? '';
+  const token = process.env['BEX_ADMIN_TOKEN'] ?? '';
 
   // Push each doc via the workspace API (use a synthetic agent ID "global" for shared docs)
   let pushed = 0;
@@ -120,7 +120,7 @@ async function pushDocs(domain: string): Promise<void> {
 async function pullDocs(skillDomain: string): Promise<void> {
   const { default: fetch } = await import('node-fetch');
   const apiUrl = process.env['API_URL'] ?? 'http://localhost:4000';
-  const token = process.env['FORGE_ADMIN_TOKEN'] ?? '';
+  const token = process.env['BEX_ADMIN_TOKEN'] ?? '';
 
   // Search registry for skills in this domain
   const res = await fetch(`${apiUrl}/registry/skills?domain=${skillDomain}`, {
