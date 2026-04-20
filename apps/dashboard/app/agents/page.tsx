@@ -38,7 +38,7 @@ type Agent = {
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().optional(),
-  llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']),
+  llmProvider: z.enum(['openai', 'anthropic', 'azure-openai', 'ollama']),
   llmModel: z.string().min(1),
 });
 type CreateForm = z.infer<typeof createSchema>;
@@ -133,6 +133,7 @@ export default function AgentsPage() {
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
                   <option value="azure-openai">Azure OpenAI</option>
+                  <option value="ollama">Ollama</option>
                 </select>
               </div>
               <div className="space-y-1">

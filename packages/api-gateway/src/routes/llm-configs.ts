@@ -2,6 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { ok, err, ErrorCodes } from '@bclaw/shared';
 import { CredentialVaultService } from '@bclaw/credential-vault';
+import { generateText } from 'ai';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createAzure } from '@ai-sdk/azure';
 
 type LLMConfigBody = {
   name: string;
@@ -109,5 +113,58 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
 
     await prisma.lLMConfig.delete({ where: { id } });
     return reply.status(204).send();
+  });
+
+  // POST /llm-configs/:id/test — send a ping to verify the LLM config works
+  app.post<{ Params: { id: string } }>('/llm-configs/:id/test', async (request, reply) => {
+    const { id } = request.params;
+    const config = await prisma.lLMConfig.findUnique({
+      where: { id },
+      include: { credential: { select: { id: true } } },
+    });
+    if (!config) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'LLM config not found'));
+
+    let apiKey: string | undefined;
+    if (config.credentialId) {
+      const cred = await vault.resolve(config.credentialId, []);
+      apiKey = (cred as { apiKey?: string }).apiKey;
+    }
+
+    try {
+      let model;
+      switch (config.provider) {
+        case 'openai': {
+          const key = apiKey ?? process.env['OPENAI_API_KEY'];
+          if (!key) throw new Error('No API key configured');
+          model = createOpenAI({ apiKey: key })(config.model);
+          break;
+        }
+        case 'anthropic': {
+          const key = apiKey ?? process.env['ANTHROPIC_API_KEY'];
+          if (!key) throw new Error('No API key configured');
+          model = createAnthropic({ apiKey: key })(config.model);
+          break;
+        }
+        case 'azure-openai': {
+          const key = apiKey ?? process.env['AZURE_OPENAI_API_KEY'];
+          const resource = process.env['AZURE_OPENAI_RESOURCE_NAME'];
+          if (!key || !resource) throw new Error('Azure credentials not configured');
+          model = createAzure({ apiKey: key, resourceName: resource })(config.model);
+          break;
+        }
+        case 'ollama': {
+          const base = (config.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '');
+          model = createOpenAI({ baseURL: `${base}/v1`, apiKey: 'ollama' })(config.model);
+          break;
+        }
+        default:
+          return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, `Unknown provider: ${config.provider}`));
+      }
+
+      const { text } = await generateText({ model, prompt: 'Say "OK" and nothing else.' });
+      return reply.send(ok({ success: true, response: text.trim() }));
+    } catch (e) {
+      return reply.status(422).send(err(ErrorCodes.INTERNAL, `Connection failed: ${(e as Error).message}`));
+    }
   });
 }

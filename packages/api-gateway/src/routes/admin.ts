@@ -219,4 +219,37 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       return reply.send({ ok: true, data: { channel } });
     },
   );
+
+  // POST /setup/notifications/test — send a test message
+  app.post<{ Body: { channel: string; botToken?: string; chatId?: string; webhookUrl?: string } }>(
+    '/setup/notifications/test',
+    async (request, reply) => {
+      const { channel, botToken, chatId, webhookUrl } = request.body;
+      const { fetch } = await import('undici');
+
+      try {
+        if (channel === 'telegram') {
+          if (!botToken || !chatId) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'botToken and chatId required' } });
+          const res = await fetch(
+            `https://api.telegram.org/bot${botToken}/sendMessage`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: chatId, text: '✅ BEX notification test — connection is working!' }) },
+          );
+          if (!res.ok) throw new Error(`Telegram API error: ${res.status}`);
+        } else if (channel === 'teams') {
+          if (!webhookUrl) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'webhookUrl required' } });
+          const res = await fetch(webhookUrl, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: '✅ BEX notification test — connection is working!' }),
+          });
+          if (!res.ok) throw new Error(`Teams webhook error: ${res.status}`);
+        } else {
+          return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: `Test not supported for channel: ${channel}` } });
+        }
+        return reply.send({ ok: true, data: { sent: true } });
+      } catch (e) {
+        return reply.status(422).send({ ok: false, error: { code: 'INTERNAL', message: (e as Error).message } });
+      }
+    },
+  );
 }
