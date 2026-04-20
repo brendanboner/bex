@@ -6,13 +6,18 @@
 
 install: ## Install dependencies, build all packages, and link bex globally
 	@echo "📦 Installing dependencies..."
-	npm install --loglevel=error
+	@npm install --loglevel=error --no-audit --no-fund > /dev/null 2>&1
 	@echo "⚙️  Generating Prisma client..."
-	cd packages/shared && npx prisma generate --schema=prisma/schema.prisma
+	@cd packages/shared && npx prisma generate --schema=prisma/schema.prisma 2>&1 | grep -E "✔|error|Error" || true
 	@echo "🔨 Building all packages..."
-	npm run build --silent
-	@echo "🔗 Linking bex CLI globally..."
-	cd packages/cli && npm link --loglevel=error
+	@if ! npm run build > /tmp/forge-build.log 2>&1; then \
+		echo ""; \
+		echo "❌ Build failed. Output:"; \
+		cat /tmp/forge-build.log; \
+		exit 1; \
+	fi
+	@echo "🔗 Linking bex globally..."
+	@cd packages/cli && npm link --loglevel=error --no-audit > /dev/null 2>&1
 	@echo ""
 	@echo "✅ Done! Run: bex init"
 
