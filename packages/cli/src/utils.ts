@@ -70,7 +70,8 @@ export function isDockerRunning(): boolean {
 
 export function composeCommand(args: string[], projectRoot: string): ReturnType<typeof spawnSync> {
   const composePath = resolve(projectRoot, 'infra', 'docker-compose.yml');
-  return spawnSync('docker', ['compose', '-f', composePath, ...args], {
+  const envFilePath = resolve(projectRoot, '.env');
+  return spawnSync('docker', ['compose', '-f', composePath, '--env-file', envFilePath, ...args], {
     stdio: 'inherit',
     cwd: projectRoot,
   });
@@ -179,8 +180,9 @@ export function getServiceDefs(_root: string, _env: Record<string, string>): nev
 export function ensureInfraRunning(root: string): void {
   if (!isDockerRunning()) return;
   const composePath = resolve(root, 'infra', 'docker-compose.yml');
+  const envFilePath = resolve(root, '.env');
   // Only start postgres+redis, not app services
-  spawnSync('docker', ['compose', '-f', composePath, 'up', '-d', 'postgres', 'redis'], {
+  spawnSync('docker', ['compose', '-f', composePath, '--env-file', envFilePath, 'up', '-d', 'postgres', 'redis'], {
     stdio: 'pipe',
     cwd: root,
   });
