@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, closeSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { execSync, spawnSync, spawn } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import chalk from 'chalk';
 
@@ -120,181 +120,61 @@ export async function waitForService(
   return false;
 }
 
-// ── Local service management (non-Docker) ───────────────────────────────────
+// ── pm2-based service management ────────────────────────────────────────────
 
-export function stopPort(port: number): void {
+const ECOSYSTEM_FILE = 'ecosystem.config.cjs';
+
+/** Ensure the dashboard standalone build + static assets are in place. */
+export function ensureDashboardBuilt(root: string): boolean {
+  const standalone = resolve(root, 'apps/dashboard/.next/standalone/apps/dashboard/server.js');
+  if (!existsSync(standalone)) return false;
+  // Sync static assets (safe to run every time)
   try {
-    const pids = execSync(`lsof -ti ":${port}" 2>/dev/null || true`, { encoding: 'utf-8' }).trim();
-    if (pids) {
-      pids.split(/\s+/).filter(Boolean).forEach((pid) => {
-        try { execSync(`kill ${pid} 2>/dev/null || true`); } catch { /* ignore */ }
-      });
-    }
+    spawnSync('cp', ['-r',
+      resolve(root, 'apps/dashboard/.next/static'),
+      resolve(root, 'apps/dashboard/.next/standalone/apps/dashboard/.next/static'),
+    ], { stdio: 'pipe' });
   } catch { /* ignore */ }
+  return true;
 }
 
+/** Start or restart all services via pm2. */
+export function startLocalServices(root: string): void {
+  mkdirSync(resolve(root, 'logs'), { recursive: true });
+  ensureDashboardBuilt(root);
+  const eco = resolve(root, ECOSYSTEM_FILE);
+  // If pm2 already knows about forge apps, restart them; otherwise start fresh.
+  const existing = spawnSync('pm2', ['id', 'forge-api'], { stdio: 'pipe', encoding: 'utf-8' });
+  const alreadyRunning = existing.stdout?.includes('forge-api');
+  if (alreadyRunning) {
+    spawnSync('pm2', ['restart', eco], { stdio: 'inherit', cwd: root });
+  } else {
+    spawnSync('pm2', ['start', eco], { stdio: 'inherit', cwd: root });
+  }
+}
+
+/** Stop all forge services via pm2. */
 export function stopLocalServices(): void {
-  [4000, 4001, 5050, 3000].forEach(stopPort);
+  try {
+    const root = findProjectRoot();
+    spawnSync('pm2', ['stop', resolve(root, ECOSYSTEM_FILE)], { stdio: 'pipe' });
+  } catch { /* ignore if pm2 not running */ }
 }
 
-/** Spawn a detached Node.js service writing stdout+stderr to logFile. Returns PID. */
-export function spawnService(
-  script: string,
-  env: Record<string, string>,
-  logFile: string,
-  cwd: string,
-): number | undefined {
-  mkdirSync(resolve(cwd, 'logs'), { recursive: true });
-  // Open synchronously so the fd is valid before spawn reads it
-  const fd = openSync(logFile, 'w');
-  const child = spawn('node', [script], {
-    detached: true,
-    stdio: ['ignore', fd, fd],
-    env: { ...process.env, ...env },
-    cwd,
-  });
-  child.unref();
-  // Parent can close its copy — child has inherited its own fd
-  closeSync(fd);
-  return child.pid;
+/** Restart a single named pm2 app (e.g. 'forge-dashboard'). */
+export function restartService(name: string): void {
+  spawnSync('pm2', ['restart', name], { stdio: 'inherit' });
 }
 
-/** Spawn Next.js dashboard (uses npx next dev) */
-export function spawnDashboard(
-  dashDir: string,
-  logFile: string,
-  port = 3000,
-): number | undefined {
-  mkdirSync(resolve(dashDir, '..', '..', 'logs'), { recursive: true });
-  const fd = openSync(logFile, 'w');
-  const child = spawn('node_modules/.bin/next', ['dev', '-p', String(port)], {
-    detached: true,
-    stdio: ['ignore', fd, fd],
-    env: { ...process.env, NODE_ENV: 'development' },
-    cwd: dashDir,
-  });
-  child.unref();
-  closeSync(fd);
-  return child.pid;
+/** Show pm2 status table. */
+export function showServiceStatus(): void {
+  spawnSync('pm2', ['status'], { stdio: 'inherit' });
 }
 
-/** Returns the 5 service definitions for local startup */
-export function getServiceDefs(root: string, env: Record<string, string>): Array<{
-  name: string;
-  port?: number;
-  logFile: string;
-  start: () => number | undefined;
-}> {
-  const logsDir = resolve(root, 'logs');
-  const tok = env['SKILL_REGISTRY_TOKEN'] ?? 'forge-registry-dev';
-  return [
-    {
-      name: 'Skill Registry',
-      port: 5050,
-      logFile: resolve(logsDir, 'skill-registry.log'),
-      start: () => spawnService(
-        resolve(root, 'packages/skill-registry/dist/server.js'),
-        {
-          PORT: '5050',
-          DATA_DIR: resolve(root, 'packages/skill-registry/data'),
-          REGISTRY_AUTH_TOKEN: tok,
-          REGISTRY_ADMIN_TOKEN: env['REGISTRY_ADMIN_TOKEN'] ?? '',
-        },
-        resolve(logsDir, 'skill-registry.log'),
-        root,
-      ),
-    },
-    {
-      name: 'API Gateway',
-      port: 4000,
-      logFile: resolve(logsDir, 'api-gateway.log'),
-      start: () => spawnService(
-        resolve(root, 'packages/api-gateway/dist/server.js'),
-        {
-          SKILL_REGISTRY_URL: env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050',
-          SKILL_REGISTRY_TOKEN: tok,
-          DATABASE_URL: env['DATABASE_URL'] ?? '',
-          REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
-          JWT_SECRET: env['JWT_SECRET'] ?? '',
-          CREDENTIAL_VAULT_KEY: env['CREDENTIAL_VAULT_KEY'] ?? '',
-          CORS_ORIGIN: env['CORS_ORIGIN'] ?? 'http://localhost:3000',
-          OPENAI_API_KEY: env['OPENAI_API_KEY'] ?? '',
-        },
-        resolve(logsDir, 'api-gateway.log'),
-        root,
-      ),
-    },
-    {
-      name: 'Admin API',
-      port: 4001,
-      logFile: resolve(logsDir, 'admin-api.log'),
-      start: () => spawnService(
-        resolve(root, 'packages/dashboard-api/dist/server.js'),
-        {
-          ADMIN_API_PORT: '4001',
-          DATABASE_URL: env['DATABASE_URL'] ?? '',
-          REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
-          JWT_SECRET: env['JWT_SECRET'] ?? '',
-          CORS_ORIGIN: env['CORS_ORIGIN'] ?? 'http://localhost:3000',
-        },
-        resolve(logsDir, 'admin-api.log'),
-        root,
-      ),
-    },
-    {
-      name: 'Worker',
-      logFile: resolve(logsDir, 'worker.log'),
-      start: () => spawnService(
-        resolve(root, 'packages/scheduler/dist/worker.js'),
-        {
-          DATABASE_URL: env['DATABASE_URL'] ?? '',
-          REDIS_URL: env['REDIS_URL'] ?? 'redis://localhost:6379',
-          CREDENTIAL_VAULT_KEY: env['CREDENTIAL_VAULT_KEY'] ?? '',
-          OPENAI_API_KEY: env['OPENAI_API_KEY'] ?? '',
-          ANTHROPIC_API_KEY: env['ANTHROPIC_API_KEY'] ?? '',
-          AZURE_OPENAI_API_KEY: env['AZURE_OPENAI_API_KEY'] ?? '',
-          AZURE_OPENAI_RESOURCE_NAME: env['AZURE_OPENAI_RESOURCE_NAME'] ?? '',
-          JWT_SECRET: env['JWT_SECRET'] ?? '',
-          SKILL_REGISTRY_URL: env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050',
-          SKILL_REGISTRY_TOKEN: tok,
-          DEFAULT_APPROVAL_CHANNEL: env['DEFAULT_APPROVAL_CHANNEL'] ?? 'telegram',
-          TELEGRAM_BOT_TOKEN: env['TELEGRAM_BOT_TOKEN'] ?? '',
-        },
-        resolve(logsDir, 'worker.log'),
-        root,
-      ),
-    },
-    {
-      name: 'Dashboard',
-      port: 3000,
-      logFile: resolve(logsDir, 'dashboard.log'),
-      start: () => spawnDashboard(
-        resolve(root, 'apps/dashboard'),
-        resolve(logsDir, 'dashboard.log'),
-        3000,
-      ),
-    },
-    {
-      name: 'Telegram Bot',
-      logFile: resolve(logsDir, 'telegram-bot.log'),
-      start: () => {
-        const botToken = env['TELEGRAM_BOT_TOKEN'] ?? '';
-        if (!botToken) return undefined; // Skip if not configured
-        return spawnService(
-          resolve(root, 'integrations/telegram/dist/bot.js'),
-          {
-            TELEGRAM_BOT_TOKEN: botToken,
-            TELEGRAM_DEFAULT_AGENT_ID: env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '',
-            API_GATEWAY_URL: env['API_GATEWAY_URL'] ?? 'http://localhost:4000',
-            BFORGE_BOT_API_KEY: env['BFORGE_BOT_API_KEY'] ?? '',
-          },
-          resolve(logsDir, 'telegram-bot.log'),
-          root,
-        );
-      },
-    },
-  ];
-}
+// Legacy stubs — kept so existing callers compile but now delegate to pm2
+export function stopPort(_port: number): void { /* no-op: pm2 manages PIDs */ }
+export function spawnService(_script: string, _env: Record<string, string>, _log: string, _cwd: string): undefined { return undefined; }
+export function getServiceDefs(_root: string, _env: Record<string, string>): never[] { return []; }
 
 export function ensureInfraRunning(root: string): void {
   if (!isDockerRunning()) return;

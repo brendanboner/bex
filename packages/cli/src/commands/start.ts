@@ -1,6 +1,6 @@
-import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import ora from 'ora';
 import chalk from 'chalk';
 import {
@@ -10,12 +10,12 @@ import {
   printSuccess,
   printWarning,
   waitForService,
-  stopLocalServices,
-  getServiceDefs,
+  startLocalServices,
+  ensureDashboardBuilt,
   ensureInfraRunning,
 } from '../utils.js';
 
-export async function startCommand(): Promise<void> {
+export async function startCommand(args: string[] = []): Promise<void> {
   let root: string;
   try {
     root = findProjectRoot();
@@ -27,59 +27,88 @@ export async function startCommand(): Promise<void> {
   // Auto-init on first run
   if (!existsSync(resolve(root, '.env'))) {
     console.log(chalk.cyan('  First run detected — running bex init...'));
-    console.log('');
-    try {
-      execSync(`bash "${resolve(root, 'init.sh')}"`, { stdio: 'inherit', cwd: root });
-    } catch {
-      printError('Init failed. Run `bex init` manually to configure.');
-      process.exit(1);
-    }
+    const { initCommand } = await import('./init.js');
+    await initCommand();
   }
 
-  const env = readEnv();
+  readEnv();
 
+  // ── Single-service shortcuts ──────────────────────────────────────────────
+  const target = args[0];
+  if (target === 'dashboard') {
+    const dashSpinner = ora('Rebuilding dashboard…').start();
+    const result = spawnSync('npm', ['run', 'build', '--silent'], {
+      cwd: resolve(root, 'apps/dashboard'),
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    });
+    if (result.status !== 0) {
+      dashSpinner.fail('Dashboard build failed');
+      console.error(result.stderr);
+      process.exit(1);
+    }
+    ensureDashboardBuilt(root);
+    dashSpinner.succeed('Dashboard rebuilt');
+    spawnSync('pm2', ['restart', 'forge-dashboard'], { stdio: 'inherit' });
+    printSuccess('Dashboard restarted');
+    return;
+  }
+
+  const serviceMap: Record<string, string> = {
+    api: 'forge-api', registry: 'forge-registry', admin: 'forge-admin',
+    worker: 'forge-worker', telegram: 'forge-telegram',
+  };
+  if (target && serviceMap[target]) {
+    spawnSync('pm2', ['restart', serviceMap[target]], { stdio: 'inherit' });
+    printSuccess(`${target} restarted`);
+    return;
+  }
+
+  // ── Full startup ──────────────────────────────────────────────────────────
   console.log('');
-  console.log(chalk.bold.cyan('  Forge — Starting services...'));
+  console.log(chalk.bold.cyan('  Forge — Starting services…'));
   console.log('');
 
-  // Start postgres + redis via docker if available
-  const infraSpinner = ora('Starting infrastructure (postgres, redis)...').start();
+  const infraSpinner = ora('Starting infrastructure (postgres, redis)…').start();
   try {
     ensureInfraRunning(root);
     infraSpinner.succeed('Infrastructure ready');
   } catch {
     infraSpinner.warn('Could not start Docker infra — ensure postgres + redis are running');
   }
-  await new Promise((r) => setTimeout(r, 2000));
+  await new Promise((r) => setTimeout(r, 1000));
 
-  // Stop any existing processes
-  stopLocalServices();
-  await new Promise((r) => setTimeout(r, 500));
-
-  // Start all services
-  const defs = getServiceDefs(root, env);
-  for (const svc of defs) {
-    const spin = ora(`Starting ${svc.name}${svc.port ? ` (port ${svc.port})` : ''}...`).start();
-    const pid = svc.start();
-    if (pid) {
-      spin.succeed(`${svc.name} started (PID ${pid})`);
+  // Ensure dashboard is built before starting
+  if (!existsSync(resolve(root, 'apps/dashboard/.next/standalone/apps/dashboard/server.js'))) {
+    const dashSpinner = ora('Building dashboard (first time)…').start();
+    const result = spawnSync('npm', ['run', 'build', '--silent'], {
+      cwd: resolve(root, 'apps/dashboard'),
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    });
+    if (result.status !== 0) {
+      dashSpinner.fail('Dashboard build failed — check logs');
     } else {
-      spin.warn(`${svc.name} — could not get PID (may still be running)`);
+      ensureDashboardBuilt(root);
+      dashSpinner.succeed('Dashboard built');
     }
+  } else {
+    ensureDashboardBuilt(root);
   }
 
-  console.log('');
-  const waitSpinner = ora('Waiting for services to be ready...').start();
-  waitSpinner.stop();
-  await new Promise((r) => setTimeout(r, 8000));
+  const startSpinner = ora('Starting services via pm2…').start();
+  startLocalServices(root);
+  startSpinner.succeed('Services started');
+
+  await new Promise((r) => setTimeout(r, 6000));
 
   // Health checks
   console.log('');
   const checks = [
     ['Skill Registry', 'http://localhost:5050/health'],
-    ['API Gateway', 'http://localhost:4000/health'],
-    ['Admin API', 'http://localhost:4001/health'],
-    ['Dashboard', 'http://localhost:3000'],
+    ['API Gateway',    'http://localhost:4000/health'],
+    ['Admin API',      'http://localhost:4001/health'],
+    ['Dashboard',      'http://localhost:3000'],
   ] as const;
 
   let allOk = true;
@@ -90,10 +119,11 @@ export async function startCommand(): Promise<void> {
 
   console.log('');
   if (allOk) {
-    console.log(chalk.bold.green('  ✓ Forge is running'));
+    printSuccess('Forge is running');
   } else {
-    printWarning('Some services are still starting. Check logs with: bex logs');
+    printWarning('Some services are still starting. Check: bex logs');
   }
+
   console.log('');
   console.log(chalk.bold('  ┌──────────────────────────────────────────────────┐'));
   console.log(chalk.bold('  │') + chalk.cyan('  Dashboard     →  http://localhost:3000           ') + chalk.bold('│'));
@@ -101,9 +131,11 @@ export async function startCommand(): Promise<void> {
   console.log(chalk.bold('  │') + chalk.cyan('  Admin API     →  http://localhost:4001           ') + chalk.bold('│'));
   console.log(chalk.bold('  │') + chalk.cyan('  Skill Registry→  http://localhost:5050           ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
-  console.log(chalk.bold('  │') + chalk.dim('  Login:  admin@forge.local  /  Forge2024!         ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.dim('  Login:  admin@bex.local  /  bex-admin-2026       ') + chalk.bold('│'));
   console.log(chalk.bold('  ├──────────────────────────────────────────────────┤'));
-  console.log(chalk.bold('  │') + chalk.dim('  Logs:   bex logs [service]                    ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.dim('  bex status   — service health                   ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.dim('  bex logs     — tail all logs                    ') + chalk.bold('│'));
+  console.log(chalk.bold('  │') + chalk.dim('  bex start dashboard  — rebuild + restart UI     ') + chalk.bold('│'));
   console.log(chalk.bold('  └──────────────────────────────────────────────────┘'));
   console.log('');
 }

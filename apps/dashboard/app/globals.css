@@ -14,10 +14,10 @@
     --border: 52 50 72;
     --border-subtle: 38 36 55;
 
-    /* Off-white text with a touch of purple — NEVER pure blue or cyan */
-    --text-primary: 218 216 236;
-    --text-secondary: 138 136 166;
-    --text-muted: 82 80 108;
+    /* White-family text — primary near-white, secondary visible light, muted still readable */
+    --text-primary: 245 244 250;
+    --text-secondary: 205 203 222;
+    --text-muted: 150 148 172;
 
     /* BEX accent palette — cyan/electric-blue */
     --accent-cyan: 6 182 212;

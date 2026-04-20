@@ -1,6 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import ora from 'ora';
-import chalk from 'chalk';
-import { findProjectRoot, stopLocalServices, printError, printSuccess } from '../utils.js';
+import { findProjectRoot, printError, printSuccess } from '../utils.js';
 
 export async function stopCommand(): Promise<void> {
   let root: string;
@@ -12,23 +13,10 @@ export async function stopCommand(): Promise<void> {
   }
 
   console.log('');
-  const spinner = ora('Stopping Forge services...').start();
-  stopLocalServices();
-  await new Promise((r) => setTimeout(r, 1000));
-  spinner.succeed('All local services stopped');
-
-  // Also stop docker infra if running
-  try {
-    const { execSync } = await import('node:child_process');
-    const { resolve } = await import('node:path');
-    execSync(
-      `docker compose -f "${resolve(root, 'infra/docker-compose.yml')}" stop postgres redis 2>/dev/null || true`,
-      { stdio: 'pipe' }
-    );
-    printSuccess('Docker infrastructure stopped');
-  } catch {
-    // Docker may not be running — fine
-  }
+  const spinner = ora('Stopping Forge services…').start();
+  spawnSync('pm2', ['stop', resolve(root, 'ecosystem.config.cjs')], { stdio: 'pipe' });
+  spinner.succeed('All services stopped');
+  printSuccess('Run `bex start` to bring them back up');
   console.log('');
 }
 

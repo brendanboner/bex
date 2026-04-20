@@ -24,9 +24,9 @@ program
   .action(initCommand);
 
 program
-  .command('start')
-  .description('Start all platform services in the background')
-  .action(startCommand);
+  .command('start [target]')
+  .description('Start all services, or restart one: dashboard|api|worker|telegram|registry')
+  .action((target?: string) => startCommand(target ? [target] : []));
 
 program
   .command('stop')

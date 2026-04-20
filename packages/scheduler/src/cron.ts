@@ -29,7 +29,7 @@ export async function runCronLoop(): Promise<void> {
   const systemUserId = await resolveSystemUserId();
   if (!systemUserId) {
     // DB not yet seeded — skip quietly until system user exists
-    console.warn('[cron] System user not found in DB — skipping tick (run init.sh to initialise)');
+    console.warn('[cron] System user not found in DB — skipping tick (run `bex init` to initialise)');
     return;
   }
 

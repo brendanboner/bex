@@ -68,21 +68,12 @@ export async function statusCommand(): Promise<void> {
     }
   }
 
-  // Show log files status
-  const logsDir = resolve(root, 'logs');
-  if (existsSync(logsDir)) {
-    console.log('');
-    console.log(chalk.bold('  Log Files'));
-    console.log(chalk.dim('  ' + '─'.repeat(52)));
-    const logs = ['api-gateway', 'skill-registry', 'admin-api', 'worker', 'dashboard'];
-    for (const name of logs) {
-      const file = resolve(logsDir, `${name}.log`);
-      const exists = existsSync(file);
-      const icon = exists ? chalk.green('●') : chalk.dim('○');
-      const hint = exists ? chalk.dim(`  bex logs ${name}`) : chalk.dim('  (not started)');
-      console.log(`  ${icon} ${name.padEnd(20)}${hint}`);
-    }
-  }
+  // Show pm2 process table
+  console.log('');
+  console.log(chalk.bold('  Process Manager (pm2)'));
+  console.log(chalk.dim('  ' + '─'.repeat(52)));
+  const { spawnSync } = await import('node:child_process');
+  spawnSync('pm2', ['status'], { stdio: 'inherit' });
   console.log('');
 }
 
