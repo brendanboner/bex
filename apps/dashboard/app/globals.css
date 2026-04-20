@@ -4,52 +4,52 @@
 
 @layer base {
   :root {
-    /* Very dark background with a subtle purple/violet tint — matches reference */
-    --bg-base: 20 19 30;
-    --bg-surface: 25 24 37;
-    --bg-elevated: 33 32 48;
-    --bg-muted: 23 22 34;
+    /* ── Backgrounds — Agent ONE / Nova2 surface scale ───────────────────── */
+    --bg-base:    30 31 42;    /* #1e1f2a — surface-el-0 */
+    --bg-surface: 36 38 52;    /* between base and elevated */
+    --bg-elevated: 45 47 62;   /* #2d2f3e — transparent-emph */
+    --bg-muted:   28 29 40;    /* slightly deeper than base */
 
-    /* Borders barely visible — ~6% white on the dark base */
-    --border: 52 50 72;
-    --border-subtle: 38 36 55;
+    /* ── Borders ─────────────────────────────────────────────────────────── */
+    --border:        77 79 99;   /* #4d4f63 — divider */
+    --border-subtle: 55 57 75;   /* softer separator */
 
-    /* White-family text — primary near-white, secondary visible light, muted still readable */
-    --text-primary: 245 244 250;
-    --text-secondary: 205 203 222;
-    --text-muted: 150 148 172;
+    /* ── Text ────────────────────────────────────────────────────────────── */
+    --text-primary:   248 248 251;  /* #f8f8fb — content/default */
+    --text-secondary: 186 188 206;  /* #babcce — content/secondary */
+    --text-muted:     137 140 164;  /* #898ca4 — content/tertiary */
 
-    /* BEX accent palette — cyan/electric-blue */
-    --accent-cyan: 6 182 212;
-    --accent-blue: 59 130 246;
-    --accent-ice: 186 230 253;
-    --accent-orange: 249 115 22;
-    --accent-teal: 20 184 166;
+    /* ── Accent — Nova2 violet (#8981e5) ──────────────────────────────────── */
+    --accent-violet: 137 129 229;   /* #8981e5 */
+    --accent-hover:  122 120 208;   /* #7a78d0 */
 
-    --success: 16 185 129;
-    --warning: 245 158 11;
-    --error: 239 68 68;
+    /* ── Status ──────────────────────────────────────────────────────────── */
+    --success: 74 222 128;   /* #4ade80 */
+    --warning: 250 204 21;   /* #facc15 */
+    --error:   248 113 113;  /* #f87171 */
+    --info:    121 176 245;  /* #79b0f5 */
 
+    /* ── ShadCN / Radix compat vars ──────────────────────────────────────── */
     --background: rgb(var(--bg-base));
-    --foreground: rgb(var(--text-primary));
-    --card: rgb(var(--bg-surface));
+    --foreground:  rgb(var(--text-primary));
+    --card:        rgb(var(--bg-surface));
     --card-foreground: rgb(var(--text-primary));
-    --popover: rgb(var(--bg-elevated));
+    --popover:     rgb(var(--bg-elevated));
     --popover-foreground: rgb(var(--text-primary));
-    --primary: rgb(var(--accent-cyan));
-    --primary-foreground: rgb(10 12 18);
-    --secondary: rgb(var(--bg-elevated));
+    --primary:     rgb(var(--accent-violet));
+    --primary-foreground: rgb(var(--bg-base));
+    --secondary:   rgb(var(--bg-elevated));
     --secondary-foreground: rgb(var(--text-secondary));
-    --muted: rgb(var(--bg-muted));
+    --muted:       rgb(var(--bg-muted));
     --muted-foreground: rgb(var(--text-secondary));
-    --accent: rgb(var(--bg-elevated));
+    --accent:      rgb(var(--bg-elevated));
     --accent-foreground: rgb(var(--text-primary));
     --destructive: rgb(var(--error));
-    --destructive-foreground: rgb(238 240 255);
-    --border-css: rgb(var(--border));
-    --input: rgb(var(--bg-elevated));
-    --ring: rgb(var(--accent-cyan));
-    --radius: 0.625rem;
+    --destructive-foreground: rgb(var(--text-primary));
+    --border-css:  rgb(var(--border));
+    --input:       rgb(var(--bg-elevated));
+    --ring:        rgb(var(--accent-violet));
+    --radius: 0.625rem;  /* 10px — Nova2 "lg" */
   }
 }
 
@@ -58,51 +58,70 @@
   body {
     background-color: rgb(var(--bg-base));
     color: rgb(var(--text-primary));
-    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', system-ui, sans-serif;
+    font-family: var(--font-sans, 'Source Sans Pro', 'Inter', system-ui, sans-serif);
+    font-size: 16px;
+    line-height: 24px;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 2px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--text-muted)); }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent-violet)); }
 }
 
-/* Glow effects */
-.glow-cyan {
-  box-shadow: 0 0 20px rgba(6, 182, 212, 0.35), 0 0 40px rgba(6, 182, 212, 0.12);
+/* ── Nova2 elevation shadows ─────────────────────────────────────────────── */
+.shadow-m {
+  box-shadow:
+    0px 2px 2px rgba(30, 31, 42, 0.24),
+    0px 4px 4px rgba(30, 31, 42, 0.24),
+    0px 8px 8px rgba(30, 31, 42, 0.24);
 }
-.glow-blue {
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+.shadow-l {
+  box-shadow:
+    0px 2px 2px rgba(30, 31, 42, 0.24),
+    0px 4px 4px rgba(30, 31, 42, 0.24),
+    0px 8px 8px rgba(30, 31, 42, 0.24),
+    0px 16px 16px rgba(30, 31, 42, 0.24);
 }
-/* Keep old names as aliases so any remaining references don't break */
-.glow-violet { box-shadow: 0 0 20px rgba(6, 182, 212, 0.35), 0 0 40px rgba(6, 182, 212, 0.12); }
-.glow-pink   { box-shadow: 0 0 20px rgba(59, 130, 246, 0.3); }
 
-/* BEX gradient text — cyan → blue */
+/* ── Glow effects — violet accent ────────────────────────────────────────── */
+.glow-violet {
+  box-shadow: 0 0 20px rgba(137, 129, 229, 0.35), 0 0 40px rgba(137, 129, 229, 0.12);
+}
+/* Aliases */
+.glow-cyan  { box-shadow: 0 0 20px rgba(137, 129, 229, 0.35), 0 0 40px rgba(137, 129, 229, 0.12); }
+.glow-blue  { box-shadow: 0 0 20px rgba(137, 129, 229, 0.28); }
+.glow-pink  { box-shadow: 0 0 20px rgba(137, 129, 229, 0.28); }
+
+/* ── Gradient text — violet → lighter violet ─────────────────────────────── */
 .gradient-text {
-  background: linear-gradient(135deg, rgb(var(--accent-cyan)), rgb(var(--accent-blue)));
+  background: linear-gradient(135deg, rgb(var(--accent-violet)), #c4b5fd);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* Status badge variants for dark theme */
-.badge-active    { background: rgba(16,185,129,0.15);  color: rgb(52,211,153);   border: 1px solid rgba(16,185,129,0.25); }
-.badge-draft     { background: rgba(245,158,11,0.12);  color: rgb(251,191,36);   border: 1px solid rgba(245,158,11,0.2); }
-.badge-published { background: rgba(6,182,212,0.12);   color: rgb(103,232,249);  border: 1px solid rgba(6,182,212,0.25); }
-.badge-failed    { background: rgba(239,68,68,0.12);   color: rgb(252,165,165);  border: 1px solid rgba(239,68,68,0.2); }
-.badge-queued    { background: rgba(110,120,160,0.12); color: rgb(148,163,184);  border: 1px solid rgba(110,120,160,0.2); }
-.badge-running   { background: rgba(59,130,246,0.15);  color: rgb(147,197,253);  border: 1px solid rgba(59,130,246,0.25); }
-.badge-completed { background: rgba(16,185,129,0.12);  color: rgb(110,231,183);  border: 1px solid rgba(16,185,129,0.2); }
-.badge-waiting   { background: rgba(245,158,11,0.12);  color: rgb(252,211,77);   border: 1px solid rgba(245,158,11,0.2); }
-.badge-autonomous{ background: rgba(20,184,166,0.12);  color: rgb(94,234,212);   border: 1px solid rgba(20,184,166,0.2); }
-.badge-supervised{ background: rgba(6,182,212,0.12);   color: rgb(186,230,253);  border: 1px solid rgba(6,182,212,0.2); }
-.badge-deliberate{ background: rgba(249,115,22,0.12);  color: rgb(253,186,116);  border: 1px solid rgba(249,115,22,0.2); }
+/* ── Status badges ───────────────────────────────────────────────────────── */
+.badge-active     { background: rgba(74,222,128,0.12);   color: rgb(134,239,172);  border: 1px solid rgba(74,222,128,0.25); }
+.badge-draft      { background: rgba(250,204,21,0.12);   color: rgb(253,224,71);   border: 1px solid rgba(250,204,21,0.22); }
+.badge-published  { background: rgba(137,129,229,0.12);  color: rgb(186,182,240);  border: 1px solid rgba(137,129,229,0.28); }
+.badge-failed     { background: rgba(248,113,113,0.12);  color: rgb(252,165,165);  border: 1px solid rgba(248,113,113,0.22); }
+.badge-queued     { background: rgba(137,140,164,0.12);  color: rgb(186,188,206);  border: 1px solid rgba(137,140,164,0.22); }
+.badge-running    { background: rgba(121,176,245,0.12);  color: rgb(147,197,253);  border: 1px solid rgba(121,176,245,0.25); }
+.badge-completed  { background: rgba(74,222,128,0.10);   color: rgb(110,231,183);  border: 1px solid rgba(74,222,128,0.20); }
+.badge-waiting    { background: rgba(250,204,21,0.10);   color: rgb(253,224,71);   border: 1px solid rgba(250,204,21,0.18); }
+.badge-autonomous { background: rgba(137,129,229,0.10);  color: rgb(186,182,240);  border: 1px solid rgba(137,129,229,0.22); }
+.badge-supervised { background: rgba(121,176,245,0.10);  color: rgb(167,210,250);  border: 1px solid rgba(121,176,245,0.22); }
+.badge-deliberate { background: rgba(250,204,21,0.10);   color: rgb(253,186,116);  border: 1px solid rgba(250,204,21,0.20); }
 
-/* Animated background radial — BEX violet/cyan theme */
+/* ── Subtle radial ambient glow — violet tones ───────────────────────────── */
 .bg-radial-glow {
   background:
-    radial-gradient(ellipse 80% 60% at 55% 65%, rgba(120, 90, 200, 0.05) 0%, transparent 65%),
-    radial-gradient(ellipse 50% 40% at 15% 20%, rgba(90, 70, 160, 0.04) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 60% at 55% 65%, rgba(137, 129, 229, 0.04) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 40% at 15% 20%, rgba(122, 120, 208, 0.03) 0%, transparent 60%);
 }
 

@@ -155,7 +155,7 @@ export default function EndpointsPage() {
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
                       {(e.aliases ?? []).map((a) => (
-                        <span key={a} className="inline-flex items-center rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 px-2 py-0.5 text-xs">{a}</span>
+                        <span key={a} className="inline-flex items-center rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20 px-2 py-0.5 text-xs">{a}</span>
                       ))}
                     </div>
                   </TableCell>

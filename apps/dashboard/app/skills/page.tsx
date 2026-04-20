@@ -28,10 +28,10 @@ type RemoteSkill = {
 };
 
 const DOMAIN_COLOURS: Record<string, string> = {
-  'extreme_xco':        'from-cyan-600 to-blue-500',
-  'extreme_xiq':        'from-blue-600 to-violet-500',
-  'kubernetes':         'from-sky-500 to-blue-600',
-  'networking':         'from-teal-500 to-emerald-600',
+  'extreme_xco':        'from-violet-600 to-purple-500',
+  'extreme_xiq':        'from-violet-500 to-indigo-600',
+  'kubernetes':         'from-indigo-500 to-blue-600',
+  'networking':         'from-blue-500 to-violet-600',
   'security':           'from-red-500 to-rose-600',
   'monitoring':         'from-amber-500 to-orange-600',
   'default':            'from-slate-600 to-slate-700',
@@ -95,15 +95,15 @@ export default function SkillExchangePage() {
   return (
     <div className="space-y-6">
       {/* Hero header — exchangeview style */}
-      <div className="relative rounded-2xl overflow-hidden border border-[rgb(var(--border))] bg-gradient-to-br from-[#1a0a3a] via-[#120a28] to-[#0a0a18] p-6">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_70%_40%,rgba(6,182,212,0.15),transparent)]" />
+      <div className="relative rounded-2xl overflow-hidden border border-[rgb(var(--border))] bg-gradient-to-br from-[#1c1a2e] via-[#1a1828] to-[#1e1f2a] p-6">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_70%_40%,rgba(137,129,229,0.12),transparent)]" />
         <div className="relative flex items-start justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan-600 to-blue-500 flex items-center justify-center">
+              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-600 to-purple-500 flex items-center justify-center">
                 <Brain className="h-4 w-4 text-white" />
               </div>
-              <span className="text-xs font-semibold uppercase tracking-widest text-cyan-300">Skill Exchange</span>
+              <span className="text-xs font-semibold uppercase tracking-widest text-violet-300">Skill Exchange</span>
             </div>
             <h1 className="text-2xl font-bold text-[rgb(var(--text-primary))]">Capability Marketplace</h1>
             <p className="text-sm text-[rgb(var(--text-secondary))] max-w-md">
@@ -112,7 +112,7 @@ export default function SkillExchangePage() {
           </div>
           <button
             onClick={() => setShowDiscover(v => !v)}
-            className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-500 px-4 py-2.5 text-sm font-semibold text-white hover:from-cyan-500 hover:to-blue-400 transition-all shadow-[0_0_20px_rgba(6,182,212,0.3)] shrink-0"
+            className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-purple-500 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-purple-400 transition-all shadow-m shrink-0"
           >
             <Plus className="h-4 w-4" /> Discover Skill
           </button>
@@ -121,7 +121,7 @@ export default function SkillExchangePage() {
 
       {/* Discover panel */}
       {showDiscover && (
-        <div className="rounded-xl border border-cyan-500/30 bg-[rgba(6,182,212,0.06)] p-5">
+        <div className="rounded-xl border border-violet-500/30 bg-[rgba(137,129,229,0.06)] p-5">
           <div className="flex items-start justify-between mb-4">
             <div>
               <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Discover New Skill</p>
@@ -137,12 +137,12 @@ export default function SkillExchangePage() {
               onChange={e => setIntent(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && intent.trim()) discoverMutation.mutate(intent); }}
               placeholder="e.g. Monitor fabric drift in an Extreme XCO environment"
-              className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-cyan-500 focus:outline-none transition-colors"
+              className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors"
             />
             <button
               onClick={() => discoverMutation.mutate(intent)}
               disabled={!intent.trim() || discoverMutation.isPending}
-              className="rounded-lg bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-600 disabled:opacity-40 transition-colors"
+              className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors"
             >
               {discoverMutation.isPending ? 'Generating…' : 'Generate'}
             </button>
@@ -159,7 +159,7 @@ export default function SkillExchangePage() {
               onClick={() => setActiveTab(tab)}
               className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${
                 activeTab === tab
-                  ? 'bg-[rgba(6,182,212,0.15)] text-cyan-300'
+                  ? 'bg-[rgba(137,129,229,0.15)] text-violet-300'
                   : 'text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))]'
               }`}
             >
@@ -174,7 +174,7 @@ export default function SkillExchangePage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search skills…"
-            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] py-2 pl-9 pr-3 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-cyan-500 focus:outline-none transition-colors"
+            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] py-2 pl-9 pr-3 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors"
           />
         </div>
         <span className="text-xs text-[rgb(var(--text-muted))]">
@@ -198,7 +198,7 @@ export default function SkillExchangePage() {
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map(s => (
-                <div key={s.id} className="group rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4 hover:border-[rgba(6,182,212,0.35)] transition-all">
+                <div key={s.id} className="group rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4 hover:border-[rgba(137,129,229,0.35)] transition-all shadow-m">
                   <div className="flex items-start gap-3 mb-3">
                     <div className={`h-10 w-10 rounded-lg bg-gradient-to-br ${domainGradient(s.domain)} flex items-center justify-center shrink-0`}>
                       <Brain className="h-5 w-5 text-white opacity-90" />
@@ -223,7 +223,7 @@ export default function SkillExchangePage() {
                     <span className="text-[10px] text-[rgb(var(--text-muted))]">{formatDate(s.createdAt)}</span>
                     <div className="flex items-center gap-2">
                       {s.requiredCredentialType && (
-                        <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-300 font-medium" title="Required credential type">
+                        <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300 font-medium" title="Required credential type">
                           🔑 {s.requiredCredentialType.replace('_', ' ')}
                         </span>
                       )}
@@ -231,7 +231,7 @@ export default function SkillExchangePage() {
                       <button
                         onClick={() => publishMutation.mutate(s.id)}
                         disabled={publishMutation.isPending}
-                        className="flex items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-[rgba(6,182,212,0.10)] px-2.5 py-1 text-[10px] font-medium text-cyan-300 hover:bg-[rgba(6,182,212,0.15)] transition-colors disabled:opacity-40"
+                        className="flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-[rgba(137,129,229,0.10)] px-2.5 py-1 text-[10px] font-medium text-violet-300 hover:bg-[rgba(137,129,229,0.15)] transition-colors disabled:opacity-40"
                       >
                         <Upload className="h-3 w-3" /> Publish
                       </button>
@@ -266,7 +266,7 @@ export default function SkillExchangePage() {
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {remoteSkills.map(s => (
-                <div key={`${s.domain}-${s.version}`} className="group rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4 hover:border-[rgba(6,182,212,0.35)] transition-all">
+                <div key={`${s.domain}-${s.version}`} className="group rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4 hover:border-[rgba(137,129,229,0.35)] transition-all shadow-m">
                   <div className="flex items-start gap-3 mb-3">
                     <div className={`h-10 w-10 rounded-lg bg-gradient-to-br ${domainGradient(s.domain)} flex items-center justify-center shrink-0`}>
                       <Brain className="h-5 w-5 text-white opacity-90" />

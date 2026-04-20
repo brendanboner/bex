@@ -28,15 +28,15 @@ type LLMConfig = {
 
 const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
   { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
-  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true, needsBaseUrl: false },
-  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-violet-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true, needsBaseUrl: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600', Icon: Cloud, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
   { value: 'ollama', label: 'Ollama', color: 'bg-orange-500', Icon: Server, defaultModel: 'llama3', needsApiKey: false, needsBaseUrl: true },
 ];
 
 const PROVIDER_COLOURS: Record<LLMProvider, string> = {
   openai: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
-  anthropic: 'bg-cyan-600/20 text-slate-200 border border-cyan-500/30',
-  'azure-openai': 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+  anthropic: 'bg-violet-500/15 text-violet-200 border border-violet-500/28',
+  'azure-openai': 'bg-indigo-500/15 text-indigo-200 border border-indigo-500/28',
   ollama: 'bg-orange-500/20 text-orange-300 border border-orange-500/30',
 };
 

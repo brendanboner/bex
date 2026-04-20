@@ -75,7 +75,7 @@ export default function OverviewPage() {
             <p className="text-xs font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))] mb-3">Queue Health</p>
             <div className="flex gap-6">
               {[
-                { label: 'Active', val: status.queue.active, color: 'text-blue-400' },
+                { label: 'Active', val: status.queue.active, color: 'text-violet-400' },
                 { label: 'Waiting', val: status.queue.waiting, color: 'text-amber-400' },
                 { label: 'Completed', val: status.queue.completed, color: 'text-emerald-400' },
                 { label: 'Failed', val: status.queue.failed, color: 'text-red-400' },

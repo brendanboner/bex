@@ -44,7 +44,7 @@ const createSchema = z.object({
 type CreateForm = z.infer<typeof createSchema>;
 
 const CRED_TYPE_COLOURS: Record<string, string> = {
-  API_TOKEN:         'bg-cyan-600/20 text-slate-200',
+  API_TOKEN:         'bg-violet-500/15 text-violet-200',
   USERNAME_PASSWORD: 'bg-blue-500/20 text-blue-300',
   SSH_KEY:           'bg-emerald-500/20 text-emerald-300',
   BASIC_AUTH:        'bg-amber-500/20 text-amber-300',

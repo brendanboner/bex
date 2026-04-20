@@ -1,9 +1,17 @@
 import type { Metadata } from 'next';
+import { Source_Sans_3 } from 'next/font/google';
 import { cookies } from 'next/headers';
 import './globals.css';
 import { Sidebar } from '@/components/sidebar';
 import { Providers } from '@/components/providers';
 import { StatusBar } from '@/components/StatusBar';
+
+const sourceSans = Source_Sans_3({
+  subsets: ['latin'],
+  weight: ['400', '600', '700'],
+  variable: '--font-sans',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'BEX Forge — Enterprise Agentic Platform',
@@ -14,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const isAuthenticated = !!cookies().get('bex_token')?.value;
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={sourceSans.variable} suppressHydrationWarning>
       <body className="bg-[rgb(var(--bg-base))] text-[rgb(var(--text-primary))] antialiased">
         <Providers>
           {isAuthenticated ? (
