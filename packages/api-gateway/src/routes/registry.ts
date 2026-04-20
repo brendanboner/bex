@@ -288,8 +288,8 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
 
   // GET /registry/config — get the current registry URL config
   app.get('/registry/config', async (_request, reply) => {
-    const url = process.env['SKILL_REGISTRY_URL'] ?? 'https://skills.octorapidlabs.com';
-    return reply.send(ok({ url, isDefault: !process.env['SKILL_REGISTRY_URL'] }));
+    const url = process.env['SKILL_REGISTRY_URL'] ?? '';
+    return reply.send(ok({ url, configured: url.length > 0 }));
   });
 
   // PUT /registry/config — update the registry URL (writes to process env for the session)
@@ -302,7 +302,8 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
 
   // POST /registry/config/test — test connectivity to the configured registry
   app.post('/registry/config/test', async (_request, reply) => {
-    const url = process.env['SKILL_REGISTRY_URL'] ?? 'https://skills.octorapidlabs.com';
+    const url = process.env['SKILL_REGISTRY_URL'] ?? '';
+    if (!url) return reply.send(ok({ connected: false, url: '', error: 'SKILL_REGISTRY_URL is not configured' }));
     try {
       const testClient = new SkillRegistryClient({ registryUrl: url });
       const skills = await testClient.list();

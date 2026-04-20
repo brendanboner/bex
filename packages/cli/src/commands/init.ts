@@ -316,7 +316,7 @@ export async function initCommand(): Promise<void> {
       setupSpinner.info('Platform already configured — admin account exists');
     } else if (json.ok) {
       setupSpinner.succeed('Admin account created');
-      if (json.data?.adminToken) writeEnv({ FORGE_ADMIN_TOKEN: json.data.adminToken });
+      if (json.data?.adminToken) writeEnv({ BEX_ADMIN_TOKEN: json.data.adminToken });
     } else {
       const errMsg = json.error && typeof json.error === 'object' && 'message' in json.error
         ? String((json.error as { message: unknown }).message)
@@ -332,8 +332,20 @@ export async function initCommand(): Promise<void> {
 
   // ── Pull domain skills from registry (fast path) ──────────────────────────
   const { default: fetch } = await import('node-fetch');
-  const authToken = process.env['FORGE_ADMIN_TOKEN'] ?? '';
-  const authHeader = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+
+  // Get a live JWT by logging in with the admin credentials we just created
+  let registryAuthHeader: Record<string, string> = {};
+  try {
+    const loginRes = await fetch('http://localhost:4000/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+    });
+    const loginJson = (await loginRes.json()) as { ok: boolean; data?: { token?: string } };
+    if (loginJson.ok && loginJson.data?.token) {
+      registryAuthHeader = { Authorization: `Bearer ${loginJson.data.token}` };
+    }
+  } catch { /* proceed without auth — install will fail gracefully */ }
 
   async function pullSkillFromRegistry(
     label: string,
@@ -345,7 +357,7 @@ export async function initCommand(): Promise<void> {
     try {
       const res = await fetch(
         `http://localhost:4000/registry/install/${encodeURIComponent(domain)}/${encodeURIComponent(version)}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader } },
+        { method: 'POST', headers: { 'Content-Type': 'application/json', ...registryAuthHeader } },
       );
       const json = (await res.json()) as { ok: boolean; error?: unknown };
       if (json.ok) {

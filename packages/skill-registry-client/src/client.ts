@@ -42,10 +42,13 @@ export class SkillRegistryClient {
   private readonly authToken: string;
 
   constructor(options?: { registryUrl?: string; authToken?: string }) {
-    this.baseUrl = (options?.registryUrl ?? process.env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050').replace(/\/$/, '');
+    // Only use a non-empty URL. If SKILL_REGISTRY_URL is unset, isConfigured → false.
+    const envUrl = process.env['SKILL_REGISTRY_URL'] ?? '';
+    this.baseUrl = (options?.registryUrl ?? envUrl).replace(/\/$/, '');
     this.authToken = options?.authToken ?? process.env['SKILL_REGISTRY_TOKEN'] ?? 'bex-registry-dev';
   }
 
+  /** True only when a registry URL has been explicitly configured (env or constructor). */
   get isConfigured(): boolean {
     return this.baseUrl.length > 0;
   }
