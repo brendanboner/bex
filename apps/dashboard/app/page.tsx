@@ -28,10 +28,10 @@ function StatPill({ label, value, icon: Icon, href }: { label: string; value: nu
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-4 py-3 hover:border-[rgba(124,58,237,0.4)] hover:bg-[rgb(var(--bg-elevated))] transition-all group"
+      className="flex items-center gap-3 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-4 py-3 hover:border-[rgba(6,182,212,0.35)] hover:bg-[rgb(var(--bg-elevated))] transition-all group"
     >
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(124,58,237,0.12)]">
-        <Icon className="h-4 w-4 text-violet-400" />
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(6,182,212,0.10)]">
+        <Icon className="h-4 w-4 text-cyan-300" />
       </div>
       <div>
         <p className="text-xl font-bold text-[rgb(var(--text-primary))]">{value}</p>
@@ -93,7 +93,7 @@ export default function OverviewPage() {
         <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[rgb(var(--border))]">
             <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Recent Activity</p>
-            <Link href="/requests" className="text-xs text-violet-400 hover:text-violet-300 transition-colors">View all</Link>
+            <Link href="/requests" className="text-xs text-cyan-300 hover:text-slate-200 transition-colors">View all</Link>
           </div>
           <div className="divide-y divide-[rgb(var(--border))]">
             {recent?.slice(0, 8).map((r) => (

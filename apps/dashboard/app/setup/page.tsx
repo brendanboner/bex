@@ -41,7 +41,7 @@ const DEFAULT_MODELS: Record<LLMProvider, string> = {
 
 const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType }[] = [
   { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot },
-  { value: 'anthropic', label: 'Anthropic', color: 'bg-violet-500', Icon: Layers },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers },
   { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud },
 ];
 

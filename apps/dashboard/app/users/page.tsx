@@ -64,7 +64,7 @@ export default function UsersPage() {
                   <TableCell className="text-sm font-mono text-muted-foreground">{u.externalId}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email ?? '—'}</TableCell>
                   <TableCell>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${u.isSystemUser ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-700'}`}>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${u.isSystemUser ? 'bg-slate-700 text-slate-100' : 'bg-gray-100 text-gray-700'}`}>
                       {u.isSystemUser ? <Shield className="h-3 w-3" /> : null}
                       {u.isSystemUser ? 'System' : 'User'}
                     </span>

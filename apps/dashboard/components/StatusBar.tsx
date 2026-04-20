@@ -26,7 +26,7 @@ export function StatusBar() {
       <span className="text-xs text-[rgb(var(--text-secondary))]">
         {agentCount > 0
           ? `Monitoring ${agentCount} agent${agentCount !== 1 ? 's' : ''}`
-          : 'Forge Platform'
+          : 'BEX Forge'
         }
         {secondsAgo !== null && (
           <span className="text-[rgb(var(--text-muted))]"> · Updated {secondsAgo}s ago</span>

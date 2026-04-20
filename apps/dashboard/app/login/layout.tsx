@@ -5,7 +5,7 @@ import '../globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Sign in — Forge',
+  title: 'Sign in — BEX Forge',
 };
 
 export default function LoginLayout({ children }: { children: React.ReactNode }) {

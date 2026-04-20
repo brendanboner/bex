@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { BexLogo } from '@/components/bex-logo';
 
 const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@forge.local');
+  const [email, setEmail] = useState('admin@bex.local');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,10 +29,12 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
+      localStorage.setItem('bex_token', json.data.token);
+      // Keep legacy key for backwards compat
       localStorage.setItem('bforge_token', json.data.token);
       router.replace('/');
     } catch {
-      setError('Could not reach the API gateway. Is Forge running?');
+      setError('Could not reach the API gateway. Is BEX running?');
       setLoading(false);
     }
   }
@@ -42,11 +45,8 @@ export default function LoginPage() {
       <div className="flex flex-1 flex-col items-center justify-center px-8">
         <div className="w-full max-w-sm space-y-8">
           <div className="space-y-2">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-400 flex items-center justify-center">
-                <span className="text-sm font-bold text-white">FG</span>
-              </div>
-              <span className="text-lg font-semibold text-[rgb(var(--text-primary))]">Forge</span>
+            <div className="mb-6">
+              <BexLogo size={36} showTagline />
             </div>
             <h1 className="text-2xl font-bold text-[rgb(var(--text-primary))]">Welcome back</h1>
             <p className="text-sm text-[rgb(var(--text-secondary))]">Sign in to your workspace</p>
@@ -62,7 +62,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 transition-colors"
+                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-colors"
                 required
               />
             </div>
@@ -75,7 +75,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 transition-colors"
+                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 transition-colors"
                 required
               />
             </div>
@@ -89,22 +89,22 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-500 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-fuchsia-400 disabled:opacity-50 transition-all shadow-[0_0_20px_rgba(124,58,237,0.3)] hover:shadow-[0_0_30px_rgba(124,58,237,0.5)]"
+              className="w-full rounded-lg bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2.5 text-sm font-semibold text-white hover:from-cyan-400 hover:to-blue-400 disabled:opacity-50 transition-all shadow-[0_0_20px_rgba(6,182,212,0.25)] hover:shadow-[0_0_30px_rgba(6,182,212,0.4)]"
             >
               {loading ? 'Authenticating…' : 'Sign in'}
             </button>
           </form>
 
           <p className="text-center text-xs text-[rgb(var(--text-muted))]">
-            Default: admin@forge.local · Forge2024!
+            Default: admin@bex.local · BEX2024!
           </p>
         </div>
       </div>
 
       {/* Right panel — decorative */}
       <div className="hidden lg:flex flex-1 items-center justify-center bg-[rgb(var(--bg-surface))] border-l border-[rgb(var(--border))]">
-        <div className="text-center space-y-4 p-12">
-          <div className="text-5xl font-black gradient-text">Forge</div>
+        <div className="text-center space-y-6 p-12">
+          <BexLogo size={64} showTagline />
           <p className="text-sm text-[rgb(var(--text-secondary))] max-w-xs leading-relaxed">
             Enterprise agentic platform. Build, deploy, and operate autonomous domain agents at scale.
           </p>

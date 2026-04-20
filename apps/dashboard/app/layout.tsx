@@ -5,8 +5,8 @@ import { Providers } from '@/components/providers';
 import { StatusBar } from '@/components/StatusBar';
 
 export const metadata: Metadata = {
-  title: 'Forge — Enterprise Agentic Platform',
-  description: 'Autonomously build, deploy and operate domain agents at scale',
+  title: 'BEX Forge — Enterprise Agentic Platform',
+  description: 'BEX — Brendan\'s Extreme eXchange. Build, deploy and operate autonomous domain agents at scale.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -35,7 +35,7 @@ const CRED_TYPES: { value: CredentialType; label: string; icon: React.ElementTyp
 ];
 
 const TYPE_COLOURS: Record<CredentialType, string> = {
-  API_TOKEN:         'bg-violet-500/20 text-violet-300 border border-violet-500/30',
+  API_TOKEN:         'bg-cyan-600/20 text-slate-200 border border-cyan-500/30',
   USERNAME_PASSWORD: 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
   SSH_KEY:           'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
   BASIC_AUTH:        'bg-amber-500/20 text-amber-300 border border-amber-500/30',
@@ -217,8 +217,8 @@ export default function CredentialsPage() {
               onClick={() => form.setValue('credentialType', value)}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
                 credType === value
-                  ? 'bg-violet-600 border-violet-500 text-white shadow-lg shadow-violet-500/20'
-                  : 'bg-[rgb(var(--bg-surface))] border-[rgb(var(--border))] text-muted-foreground hover:text-foreground hover:border-violet-500/50'
+                  ? 'bg-cyan-700 border-cyan-500 text-white shadow-lg shadow-cyan-500/20'
+                  : 'bg-[rgb(var(--bg-surface))] border-[rgb(var(--border))] text-muted-foreground hover:text-foreground hover:border-cyan-500/50'
               }`}
             >
               <Icon className="h-4 w-4" />
@@ -233,7 +233,7 @@ export default function CredentialsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {selectedTypeMeta && <selectedTypeMeta.icon className="h-5 w-5 text-violet-400" />}
+              {selectedTypeMeta && <selectedTypeMeta.icon className="h-5 w-5 text-cyan-300" />}
               {selectedTypeMeta?.label ?? 'Add Credential'}
               <span className="text-sm font-normal text-muted-foreground ml-2">{selectedTypeMeta?.hint}</span>
             </CardTitle>

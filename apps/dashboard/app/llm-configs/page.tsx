@@ -27,13 +27,13 @@ type LLMConfig = {
 
 const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string }[] = [
   { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, defaultModel: 'gpt-4o' },
-  { value: 'anthropic', label: 'Anthropic', color: 'bg-violet-500', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022' },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-cyan-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022' },
   { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-blue-500', Icon: Cloud, defaultModel: 'gpt-4o' },
 ];
 
 const PROVIDER_COLOURS: Record<LLMProvider, string> = {
   openai: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
-  anthropic: 'bg-violet-500/20 text-violet-300 border border-violet-500/30',
+  anthropic: 'bg-cyan-600/20 text-slate-200 border border-cyan-500/30',
   'azure-openai': 'bg-blue-500/20 text-blue-300 border border-blue-500/30',
 };
 
@@ -51,8 +51,8 @@ export default function LLMConfigsPage() {
   const { data: configs = [], isLoading } = useQuery<LLMConfig[]>({
     queryKey: ['llm-configs'],
     queryFn: async () => {
-      const res = await api.get('/llm-configs');
-      return res.data ?? [];
+      const res = await api.get<{ data?: LLMConfig[] }>('/llm-configs');
+      return (res as { data?: LLMConfig[] }).data ?? [];
     },
   });
 
