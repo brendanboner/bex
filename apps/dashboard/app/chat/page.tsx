@@ -125,7 +125,7 @@ export default function NexusPage() {
               className={cn(
                 'w-full text-left px-2.5 py-2 rounded-lg my-0.5 transition-all text-xs',
                 selectedAgent?.id === agent.id
-                  ? 'bg-[rgba(99,102,241,0.12)] border border-[rgba(99,102,241,0.2)] text-[rgb(var(--text-primary))]'
+                  ? 'bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] text-[rgb(var(--text-primary))]'
                   : 'text-[rgb(var(--text-secondary))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--text-primary))]',
               )}
             >
@@ -160,8 +160,8 @@ export default function NexusPage() {
         {!selectedAgent ? (
           /* Empty state */
           <div className="flex-1 flex flex-col items-center justify-center gap-6 px-8">
-            <div className="h-16 w-16 rounded-2xl bg-[rgba(99,102,241,0.08)] border border-[rgba(99,102,241,0.15)] flex items-center justify-center">
-              <Sparkles className="h-7 w-7 text-indigo-400 opacity-70" />
+            <div className="h-16 w-16 rounded-2xl bg-[rgba(130,100,200,0.06)] border border-[rgba(99,102,241,0.15)] flex items-center justify-center">
+              <Sparkles className="h-7 w-7 text-[rgb(var(--text-secondary))] opacity-70" />
             </div>
             <div className="text-center space-y-1.5 max-w-xs">
               <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Start a conversation</p>
@@ -176,10 +176,10 @@ export default function NexusPage() {
                   <button
                     key={agent.id}
                     onClick={() => selectAgent(agent)}
-                    className="flex items-center gap-2.5 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-3.5 py-2.5 text-left hover:border-[rgba(99,102,241,0.3)] hover:bg-[rgb(var(--bg-elevated))] transition-all"
+                    className="flex items-center gap-2.5 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-3.5 py-2.5 text-left hover:border-[rgba(130,100,200,0.18)] hover:bg-[rgb(var(--bg-elevated))] transition-all"
                   >
-                    <div className="h-7 w-7 rounded-lg bg-[rgba(99,102,241,0.1)] flex items-center justify-center shrink-0">
-                      <Bot className="h-3.5 w-3.5 text-indigo-400" />
+                    <div className="h-7 w-7 rounded-lg bg-[rgba(130,100,200,0.07)] flex items-center justify-center shrink-0">
+                      <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />
                     </div>
                     <span className="text-xs font-medium text-[rgb(var(--text-primary))] truncate">{agent.name}</span>
                   </button>
@@ -195,7 +195,7 @@ export default function NexusPage() {
                 {messages.length === 0 && (
                   <div className="text-center py-12 space-y-1">
                     <p className="text-sm text-[rgb(var(--text-secondary))]">
-                      Conversation with <span className="text-indigo-400">{selectedAgent.name}</span>
+                      Conversation with <span className="text-[rgb(var(--text-secondary))]">{selectedAgent.name}</span>
                     </p>
                     <p className="text-xs text-[rgb(var(--text-muted))]">Messages appear here</p>
                   </div>
@@ -203,8 +203,8 @@ export default function NexusPage() {
                 {messages.map(msg => (
                   <div key={msg.id} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
                     {msg.role === 'agent' && (
-                      <div className="mr-3 mt-1 h-7 w-7 rounded-xl bg-[rgba(99,102,241,0.12)] border border-[rgba(99,102,241,0.2)] flex items-center justify-center shrink-0">
-                        <Bot className="h-3.5 w-3.5 text-indigo-400" />
+                      <div className="mr-3 mt-1 h-7 w-7 rounded-xl bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] flex items-center justify-center shrink-0">
+                        <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />
                       </div>
                     )}
                     <div className={cn(
@@ -213,7 +213,7 @@ export default function NexusPage() {
                       {msg.role === 'agent' && (
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className="text-xs font-semibold text-[rgb(var(--text-primary))]">{msg.agentName ?? selectedAgent.name}</span>
-                          <span className="text-[10px] rounded-full border border-[rgba(99,102,241,0.25)] bg-[rgba(99,102,241,0.1)] px-2 py-0.5 text-indigo-400 font-medium">Agent</span>
+                          <span className="text-[10px] rounded-full border border-[rgba(130,100,200,0.15)] bg-[rgba(130,100,200,0.07)] px-2 py-0.5 text-[rgb(var(--text-secondary))] font-medium">Agent</span>
                         </div>
                       )}
                       <div className={cn(
@@ -229,13 +229,13 @@ export default function NexusPage() {
                 ))}
                 {pollingId && (
                   <div className="flex justify-start">
-                    <div className="mr-3 mt-1 h-7 w-7 rounded-xl bg-[rgba(99,102,241,0.12)] border border-[rgba(99,102,241,0.2)] flex items-center justify-center shrink-0">
-                      <Bot className="h-3.5 w-3.5 text-indigo-400" />
+                    <div className="mr-3 mt-1 h-7 w-7 rounded-xl bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] flex items-center justify-center shrink-0">
+                      <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />
                     </div>
                     <div className="bg-[rgb(var(--bg-surface))] border border-[rgb(var(--border))] rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
-                      <span className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce [animation-delay:-0.3s]" />
-                      <span className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce [animation-delay:-0.15s]" />
-                      <span className="h-2 w-2 rounded-full bg-indigo-400 animate-bounce" />
+                      <span className="h-2 w-2 rounded-full bg-[rgb(var(--text-muted))] animate-bounce [animation-delay:-0.3s]" />
+                      <span className="h-2 w-2 rounded-full bg-[rgb(var(--text-muted))] animate-bounce [animation-delay:-0.15s]" />
+                      <span className="h-2 w-2 rounded-full bg-[rgb(var(--text-muted))] animate-bounce" />
                     </div>
                   </div>
                 )}
@@ -251,9 +251,9 @@ export default function NexusPage() {
                   <div className="relative">
                     <button
                       onClick={() => setAgentPickerOpen(o => !o)}
-                      className="flex items-center gap-1.5 rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1 text-xs text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all"
+                      className="flex items-center gap-1.5 rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1 text-xs text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all"
                     >
-                      <Bot className="h-3 w-3 text-indigo-400" />
+                      <Bot className="h-3 w-3 text-[rgb(var(--text-secondary))]" />
                       <span className="font-medium">{selectedAgent.name}</span>
                       <ChevronDown className="h-3 w-3" />
                     </button>
@@ -265,7 +265,7 @@ export default function NexusPage() {
                             onClick={() => selectAgent(agent)}
                             className={cn(
                               'w-full text-left px-3 py-2 text-xs hover:bg-[rgb(var(--bg-muted))] transition-colors',
-                              selectedAgent.id === agent.id ? 'text-indigo-400' : 'text-[rgb(var(--text-primary))]',
+                              selectedAgent.id === agent.id ? 'text-[rgb(var(--text-secondary))]' : 'text-[rgb(var(--text-primary))]',
                             )}
                           >
                             {agent.name}
@@ -276,7 +276,7 @@ export default function NexusPage() {
                   </div>
                 </div>
                 {/* Input card */}
-                <div className="flex items-center gap-3 rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-4 py-3 focus-within:border-[rgba(99,102,241,0.4)] transition-colors shadow-lg">
+                <div className="flex items-center gap-3 rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-4 py-3 focus-within:border-[rgba(130,100,200,0.25)] transition-colors shadow-lg">
                   <input
                     placeholder={`Ask ${selectedAgent.name} anything…`}
                     value={input}
@@ -288,7 +288,7 @@ export default function NexusPage() {
                   <button
                     onClick={() => void handleSend()}
                     disabled={!input.trim() || sending}
-                    className="h-8 w-8 flex items-center justify-center rounded-xl bg-indigo-600 text-white disabled:opacity-30 hover:bg-indigo-500 transition-all shrink-0 shadow-sm"
+                    className="h-8 w-8 flex items-center justify-center rounded-xl bg-[rgba(130,100,200,0.7)] text-white disabled:opacity-30 hover:bg-[rgba(130,100,200,0.85)] transition-all shrink-0 shadow-sm"
                   >
                     <Send className="h-3.5 w-3.5" />
                   </button>

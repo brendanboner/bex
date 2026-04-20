@@ -163,7 +163,7 @@ export default function ConfigPage() {
           </div>
           <button
             onClick={() => { setShowAddLLM(v => !v); setForm(EMPTY_LLM); }}
-            className="flex items-center gap-1.5 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-xs font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all"
+            className="flex items-center gap-1.5 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-xs font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all"
           >
             <Plus className="h-3.5 w-3.5" /> Add Provider
           </button>
@@ -182,7 +182,7 @@ export default function ConfigPage() {
                   className={cn(
                     'flex flex-col items-center gap-1.5 rounded-lg border p-3 text-xs font-medium transition-all',
                     form.provider === p.value
-                      ? 'border-[rgba(99,102,241,0.4)] bg-[rgba(99,102,241,0.08)] text-[rgb(var(--text-primary))]'
+                      ? 'border-[rgba(130,100,200,0.25)] bg-[rgba(130,100,200,0.06)] text-[rgb(var(--text-primary))]'
                       : 'border-[rgb(var(--border))] text-[rgb(var(--text-secondary))] hover:border-[rgb(var(--border-subtle))] hover:text-[rgb(var(--text-primary))]',
                   )}
                 >
@@ -200,7 +200,7 @@ export default function ConfigPage() {
                   placeholder="e.g. GPT-4o Production"
                   value={form.name}
                   onChange={e => setForm(v => ({ ...v, name: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
               </div>
               <div className="space-y-1">
@@ -208,7 +208,7 @@ export default function ConfigPage() {
                 <input
                   value={form.model}
                   onChange={e => setForm(v => ({ ...v, model: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
               </div>
             </div>
@@ -219,7 +219,7 @@ export default function ConfigPage() {
                   placeholder="http://192.168.1.10:11434"
                   value={form.baseUrl}
                   onChange={e => setForm(v => ({ ...v, baseUrl: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
               </div>
             ) : (
@@ -230,7 +230,7 @@ export default function ConfigPage() {
                   placeholder="sk-..."
                   value={form.apiKey}
                   onChange={e => setForm(v => ({ ...v, apiKey: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
               </div>
             )}
@@ -239,7 +239,7 @@ export default function ConfigPage() {
               <button
                 disabled={isSaveDisabled}
                 onClick={() => addMutation.mutate(form)}
-                className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+                className="rounded-lg bg-[rgba(130,100,200,0.7)] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[rgba(130,100,200,0.85)] disabled:opacity-40 transition-colors"
               >
                 {addMutation.isPending ? 'Saving…' : 'Save'}
               </button>
@@ -254,7 +254,7 @@ export default function ConfigPage() {
           ) : configs.length === 0 ? (
             <div className="p-6 text-center">
               <p className="text-sm text-[rgb(var(--text-muted))]">No LLM providers configured.</p>
-              <button onClick={() => setShowAddLLM(true)} className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Add your first provider →</button>
+              <button onClick={() => setShowAddLLM(true)} className="mt-2 text-xs text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] transition-colors">Add your first provider →</button>
             </div>
           ) : (
             <div className="divide-y divide-[rgb(var(--border))]">
@@ -266,7 +266,7 @@ export default function ConfigPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-[rgb(var(--text-primary))]">{cfg.name}</span>
                           {cfg.isDefault && (
-                            <span className="rounded-full bg-indigo-500/15 border border-indigo-500/25 px-2 py-0.5 text-[10px] font-semibold text-indigo-400">Default</span>
+                            <span className="rounded-full bg-[rgba(130,100,200,0.1)] border border-[rgba(130,100,200,0.18)] px-2 py-0.5 text-[10px] font-semibold text-[rgb(var(--text-secondary))]">Default</span>
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -279,17 +279,17 @@ export default function ConfigPage() {
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <TestBadge state={llmTestStates[cfg.id] ?? 'idle'} msg={llmTestMsgs[cfg.id]} />
-                      <button onClick={() => testLLM(cfg.id)} disabled={llmTestStates[cfg.id] === 'testing'} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] disabled:opacity-40 transition-all">
+                      <button onClick={() => testLLM(cfg.id)} disabled={llmTestStates[cfg.id] === 'testing'} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] disabled:opacity-40 transition-all">
                         Test
                       </button>
                       {!cfg.isDefault && (
-                        <button onClick={() => defaultMutation.mutate(cfg.id)} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all">
+                        <button onClick={() => defaultMutation.mutate(cfg.id)} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all">
                           <Star className="h-3 w-3" />
                         </button>
                       )}
                       <button
                         onClick={() => { setEditingId(editingId === cfg.id ? null : cfg.id); setEditForm({ name: cfg.name, model: cfg.model }); }}
-                        className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] transition-all"
+                        className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all"
                       >
                         <Edit2 className="h-3 w-3" />
                       </button>
@@ -310,7 +310,7 @@ export default function ConfigPage() {
                         <input
                           value={editForm.name ?? ''}
                           onChange={e => setEditForm(v => ({ ...v, name: e.target.value }))}
-                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                         />
                       </div>
                       <div className="space-y-1 flex-1">
@@ -318,7 +318,7 @@ export default function ConfigPage() {
                         <input
                           value={editForm.model ?? ''}
                           onChange={e => setEditForm(v => ({ ...v, model: e.target.value }))}
-                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                         />
                       </div>
                       {(cfg.provider === 'ollama') && (
@@ -327,7 +327,7 @@ export default function ConfigPage() {
                           <input
                             value={editForm.baseUrl ?? cfg.baseUrl ?? ''}
                             onChange={e => setEditForm(v => ({ ...v, baseUrl: e.target.value }))}
-                            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                           />
                         </div>
                       )}
@@ -336,7 +336,7 @@ export default function ConfigPage() {
                         <button
                           onClick={() => updateMutation.mutate({ id: cfg.id, data: editForm })}
                           disabled={updateMutation.isPending}
-                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+                          className="rounded-lg bg-[rgba(130,100,200,0.7)] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[rgba(130,100,200,0.85)] disabled:opacity-40 transition-colors"
                         >
                           {updateMutation.isPending ? 'Saving…' : 'Save'}
                         </button>
@@ -367,7 +367,7 @@ export default function ConfigPage() {
                 className={cn(
                   'flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-all',
                   notifChannel === ch.value
-                    ? 'border-[rgba(99,102,241,0.4)] bg-[rgba(99,102,241,0.08)] text-[rgb(var(--text-primary))]'
+                    ? 'border-[rgba(130,100,200,0.25)] bg-[rgba(130,100,200,0.06)] text-[rgb(var(--text-primary))]'
                     : 'border-[rgb(var(--border))] text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] hover:border-[rgb(var(--border-subtle))]',
                 )}
               >
@@ -387,7 +387,7 @@ export default function ConfigPage() {
                   placeholder="123456:ABC-..."
                   value={notifFields.botToken}
                   onChange={e => setNotifFields(v => ({ ...v, botToken: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
               </div>
               <div className="space-y-1">
@@ -396,7 +396,7 @@ export default function ConfigPage() {
                   placeholder="e.g. 6878129583"
                   value={notifFields.chatId}
                   onChange={e => setNotifFields(v => ({ ...v, chatId: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
               </div>
             </div>
@@ -408,7 +408,7 @@ export default function ConfigPage() {
                 placeholder="https://outlook.office.com/webhook/..."
                 value={notifFields.webhookUrl}
                 onChange={e => setNotifFields(v => ({ ...v, webhookUrl: e.target.value }))}
-                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
               />
             </div>
           )}
@@ -423,7 +423,7 @@ export default function ConfigPage() {
                       type={key === 'twilioAuth' || key === 'twilioSid' ? 'password' : 'text'}
                       value={notifFields[key]}
                       onChange={e => setNotifFields(v => ({ ...v, [key]: e.target.value }))}
-                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(99,102,241,0.4)] focus:outline-none transition-colors"
+                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                     />
                   </div>
                 );
@@ -434,10 +434,10 @@ export default function ConfigPage() {
           <div className="flex items-center gap-2 pt-1">
             <TestBadge state={notifTestState} />
             <div className="flex gap-2 ml-auto">
-              <button onClick={testNotif} disabled={notifTestState === 'testing'} className="rounded-lg border border-[rgb(var(--border))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(99,102,241,0.3)] hover:text-[rgb(var(--text-primary))] disabled:opacity-40 transition-all">
+              <button onClick={testNotif} disabled={notifTestState === 'testing'} className="rounded-lg border border-[rgb(var(--border))] px-3.5 py-1.5 text-xs font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] disabled:opacity-40 transition-all">
                 {notifTestState === 'testing' ? 'Testing…' : 'Test'}
               </button>
-              <button onClick={saveNotif} className="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 transition-colors">
+              <button onClick={saveNotif} className="rounded-lg bg-[rgba(130,100,200,0.7)] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[rgba(130,100,200,0.85)] transition-colors">
                 Save
               </button>
             </div>

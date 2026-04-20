@@ -121,12 +121,12 @@ export function Sidebar() {
                   className={cn(
                     'flex items-center gap-3 mx-2 px-2.5 py-2 rounded-lg text-sm transition-all',
                     active
-                      ? 'bg-[rgba(6,182,212,0.12)] text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.12)]'
-                      : 'text-[rgb(var(--text-secondary))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--text-primary))]',
+                      ? 'bg-[rgba(255,255,255,0.06)] text-[rgb(var(--text-primary))]'
+                      : 'text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.03)] hover:text-[rgb(var(--text-primary))]',
                     collapsed ? 'justify-center' : '',
                   )}
                 >
-                  <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-cyan-300' : '')} />
+                  <Icon className="h-4 w-4 shrink-0 opacity-80" />
                   {!collapsed && <span className="font-medium truncate">{label}</span>}
                 </Link>
               );
@@ -140,7 +140,7 @@ export function Sidebar() {
         'flex items-center border-t border-[rgb(var(--border))] p-3',
         collapsed ? 'justify-center' : 'gap-2.5',
       )}>
-        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shrink-0">
+        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-violet-600 to-purple-700 flex items-center justify-center shrink-0">
           <span className="text-[10px] font-bold text-white">{userInitials}</span>
         </div>
         {!collapsed && (
