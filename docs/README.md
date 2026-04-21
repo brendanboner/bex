@@ -1,6 +1,6 @@
 # Forge Documentation
 
-**Enterprise Agentic Platform** — build, deploy, and operate autonomous AI agents with secure credential management, federated skill sharing, and approval workflows.
+**Enterprise Agentic Platform** — build, deploy, and operate autonomous AI agents with secure credential management, domain intelligence, federated skill sharing, and approval workflows.
 
 ---
 
@@ -9,23 +9,18 @@
 ### Architecture
 - [**Overview**](architecture/overview.md) — system design, components, data flow
 - [**Data Models**](architecture/data-models.md) — Prisma schema, entity relationships
-- [**Tool Router**](architecture/tool-router.md) — smart lazy-loading tool selection
-- [**Skill Learning**](architecture/skill-learning.md) — how agents get smarter over time
+- [**Domain Intelligence**](architecture/domain-intelligence.md) — doc index, entity graphs, analysis playbooks
+- [**Skill Learning**](architecture/skill-learning.md) — how agents accumulate runtime knowledge
 
 ### Guides
 - [**Getting Started**](guides/getting-started.md) — install, configure, first agent
-- [**Configuration**](guides/configuration.md) — full `.env` reference
 - [**CLI Reference**](guides/cli.md) — all `bex` commands
-- [**Skill Registry**](guides/skill-registry.md) — publishing, pulling, and sharing skills
-- [**Credential Management**](guides/credentials.md) — vault, types, assignment
-- [**Approval Workflows**](guides/approvals.md) — human-in-the-loop for write operations
-- [**Scheduled Jobs**](guides/scheduled-jobs.md) — cron-based monitoring agents
+- [**Personas**](guides/personas.md) — goal-based agent generation
+- [**Coordinator**](guides/coordinator.md) — multi-agent orchestration
+- [**Setup (Dev)**](setup.md) — developer setup reference
 
 ### Examples
-- [**ExtremeCloud IQ — Full Setup**](examples/extremecloudiq-setup.md) — end-to-end: skill creation, agent, monitoring
-- [**XCO Network Monitoring**](examples/xco-monitoring.md) — XCO fabric agent with SSH + API
-- [**Custom Skill from OpenAPI**](examples/custom-skill-openapi.md) — build a skill from any OpenAPI spec
-- [**Multi-Agent Orchestration**](examples/multi-agent.md) — coordinator + specialist agents
+- [**ExtremeCloud IQ — Full Setup**](examples/extremecloudiq-setup.md) — end-to-end: persona, skill, monitoring
 
 ---
 
@@ -33,23 +28,34 @@
 
 ```bash
 # Clone and start
-git clone https://github.com/your-org/forge && cd forge
-npm install && npx bex init
+git clone https://github.com/your-org/bex && cd bex
+make install && bex init
 
 # Daily operations
 bex start        # start all services
 bex status       # health check
 bex logs         # tail all logs
-bex monitor      # tmux log viewer
+bex restart      # restart all services
 ```
 
 **Service ports:**
 
 | Service | Port | Purpose |
 |---|---|---|
-| Dashboard | 3000 | Next.js management UI |
+| Dashboard | 3000 | Next.js 14 management UI |
 | API Gateway | 4000 | Main REST API (JWT) |
 | Dashboard API | 4001 | Admin REST API |
 | Skill Registry | 5050 | Skill sharing hub |
 | PostgreSQL | 5432 | Primary database |
 | Redis | 6379 | Job queue (BullMQ) |
+
+**Key API paths:**
+
+| Area | Endpoints |
+|---|---|
+| Agents | `GET/POST /agents`, `GET/PUT/DELETE /agents/:id` |
+| Skills | `POST /skills/build`, `POST /skills/:id/publish`, `POST /skills/:id/test` |
+| Personas | `POST /personas/generate`, `POST /personas/:id/spawn` |
+| Coordinator | `POST /coordinator/chat`, `GET /coordinator/sessions/:id` |
+| Domain Intel | `GET/PUT /domains/:domain/knowledge`, `PATCH .../playbooks` |
+| Approvals | `POST /approvals/:id/approve`, `POST /approvals/:id/deny` |

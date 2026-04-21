@@ -1,6 +1,6 @@
 # Forge — Enterprise Agentic Platform
 
-**Autonomous domain agents with secure credential management, federated skill sharing, and approval workflows baked in.**
+**Autonomous domain agents with secure credential management, domain intelligence, federated skill sharing, and human-in-the-loop approval workflows.**
 
 ---
 
@@ -15,14 +15,14 @@ bex init         # interactive setup wizard
 
 > **Prerequisites:** Node.js 20+, Docker (running)
 
-`bex init` will guide you through:
+`bex init` guides you through:
 1. LLM provider + API key (validated live)
 2. Interface channel (Web Dashboard / Telegram / Teams / WhatsApp)
-3. Network integrations — optional ExtremeCloud IQ and/or XCO setup
+3. Optional network integrations (ExtremeCloud IQ, XCO)
 4. Admin account creation
-5. Generates a secure `.env`, runs migrations, and starts everything via pm2
+5. Generates `.env`, runs migrations, seeds data, starts everything via pm2
 
-Dashboard is live at `http://localhost:3000` when done.
+Dashboard is live at **http://localhost:3000** when done.
 
 ---
 
@@ -36,92 +36,101 @@ bex restart    # Restart all services
 bex status     # Health check all services
 bex logs       # Tail all service logs
 bex logs api   # Tail API gateway logs only
+bex logs worker
+bex logs telegram
+bex logs dashboard
 ```
 
-> If `bex` is not in your PATH, run `make install` from the repo root (links it globally), or use `npm run bex -- <command>` as a fallback.
-
----
-
-
-## First Steps in the Dashboard
-
-### 1. Configure your LLM
-Go to **Settings → LLM** and enter your OpenAI / Anthropic / Azure API key.
-
-### 2. Configure notifications
-Go to **Settings → Notifications** and set up Telegram, Teams, or WhatsApp for agent approval requests.
-
-### 3. Create your first domain agent
-Ask in the chat interface:
-> *"Create an agent to monitor drift on my XCO network site"*
-
-The platform will:
-1. Detect there is no `extreme_networks_xco` skill
-2. Ask you to provide the XCO API URL and documentation PDFs
-3. Generate a comprehensive skill with full tool suite (API calls, SSH access, alarm detection)
-4. Auto-test the skill
-5. Ask for your approval to publish
-
-### 4. Add your targets
-Go to **Targets** and add your XCO devices:
-- Name, IP address, SSH credentials
-- These are stored encrypted in the credential vault
-
-### 5. Schedule monitoring
-Go to **Scheduled Jobs** and set the agent to run hourly. It will:
-- Check for alarms and configuration drift
-- Notify you via Telegram/Teams/WhatsApp with a status summary
-- If issues are found, propose a remediation plan (requires your approval before executing)
+> If `bex` is not in your PATH after install, run `make install` from the repo root or use `npm run bex -- <command>`.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Communication Channels                    │
-│          Telegram · Teams · WhatsApp · Dashboard Chat        │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-              ┌───────▼────────┐
-              │   API Gateway  │  :4000 — JWT auth, audit log
-              └───────┬────────┘
-                      │
-        ┌─────────────┼──────────────┐
-        │             │              │
-┌───────▼──────┐ ┌────▼─────┐ ┌─────▼──────┐
-│ Orchestrator │ │ Scheduler│ │ Skill Engine│
-│ LLM routing  │ │ BullMQ   │ │ Discovery  │
-│ tool calling │ │ cron     │ │ testing    │
-└───────┬──────┘ └──────────┘ └─────────────┘
-        │
-  ┌─────┴──────────────────┐
-  │                        │
-┌─▼──────────────┐  ┌──────▼──────────┐
-│ Credential Vault│  │Permission Gateway│
-│ AES-256-GCM    │  │ Approval flows   │
-│ SSH proxy      │  │ Telegram/Teams   │
-└────────────────┘  └─────────────────┘
-        │
-┌───────▼──────────┐
-│   PostgreSQL     │  All state persisted here
-│   + Redis        │  (BullMQ queues)
-└──────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                      Communication Channels                          │
+│            Telegram · Teams · WhatsApp · Dashboard Chat · API        │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │  HTTP (JWT)
+                  ┌────────▼────────┐
+                  │   API Gateway   │  :4000 — JWT auth, audit log, rate limit
+                  └────────┬────────┘
+                           │  BullMQ / Redis
+          ┌────────────────┼────────────────────┐
+          │                │                    │
+ ┌────────▼────────┐  ┌────▼──────┐  ┌──────────▼──────────┐
+ │   Coordinator   │  │ Scheduler │  │    Skill Engine     │
+ │  AgentMesh      │  │ BullMQ    │  │  Discovery + build  │
+ │  intent routing │  │ cron      │  │  Doc link scraping  │
+ └────────┬────────┘  └───────────┘  │  Playbook generation│
+          │                          └─────────────────────┘
+ ┌────────▼────────┐
+ │  Orchestrator   │
+ │  LLM execution  │
+ │  Domain Intel   │  ← injects entity graphs + playbooks
+ │  Skill learning │
+ └────────┬────────┘
+          │
+  ┌───────┴──────────────────────────┐
+  │                                  │
+┌─▼──────────────────┐  ┌────────────▼──────────────┐
+│  Credential Vault  │  │    Permission Gateway     │
+│  AES-256-GCM       │  │    Approval workflows     │
+│  HTTP + SSH proxy  │  │    Telegram/Teams/WA      │
+└────────────────────┘  └───────────────────────────┘
+          │
+┌─────────▼──────────┐   ┌───────────────────────────┐
+│  SSH Executor      │   │    Persona Factory        │
+│  ssh2 client       │   │    LLM-driven persona gen │
+│  createSshTool()   │   │    spawn Agent records    │
+└────────────────────┘   └───────────────────────────┘
+          │
+┌─────────▼──────────┐   ┌───────────────────────────┐
+│     PostgreSQL     │   │  Skill Registry  :5050    │
+│  Prisma ORM        │   │  Federated skill sharing  │
+└────────────────────┘   └───────────────────────────┘
 ```
+
+---
 
 ## Key Concepts
 
+### Personas
+Describe a goal in plain English — the LLM generates a structured Persona (system prompt, tone, suggested skills, schedule). Spawn it into a running agent with one click. See [Personas guide](docs/guides/personas.md).
+
+### Domain Intelligence Layer
+When a skill is built from a URL, Forge automatically:
+1. Scrapes the source domain for all linked documentation (API guides, CLI refs, release notes)
+2. Generates 1–3 analysis playbooks for complex multi-step workflows
+3. Stores everything in `DomainKnowledge` and injects it into agent prompts at runtime
+
+This gives every agent deep domain awareness without RAG or manual curation. See [Domain Intelligence](docs/architecture/domain-intelligence.md).
+
 ### Skill Registry
-Skills are versioned, tested, and published. When an agent encounters an unknown domain, it automatically triggers skill discovery. Skills can be published to a central registry and shared across BEX instances.
+Skills are versioned (`DRAFT → PENDING_REVIEW → PUBLISHED → DEPRECATED`), tested, and published. Any Forge instance can share skills via `SKILL_REGISTRY_URL`.
 
 ### Credential Vault
-All credentials are encrypted at rest (AES-256-GCM). Agents never see raw credentials — all API calls and SSH sessions are proxied through the vault service.
+All credentials are AES-256-GCM encrypted. Agents never see raw secrets — all API calls and SSH sessions are proxied through the vault.
 
 ### Approval Workflows
-Sensitive operations (write access, new skill publishing, remediation execution) require explicit approval via your configured notification channel before proceeding.
+Write operations, skill publishing, and remediation actions require explicit human approval via your configured channel (Telegram / Teams / WhatsApp) before executing.
 
-### Central Skill Registry
-Any BEX instance can act as a skill registry. Set `SKILL_REGISTRY_URL` to share skills across your fleet.
+### Agent Charter System
+Every agent has an optional `AgentCharter` with a `posture`:
+- **AUTONOMOUS** — acts independently, notifies on completion
+- **SUPERVISED** — approval gates for writes and destructive ops
+- **INTERACTIVE** — confirms before each significant action
+- **DELIBERATE** — analysis only; awaits explicit instruction before each step
+
+### Coordinator
+`POST /coordinator/chat` routes a query to the best-fit agent from the active pool using `AgentMesh` capability matching. See [Coordinator guide](docs/guides/coordinator.md).
+
+### Agent Memory
+Each agent has `instructions.md`, `context.md`, and `memory.md` knowledge files. Memory is written by the agent at runtime (`write_memory` tool), capped at 8000 chars, and injected into every system prompt.
+
+### [NO_CHANGE] Signal
+Scheduled monitoring agents output `[NO_CHANGE]` when nothing has changed. The scheduler skips memory writes and Telegram notifications — preventing alert fatigue.
 
 ---
 
@@ -129,50 +138,27 @@ Any BEX instance can act as a skill registry. Set `SKILL_REGISTRY_URL` to share 
 
 | Service | Port | Description |
 |---|---|---|
-| dashboard | 3000 | Next.js management UI |
-| api-gateway | 4000 | Main REST API (agents, skills, credentials, requests) |
-| dashboard-api | 4001 | Admin REST API (status, users, scheduled jobs) |
-| postgres | 5432 | PostgreSQL database |
-| redis | 6379 | Redis (BullMQ job queue) |
-
----
-
-## Development
-
-```bash
-# Start infrastructure only
-make dev
-
-# Install deps and build all packages
-npm install
-npm run build
-
-# Run tests
-npm run test
-
-# Open Prisma Studio
-make db-studio
-
-# View logs
-make logs
-```
+| dashboard | 3000 | Next.js 14 management UI |
+| api-gateway | 4000 | Main REST API (JWT auth) |
+| dashboard-api | 4001 | Admin REST API |
+| skill-registry | 5050 | Federated skill sharing hub |
+| PostgreSQL | 5432 | Primary database (Prisma ORM) |
+| Redis | 6379 | BullMQ job queue |
 
 ---
 
 ## Configuration
 
-See [`.env.example`](.env.example) for all available configuration options.
-
 **Minimum required:**
 ```bash
 OPENAI_API_KEY=sk-...        # or ANTHROPIC_API_KEY
-JWT_SECRET=...               # auto-generated by make setup
-CREDENTIAL_VAULT_KEY=...     # auto-generated by make setup
-POSTGRES_PASSWORD=...        # auto-generated by make setup
-REDIS_PASSWORD=...           # auto-generated by make setup
+JWT_SECRET=...               # auto-generated by bex init / make setup
+CREDENTIAL_VAULT_KEY=...     # 64 hex chars — auto-generated
+POSTGRES_PASSWORD=...        # auto-generated
+REDIS_PASSWORD=...           # auto-generated
 ```
 
-**For notifications:**
+**Notification channels (at least one recommended):**
 ```bash
 # Telegram
 TELEGRAM_BOT_TOKEN=...
@@ -181,12 +167,42 @@ TELEGRAM_APPROVAL_CHAT_ID=...
 # Microsoft Teams
 TEAMS_APPROVAL_WEBHOOK_URL=...
 
-# WhatsApp (via Twilio)
+# WhatsApp (Twilio)
 TWILIO_ACCOUNT_SID=...
 TWILIO_AUTH_TOKEN=...
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 WHATSAPP_APPROVAL_TO=whatsapp:+1234567890
 ```
+
+See [`.env.example`](.env.example) for the full reference.
+
+---
+
+## Development
+
+```bash
+npm install          # install all workspace dependencies
+npm run build        # build all packages (Turborepo)
+npm run dev          # start all services in watch mode
+npm run typecheck    # type-check all packages
+npm run lint         # ESLint across all packages
+npm run test         # run all tests
+make db-studio       # open Prisma Studio
+```
+
+---
+
+## Documentation
+
+Full docs are in [`docs/`](docs/README.md):
+
+- [Getting Started](docs/guides/getting-started.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [Domain Intelligence](docs/architecture/domain-intelligence.md)
+- [Personas](docs/guides/personas.md)
+- [Coordinator](docs/guides/coordinator.md)
+- [CLI Reference](docs/guides/cli.md)
+- [ExtremeCloud IQ Example](docs/examples/extremecloudiq-setup.md)
 
 ---
 
