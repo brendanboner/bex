@@ -1,11 +1,11 @@
 # CLI Reference
 
-The `bex` CLI is the primary management interface for BEX. Install it globally or use `npx bex`.
+The `bex` CLI is the primary management interface for Forge. It is linked globally by `make install`.
 
 ```bash
-npm install -g @bclaw/cli   # global install
-# or
-npx bex <command>         # one-off via npx
+make install         # build all packages and link bex globally
+# or manually:
+npm run build && npm link
 ```
 
 ---
@@ -14,7 +14,7 @@ npx bex <command>         # one-off via npx
 
 ### `bex init`
 
-First-run setup wizard. Run once on a fresh install.
+First-run setup wizard. Run once on a fresh install (or re-run to reconfigure).
 
 ```bash
 bex init
@@ -22,17 +22,18 @@ bex init
 
 Interactively configures:
 - LLM provider and API key (validated live)
+- Interface channel (Telegram / Teams / WhatsApp / dashboard only)
+- Optional network integrations (XIQ, XCO)
 - Admin account credentials
-- Notification channel (Telegram / Teams / WhatsApp / None)
 - Generates all secrets and writes `.env`
-- Runs Prisma migrations
-- Starts all services
+- Starts Docker infrastructure, runs Prisma migrations, seeds data
+- Starts all services via pm2
 
 ---
 
 ### `bex start`
 
-Start all BEX services.
+Start all Forge services.
 
 ```bash
 bex start
@@ -42,19 +43,28 @@ Services started (in order):
 1. `skill-registry` (port 5050)
 2. `api-gateway` (port 4000)
 3. `dashboard-api` (port 4001)
-4. `scheduler/worker`
-5. Configured integration bot (telegram / teams / whatsapp)
-
-Requires a foreground TTY. For background operation, use `bex start` inside a tmux session, or use the Docker Compose approach (`make up`).
+4. `dashboard` (port 3000)
+5. `scheduler/worker`
+6. Configured integration bot (telegram / teams / whatsapp)
 
 ---
 
 ### `bex stop`
 
-Stop all running BEX services.
+Stop all running Forge services.
 
 ```bash
 bex stop
+```
+
+---
+
+### `bex restart`
+
+Stop and restart all services.
+
+```bash
+bex restart
 ```
 
 ---
@@ -70,6 +80,7 @@ bex status
 ✔ skill-registry  :5050  healthy
 ✔ api-gateway     :4000  healthy
 ✔ dashboard-api   :4001  healthy
+✔ dashboard       :3000  running
 ✔ worker          —      running (PID 12345)
 ✔ telegram-bot    —      running (PID 12346)
 ```
@@ -86,20 +97,8 @@ bex logs api          # api-gateway only
 bex logs worker       # scheduler/worker
 bex logs telegram     # telegram bot
 bex logs registry     # skill registry
-bex logs dashboard    # dashboard-api
+bex logs dashboard    # dashboard and dashboard-api
 ```
-
----
-
-### `bex monitor`
-
-Opens a tmux session with split panes showing live logs for all services. Detach at any time with **Ctrl+B, D**.
-
-```bash
-bex monitor
-```
-
-Requires `tmux` to be installed.
 
 ---
 
@@ -119,7 +118,7 @@ Equivalent to `npm run build` from the repo root (uses Turborepo).
 
 The CLI reads from `.env` in the current directory (repo root). All commands inherit the full environment.
 
-If `.env` doesn't exist, run `bex init` first.
+If `.env` does not exist, run `bex init` first.
 
 ---
 

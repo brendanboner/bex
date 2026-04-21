@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Forge is a TypeScript monorepo of 14 packages that collectively form an enterprise agentic platform. Agents receive messages via communication channels, route them through an orchestrator that selects the right tools, execute against real APIs and systems, and return results — with approval gates on any destructive action.
+Forge is a TypeScript monorepo of 15+ packages that collectively form an enterprise agentic platform. Agents receive messages via communication channels, route them through an orchestrator that selects the right tools and injects domain intelligence, execute against real APIs and systems, and return results — with approval gates on any destructive action.
 
 ---
 
@@ -18,30 +18,43 @@ Forge is a TypeScript monorepo of 14 packages that collectively form an enterpri
                   │  Audit logging  │  Request queuing (BullMQ/Redis)
                   └────────┬────────┘
                            │  Job queue
-          ┌────────────────┼─────────────────┐
-          │                │                 │
- ┌────────▼────────┐  ┌────▼──────┐  ┌──────▼──────────┐
- │  Orchestrator   │  │ Scheduler │  │  Skill Engine   │
- │  Tool Router    │  │ Cron jobs │  │  OpenAPI builder│
- │  LLM execution  │  │ BullMQ    │  │  Skill testing  │
- │  Skill learning │  └───────────┘  │  Registry sync  │
- └────────┬────────┘                 └─────────────────┘
+          ┌────────────────┼─────────────────────────┐
+          │                │                         │
+ ┌────────▼────────┐  ┌────▼──────┐  ┌───────────────▼──────────────┐
+ │   Coordinator   │  │ Scheduler │  │        Skill Engine          │
+ │  AgentMesh      │  │ BullMQ    │  │  OpenAPI builder             │
+ │  intent routing │  │ cron      │  │  discoverLinkedDocs()        │
+ │  CoordinatorSess│  │[NO_CHANGE]│  │  generatePlaybooks()         │
+ └────────┬────────┘  └───────────┘  │  Test runner                │
+          │                          └──────────────────────────────┘
+ ┌────────▼────────┐
+ │  Orchestrator   │
+ │  LLM execution  │
+ │  Domain Intel   │  ← entity graph + playbook injection
+ │  Skill learning │  ← learnedNotes injection
+ │  Credential res │
+ └────────┬────────┘
           │
-  ┌───────┴──────────────────────────┐
-  │                                  │
-┌─▼──────────────────┐  ┌────────────▼──────────────┐
-│  Credential Vault  │  │    Permission Gateway     │
-│  AES-256-GCM       │  │    Approval workflows     │
-│  SSH proxy         │  │    Telegram/Teams/WA notif│
-│  Type-safe access  │  └───────────────────────────┘
-└─▼──────────────────┘
-  │
-┌─▼──────────────────┐   ┌─────────────────────────┐
-│     PostgreSQL     │   │     Skill Registry      │
-│  All platform state│   │  :5050 — federated hub  │
-│  Prisma ORM        │   │  Push/pull across Forge │
-└────────────────────┘   │  instances              │
-                         └─────────────────────────┘
+  ┌───────┴──────────────────────────────────┐
+  │                                          │
+┌─▼──────────────────┐  ┌────────────────────▼──────────────┐
+│  Credential Vault  │  │       Permission Gateway          │
+│  AES-256-GCM       │  │  Approval workflows               │
+│  HTTP proxy        │  │  Telegram/Teams/WhatsApp notif    │
+│  SSH proxy         │  └───────────────────────────────────┘
+└────────────────────┘
+          │
+┌─────────▼──────────┐   ┌───────────────────────────────────┐
+│  SSH Executor      │   │          Persona Factory          │
+│  ssh2 client       │   │  LLM-driven persona generation    │
+│  createSshTool()   │   │  spawn Agent records from goals   │
+└────────────────────┘   └───────────────────────────────────┘
+          │
+┌─────────▼──────────┐   ┌───────────────────────────────────┐
+│     PostgreSQL     │   │    Skill Registry  :5050          │
+│  Prisma ORM        │   │  Federated skill sharing          │
+│  All platform state│   │  Push/pull across Forge instances │
+└────────────────────┘   └───────────────────────────────────┘
 ```
 
 ---
@@ -50,28 +63,28 @@ Forge is a TypeScript monorepo of 14 packages that collectively form an enterpri
 
 ```
 packages/
-├── api-gateway          # Fastify REST API — agents, skills, requests, credentials
-├── orchestrator         # Core: tool routing, LLM execution, skill learning
-├── scheduler            # BullMQ worker + cron loop for scheduled agents
-├── skill-engine         # Skill discovery, OpenAPI builder, testing, registry sync
-├── skill-registry       # Standalone registry server (Express + SQLite)
-├── skill-registry-client# HTTP client for publishing/pulling skills
-├── credential-vault     # AES-256-GCM encryption + SSH proxy service
+├── api-gateway          # Fastify REST API — all routes, JWT auth, audit log
+├── orchestrator         # Core: LLM execution, domain intel injection, skill learning
+├── coordinator          # Smart gateway: AgentMesh routing, CoordinatorSession
+├── scheduler            # BullMQ worker + cron loop; [NO_CHANGE] signal handling
+├── skill-engine         # Skill discovery, OpenAPI builder, discoverLinkedDocs, generatePlaybooks
+├── skill-registry-client# HTTP client for push/pull to central registry
+├── credential-vault     # AES-256-GCM encryption + HTTP/SSH proxy service
+├── ssh-executor         # SSH command execution (ssh2); createSshTool()
 ├── permission-gateway   # Approval gate: Telegram/Teams/WhatsApp notif + callback
-├── knowledge-store      # Knowledge source ingestion (PDF, URL, text)
-├── persona-factory      # Agent persona templates
-├── agent-mesh           # Inter-agent message bus (MeshEvent table)
-├── coordinator          # Smart routing between specialist agents
-├── ssh-executor         # SSH command execution with credential proxy
-├── shared               # Prisma schema, shared types, Zod schemas
-│
+├── persona-factory      # LLM-driven Persona generation from goal; spawn agents
+├── knowledge-store      # Knowledge file CRUD (instructions/memory/context per agent)
+├── agent-mesh           # Inter-agent routing, DomainConstraint registry, MeshEvent log
+├── dashboard-api        # Admin REST API (status, users, scheduled jobs, endpoints)
+├── shared               # Prisma schema, shared types, Zod schemas, ok()/err() helpers
+
 integrations/
-├── telegram             # grammY bot — primary chat interface
-├── teams                # Microsoft Teams bot adapter
-└── whatsapp             # Twilio WhatsApp adapter
-│
+├── telegram             # grammY bot → api-gateway bridge
+├── teams                # Microsoft Teams bot → api-gateway bridge
+└── whatsapp             # Twilio WhatsApp → api-gateway bridge
+
 apps/
-└── dashboard            # Next.js 14 dashboard UI
+└── dashboard            # Next.js 14 management UI
 ```
 
 ---
@@ -83,29 +96,34 @@ A message sent to the Telegram bot flows through the full stack as follows:
 ```
 1. User sends message to Telegram bot
    ↓
-2. bot.ts — receives ctx.message.text
+2. integration-telegram — receives ctx.message.text
    Calls POST /requests {agentId, input, channel: "telegram"}
    ↓
 3. API Gateway — validates JWT, creates AgentRequest{status: QUEUED}
    Enqueues job in BullMQ (Redis)
    ↓
 4. Scheduler Worker — dequeues job
-   Calls Orchestrator.run(requestId, agentId, input)
+   Calls Orchestrator.execute(requestId, agentId, input)
    ↓
 5. Orchestrator
    a. Loads agent from DB (skills, charter, persona, credential)
-   b. Tool Router — classifies domain (XIQ/XCO/weather/utility)
-                     selects 25 tools (tier 1 by default)
-                     checks reachability of base URLs
-   c. Builds system prompt (charter + persona + skill prompts + learnedNotes)
-   d. Calls LLM with tools via AI SDK streamText()
-   e. LLM calls tools iteratively (xciq_http_call, ssh_exec, skill_add_note, etc.)
-   f. On write tools → permission check → if needs approval:
-        Creates ApprovalRequest, sends Telegram notification
-        Waits for approval webhook (POST /approvals/:id/approve|deny)
-   g. Returns final text response
+   b. Resolves credentials (prefix map → handler type → SYSTEM fallback)
+   c. Builds system prompt:
+      • AgentCharter mandate
+      • Agent instructions.md + context.md + memory.md (from knowledge-store)
+      • Skill system prompts + learnedNotes
+      • DomainKnowledge entity graph (always injected)
+      • Matching DomainKnowledge playbooks (≥2 trigger word matches)
+   d. Builds tool set from active skills
+   e. Calls LLM via Vercel AI SDK generateText() with maxSteps
+   f. LLM calls tools iteratively (http_call, ssh_exec, skill_add_note, etc.)
+   g. On write tools → permission check → if needs approval:
+        Creates ApprovalRequest, sends approval channel notification
+        Waits for POST /approvals/:id/approve or /deny
+   h. Returns final text response
    ↓
 6. AgentRequest updated: status=COMPLETED, output=<response>
+   If output starts with [NO_CHANGE] → skip memory write + notification
    ↓
 7. Telegram bot polls GET /requests/:id → sees COMPLETED
    Sends response back to user
@@ -117,14 +135,23 @@ A message sent to the Telegram bot flows through the full stack as follows:
 
 The orchestrator is the intelligence core. Key responsibilities:
 
-### Tool Selection (Tool Router)
+### Domain Intelligence Injection
 
-The naive approach — sending all 588 tools to the LLM — hits OpenAI's 128-tool limit. The tool router solves this:
+Before every LLM call, the orchestrator enriches the system prompt with domain-level knowledge:
 
-1. **Domain classification** — scores the user's message against domain keyword maps (XIQ, XCO, weather, utility). Uses last 6 messages for context continuity.
-2. **Tier selection** — classifies tools as T1 (read/list), T2 (write/configure), T3 (destructive). Only loads T2/T3 if the message has write/delete intent.
-3. **Availability gating** — skips domains whose base URL is unreachable (cached for 5 min). Prevents long timeouts on private VPN tools.
-4. **Result** — typically 25 tools selected from 588 total.
+1. **Entity graph** — always injected. A compact relationship map of domain entities (e.g. `Client(mac_address) → AP(ap_id) → Location(location_id)`) that helps the LLM chain API calls correctly without hallucinating field names.
+2. **Playbook matching** — trigger words from the user's query are matched against each playbook's `triggerPatterns`. If ≥2 words match, the playbook (step-by-step workflow) is injected into the prompt. This gives agents structured guidance for complex queries like "radio quality by location" or "VLAN to IP mapping".
+
+Both are read from the `DomainKnowledge` table, keyed by domain string (e.g. `"extremecloudiq"`).
+
+See [Domain Intelligence](domain-intelligence.md) for full details.
+
+### Credential Resolution
+
+The orchestrator resolves which vault credential to use for each skill tool via:
+1. **Explicit prefix map** — e.g. `extremecloudiq → xiq`, `networking.extreme-xco → xco`
+2. **Handler type detection** — `xiq_http_call` / `xco_http_call` in tool config
+3. **Fallback** — any SYSTEM credential of matching type
 
 ### Skill Learning
 
@@ -138,11 +165,58 @@ Notes are persisted to `Skill.learnedNotes` in Postgres and injected into every 
 
 ### Approval Gate
 
-Write operations (POST/PUT/PATCH/DELETE via any skill tool) are checked against the agent's `requiresApprovalForWrites` flag. If set, the orchestrator:
+Write operations are checked against the agent's `AgentCharter.posture` and `conductBoundaries`. If approval is required, the orchestrator:
 1. Pauses execution
 2. Creates an `ApprovalRequest` record
 3. Sends a formatted message to the approval channel (Telegram/Teams/WhatsApp)
-4. Waits for POST `/approvals/:id/approve` or `/approvals/:id/deny`
+4. Waits for `POST /approvals/:id/approve` or `/deny`
+
+---
+
+## Persona Factory
+
+`@bclaw/persona-factory` generates agent configurations from a plain-text goal. Given:
+
+```
+"Monitor XIQ for new client devices and alert via Telegram"
+```
+
+The LLM produces a structured `Persona` record with system prompt, tone, suggested skills, and schedule. `POST /personas/:id/spawn` creates an `ACTIVE` `Agent` from the persona. One agent per persona (duplicate spawn guard).
+
+See [Personas guide](../guides/personas.md).
+
+---
+
+## Coordinator
+
+`@bclaw/coordinator` is the multi-agent orchestration layer. `POST /coordinator/chat` routes a query to the best-fit agent from the active pool using `AgentMesh` capability matching and `DomainConstraint` compatibility scores. Each routed task produces a `MeshEvent` record for observability.
+
+See [Coordinator guide](../guides/coordinator.md).
+
+---
+
+## Agent Mesh
+
+`@bclaw/agent-mesh` maintains the registry of active agent workers and their domain capabilities. Key responsibilities:
+- `AgentMesh.route(task)` — selects the best-fit agent based on capability matching
+- `DomainConstraint` registry — enforces domain-level constraints (e.g. read-only in production)
+- `MeshEvent` log — every routed task creates an observability record
+
+Set `MESH_AUTO_START_WORKERS=true` to auto-register all `ACTIVE` agents as mesh workers at startup.
+
+---
+
+## Knowledge Store
+
+Each agent has a private knowledge directory with three special files:
+
+| File | Injected As | Written By |
+|---|---|---|
+| `instructions.md` | `## Agent Instructions` | Human (dashboard) |
+| `context.md` | `## Workspace Context` | Human (dashboard) |
+| `memory.md` | `## Agent Memory` | Agent (`write_memory` tool) |
+
+Memory is capped at 8000 chars (oldest content trimmed). Agents read their own memory via the `read_memory` tool and write persistent observations via `write_memory`.
 
 ---
 
@@ -150,13 +224,12 @@ Write operations (POST/PUT/PATCH/DELETE via any skill tool) are checked against 
 
 | Layer | Mechanism |
 |---|---|
-| API auth | JWT (HS256) — all routes except `/health` and `/admin/setup` |
+| API auth | JWT (HS256) — all routes except `/health` |
 | Credential storage | AES-256-GCM, key from `CREDENTIAL_VAULT_KEY` env var |
 | Credential access | Agents never receive raw credentials — all calls proxied |
 | SSH | Credentials injected at execution time, never logged |
 | Approval callbacks | One-time tokens in callback URLs, expire after use |
 | Registry admin | Bearer token (`REGISTRY_ADMIN_TOKEN`) for publish/delete |
-| Skill registry | Public read, authenticated write/delete |
 
 ---
 
@@ -165,7 +238,8 @@ Write operations (POST/PUT/PATCH/DELETE via any skill tool) are checked against 
 Any Forge instance can act as a skill registry (port 5050). Skills are:
 
 - **Published** from skill-engine after build + test passes
-- **Pulled** by other Forge instances via `SKILL_REGISTRY_URL`
-- **Deleted** only by admin token holders
+- **Pushed** via `POST /skills/:id/publish-to-registry`
+- **Pulled** by other Forge instances via `POST /registry/install/:domain/:version`
+- **Verified** by checksum on install
 
-This allows a team to maintain a central skill hub that all their Forge deployments pull from — one team builds the XIQ skill, everyone benefits.
+Set `SKILL_REGISTRY_URL` to point instances at a shared central hub.

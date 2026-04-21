@@ -134,3 +134,56 @@ Agents are encouraged to call it proactively when they:
 - Find an unexpected field name or value format
 - Determine a workaround for a known API limitation
 - Notice rate limits or pagination quirks not in the spec
+
+---
+
+## Domain Intelligence Layer
+
+Skill learning operates at the **skill level** (per-domain API quirks). The Domain Intelligence Layer operates at the **domain level** (entity relationships and complex workflows). They are complementary.
+
+### How Domain Intelligence is Populated
+
+When a skill is built from a URL (`POST /skills/build`), the skill engine runs three LLM passes:
+
+1. **Tool generation** — parses the OpenAPI spec and creates `SkillTool` records.
+2. **Doc discovery** (`discoverLinkedDocs()`) — scrapes the source URL for all same-host links, visits each page, and categorises them:
+   - `api_guide` — API reference pages
+   - `cli` — CLI/command reference
+   - `troubleshooting` — known issues and FAQs
+   - `release_notes` — changelog pages
+   - `user_guide` — conceptual guides
+   - `other` — everything else
+
+   Results are stored as `DocRef[]` in `DomainKnowledge.docIndex`.
+
+3. **Playbook generation** (`generatePlaybooks()`) — a third LLM pass analyses the discovered documentation and generates 1–3 analysis playbooks: step-by-step workflows for complex multi-step queries (e.g. "radio quality by location", "VLAN-to-IP mapping"). Results are stored in `DomainKnowledge.playbooks`.
+
+### Runtime Injection
+
+At every agent execution, the orchestrator reads `DomainKnowledge` for the agent's domain(s) and:
+
+- **Always** injects the entity graph into the system prompt as a compact relationship map (e.g. `Client(mac_address) → AP(ap_id) → Location(location_id)`).
+- **Conditionally** injects matching playbooks: if ≥2 trigger words from the user's query appear in a playbook's `triggerPatterns` list, the full playbook (steps) is injected.
+
+This means complex queries like "Show me radio quality broken down by location" automatically receive a playbook with the exact API call sequence — without RAG, vector search, or manual curation.
+
+### Managing Domain Intelligence
+
+```bash
+# View domain knowledge
+GET /domains
+GET /domains/extremecloudiq/knowledge
+
+# Replace entity graph or playbooks
+PUT /domains/extremecloudiq/knowledge
+
+# Add or update playbooks only
+PATCH /domains/extremecloudiq/knowledge/playbooks
+
+# Retroactively generate playbooks for an existing skill
+POST /skills/:id/generate-playbooks
+```
+
+The dashboard **Domain Intel** page (`/domains`) provides a visual editor for entity graphs and playbooks.
+
+See [Domain Intelligence](domain-intelligence.md) for the full reference.

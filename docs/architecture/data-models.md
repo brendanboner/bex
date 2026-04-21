@@ -13,9 +13,10 @@ User
 
 Agent
  ├── AgentSkill[] ──→ Skill
- ├── AgentCharter (behavioral constraints)
+ ├── AgentCharter (behavioural constraints + posture)
  ├── Credential (assigned credential set)
- └── AgentRequest[] (execution history)
+ ├── AgentRequest[] (execution history)
+ └── personaId? ──→ Persona (spawning origin)
 
 Skill
  ├── AgentSkill[] ←── Agent (many-to-many)
@@ -30,8 +31,10 @@ Credential
 ScheduledJob → Agent (runs agent on schedule)
 Target (network devices, systems)
 ApprovalRequest (pending human approvals)
-MeshEvent (inter-agent messages)
-CoordinatorSession (multi-agent orchestration)
+Persona → Agent (spawned agent)
+CoordinatorSession → Agent (routed agent)
+DomainKnowledge (doc index + entity graph + playbooks per domain)
+MeshEvent (AgentMesh observability log)
 ```
 
 ---
@@ -48,9 +51,9 @@ model Agent {
   name        String
   description String?
   status      AgentStatus @default(DRAFT)  // DRAFT | ACTIVE | PAUSED | ARCHIVED
+  isDefault   Boolean     @default(false)  // catch-all for unmatched requests
 
   // Behaviour
-  persona     Json        // { name, tone, maxTokens, systemPrompt }
   llmProvider String      // openai | anthropic | azure-openai
   llmModel    String      // gpt-4o | claude-3-5-sonnet | etc.
   permissions String[]    // ["read:network", "write:network", "ssh:exec"]
@@ -61,12 +64,15 @@ model Agent {
   credentialId String?
   credential  Credential?
   requests    AgentRequest[]
+  personaId   String?     // link to spawning Persona
+  persona     Persona?    @relation(fields: [personaId], references: [id])
 }
 ```
 
 **Key fields:**
+- `isDefault` — when `true`, this agent handles requests that do not match a specific agent. A "Forge Assistant" default agent is seeded on first run.
+- `personaId` — set when the agent was spawned from a Persona; enforces one-agent-per-persona.
 - `permissions` — controls what the agent is allowed to do. `ssh:exec` enables the SSH tool. `write:*` enables write-tier tool loading.
-- `credentialId` — the agent uses this credential set for all API calls. Credentials are decrypted at runtime by the vault service.
 
 ---
 
@@ -80,7 +86,7 @@ model Skill {
   name         String
   domain       String      // e.g. "extremecloudiq.clients"
   version      String      // semver: "1.0.0"
-  status       SkillStatus // DRAFT | ACTIVE | DEPRECATED
+  status       SkillStatus // DRAFT | PENDING_REVIEW | PUBLISHED | DEPRECATED
 
   capabilities String[]    // discoverable tags
   systemPrompt String?     // injected into LLM context when skill is active
@@ -92,7 +98,7 @@ model Skill {
 }
 ```
 
-**`learnedNotes`** is the skill's runtime memory. Agents append notes here via the `skill_add_note` tool when they discover API behaviour that differs from documentation. On every subsequent request, these notes are injected into the system prompt so the agent doesn't repeat mistakes.
+**`learnedNotes`** is the skill's runtime memory. Agents append notes here via the `skill_add_note` tool. On every subsequent request, these notes are injected into the system prompt so the agent does not repeat mistakes.
 
 ---
 
@@ -147,29 +153,37 @@ enum CredentialType {
 
 ### AgentCharter
 
-Defines what an agent is allowed to do. Applied before every execution.
+Defines an agent's operating mandate, posture, and authority limits. Applied before every execution.
 
 ```prisma
 model AgentCharter {
-  id          String  @id @default(cuid())
-  agentId     String  @unique
-  name        String
-  description String?
-  constraints Json    // allowed domains, operations, targets
-  objectives  Json    // what the agent should accomplish
-  escalation  Json    // when and how to escalate to human
+  id                  String   @id @default(cuid())
+  agentId             String   @unique
+  agent               Agent    @relation(...)
+
+  mandate             String   // injected as part of every system prompt
+  posture             String   // AUTONOMOUS | SUPERVISED | INTERACTIVE | DELIBERATE
+  bearing             String   // ANALYTICAL | CONCISE | NARRATIVE | FORMAL
+  verbosity           String   // TERSE | STANDARD | DETAILED
+
+  conductBoundaries   String[] // action patterns always requiring human approval
+                               // e.g. ["delete.*", "write:fabric-config"]
+  escalationTriggers  String[] // conditions forcing immediate escalation
+                               // e.g. ["severity:CRITICAL", "drift:fabric"]
+  scopeLimits         Json?    // hard limits on scope of action (arbitrary JSON)
 }
 ```
 
-Example constraints:
-```json
-{
-  "allowedDomains": ["extremecloudiq.*"],
-  "allowedOperations": ["read", "write"],
-  "requireApprovalFor": ["delete", "bulk_update"],
-  "maxTargets": 50
-}
-```
+**Posture levels:**
+
+| Posture | Behaviour |
+|---|---|
+| `AUTONOMOUS` | Acts independently; notifies on completion only |
+| `SUPERVISED` | Plans independently; approval gates for writes and destructive ops |
+| `INTERACTIVE` | Confirms before each significant action; presents decision options |
+| `DELIBERATE` | Analysis and planning only; awaits explicit instruction before each step |
+
+**Bearing** controls communication style; **verbosity** controls response detail level. Both are injected into the system prompt.
 
 ---
 
@@ -179,16 +193,91 @@ Every agent execution is tracked as a request.
 
 ```prisma
 model AgentRequest {
-  id        String        @id @default(cuid())
-  agentId   String
-  userId    String
-  status    RequestStatus // QUEUED | PROCESSING | COMPLETED | FAILED | AWAITING_APPROVAL
-  input     String
-  output    String?
-  channel   String        // telegram | teams | whatsapp | dashboard | api | scheduler
-  createdAt DateTime
+  id          String        @id @default(cuid())
+  agentId     String
+  userId      String
+  status      RequestStatus // QUEUED | PROCESSING | COMPLETED | FAILED | AWAITING_APPROVAL
+  input       String
+  output      String?
+  channel     String        // telegram | teams | whatsapp | dashboard | api | scheduler
+  createdAt   DateTime
   completedAt DateTime?
-  error     String?
+  error       String?
+}
+```
+
+---
+
+### Persona
+
+A goal-based template for creating agents. The LLM generates the structured fields from a plain-text goal description.
+
+```prisma
+model Persona {
+  id           String   @id @default(cuid())
+  name         String
+  goal         String   // plain-text goal description provided by user
+  systemPrompt String   // LLM-generated system prompt
+  tone         String   // e.g. "professional", "concise", "analytical"
+  skills       String[] // suggested skill domains (e.g. ["extremecloudiq.*"])
+  schedule     String?  // suggested cron expression (e.g. "0 * * * *")
+  agentId      String?  // populated after POST /personas/:id/spawn
+  createdAt    DateTime
+}
+```
+
+Spawning a Persona creates an `ACTIVE` Agent and sets `Agent.personaId`. Attempting to spawn again returns the existing agent (duplicate guard).
+
+---
+
+### DomainKnowledge
+
+Domain-level intelligence: documentation index, entity relationship graph, and analysis playbooks. Keyed by domain string (e.g. `"extremecloudiq"`). Auto-populated when skills are built; manually editable via the dashboard or API.
+
+```prisma
+model DomainKnowledge {
+  domain      String   @id   // e.g. "extremecloudiq", "networking"
+  docIndex    Json     @default([])   // DocRef[] — typed links to documentation pages
+  entityGraph Json     @default({})   // entity relationship map injected into every prompt
+  playbooks   Json     @default([])   // analysis playbooks; injected on trigger word match
+  updatedAt   DateTime @updatedAt
+}
+```
+
+**`DocRef` structure** (items in `docIndex`):
+```ts
+{
+  url:      string;
+  title:    string;
+  category: "api_guide" | "cli" | "troubleshooting" | "release_notes" | "user_guide" | "other";
+}
+```
+
+**Playbook structure** (items in `playbooks`):
+```ts
+{
+  name:            string;   // e.g. "radio-quality-by-location"
+  description:     string;
+  triggerPatterns: string[]; // words that activate this playbook (≥2 must appear in query)
+  steps:           string[]; // ordered step-by-step instructions for the LLM
+}
+```
+
+See [Domain Intelligence](domain-intelligence.md) for full details.
+
+---
+
+### CoordinatorSession
+
+Records a multi-agent routing decision made by the Coordinator.
+
+```prisma
+model CoordinatorSession {
+  id        String   @id @default(cuid())
+  input     String   // the user's query
+  agentId   String   // the agent selected by AgentMesh
+  channel   String   // api | telegram | teams | dashboard | scheduler
+  createdAt DateTime
 }
 ```
 
@@ -200,16 +289,18 @@ Cron-based agent triggers. The scheduler worker runs these on schedule.
 
 ```prisma
 model ScheduledJob {
-  id       String  @id @default(cuid())
-  name     String
-  agentId  String
-  cron     String  // standard cron expression: "0 * * * *" = hourly
-  input    String  // the message to send the agent
-  enabled  Boolean @default(true)
-  lastRun  DateTime?
-  nextRun  DateTime?
+  id      String   @id @default(cuid())
+  name    String
+  agentId String
+  cron    String   // standard cron: "0 * * * *" = hourly
+  input   String   // the message to send the agent
+  enabled Boolean  @default(true)
+  lastRun DateTime?
+  nextRun DateTime?
 }
 ```
+
+If the agent's response starts with `[NO_CHANGE]`, the scheduler skips writing to agent memory and skips sending the notification — preventing alert fatigue for monitoring agents.
 
 ---
 
@@ -219,14 +310,14 @@ Network devices or systems the agent can interact with via SSH or API.
 
 ```prisma
 model Target {
-  id          String  @id @default(cuid())
-  name        String
-  hostname    String
-  ipAddress   String?
-  description String?
-  tags        String[]
+  id           String  @id @default(cuid())
+  name         String
+  hostname     String
+  ipAddress    String?
+  description  String?
+  tags         String[]
   credentialId String?
-  credential  Credential?
+  credential   Credential?
 }
 ```
 
@@ -234,7 +325,7 @@ model Target {
 
 ### MeshEvent
 
-Inter-agent communication bus. Coordinator agents post tasks here; worker agents consume them.
+Observability log for inter-agent routing via AgentMesh.
 
 ```prisma
 model MeshEvent {
@@ -254,7 +345,7 @@ model MeshEvent {
 
 ```prisma
 enum AgentStatus    { DRAFT ACTIVE PAUSED ARCHIVED }
-enum SkillStatus    { DRAFT ACTIVE DEPRECATED }
+enum SkillStatus    { DRAFT PENDING_REVIEW PUBLISHED DEPRECATED }
 enum RequestStatus  { QUEUED PROCESSING COMPLETED FAILED AWAITING_APPROVAL }
 enum CredentialType { API_TOKEN BASIC_AUTH BEARER_TOKEN SSH_KEY OAUTH2_CLIENT }
 enum CredentialScope { GLOBAL AGENT USER }
