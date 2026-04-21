@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
   printBanner, printSuccess, printError, printWarning,
-  findProjectRoot, writeEnv, waitForService,
+  findProjectRoot, readEnv, writeEnv, waitForService,
   isDockerRunning, ensureInfraRunning, ensureDashboardBuilt, startLocalServices,
 } from '../utils.js';
 
@@ -58,10 +58,12 @@ export async function initCommand(): Promise<void> {
   printBanner();
 
   // Check if already initialised
+  let prev: Record<string, string> = {};
   try {
     const root = findProjectRoot();
     const envPath = `${root}/.env`;
     if (existsSync(envPath)) {
+      prev = readEnv();
       const overwrite = await confirm({
         message: chalk.yellow('.env already exists. Overwrite and re-configure?'),
         default: false,
@@ -70,6 +72,7 @@ export async function initCommand(): Promise<void> {
         console.log('\n' + chalk.dim('Run `bex start` to start the platform.'));
         return;
       }
+      console.log(chalk.dim('  Previously saved values shown as defaults — press Enter to keep them.\n'));
     }
   } catch {
     printError('Could not locate project root. Run bex from inside the Forge directory.');
@@ -78,17 +81,23 @@ export async function initCommand(): Promise<void> {
 
   const root = findProjectRoot();
 
+  // Helper: show a masked hint for secrets that are already set
+  const hasKey = (key: string) => !!prev[key];
+  const masked = (key: string) => prev[key] ? chalk.dim(`(keep existing — press Enter to skip)`) : '';
+
   // ── Step 1: LLM ─────────────────────────────────────────────────────────
   console.log(chalk.bold('Step 1 of 5 — LLM Provider\n'));
 
+  const prevProvider = prev['LLM_PROVIDER'] as string | undefined;
   const llmProvider = await select({
     message: 'LLM provider:',
     choices: [
-      { name: 'OpenAI (GPT-4o)', value: 'openai' },
-      { name: 'Anthropic (Claude)', value: 'anthropic' },
-      { name: 'Ollama (local, no API key)', value: 'ollama' },
-      { name: 'Azure OpenAI', value: 'azure' },
+      { name: `OpenAI (GPT-4o)${prevProvider === 'openai' ? ' ✓' : ''}`, value: 'openai' },
+      { name: `Anthropic (Claude)${prevProvider === 'anthropic' ? ' ✓' : ''}`, value: 'anthropic' },
+      { name: `Ollama (local, no API key)${prevProvider === 'ollama' ? ' ✓' : ''}`, value: 'ollama' },
+      { name: `Azure OpenAI${prevProvider === 'azure' ? ' ✓' : ''}`, value: 'azure' },
     ],
+    default: prevProvider ?? 'openai',
   });
 
   let llmApiKey = '';
@@ -97,44 +106,88 @@ export async function initCommand(): Promise<void> {
   if (llmProvider === 'ollama') {
     ollamaBaseUrl = await input({
       message: 'Ollama base URL:',
-      default: 'http://localhost:11434',
+      default: prev['OLLAMA_BASE_URL'] || 'http://localhost:11434',
     });
     console.log(chalk.dim('  Make sure Ollama is running and the model is pulled (e.g. ollama pull llama3.2)'));
   } else {
-    llmApiKey = await password({
-      message: `${llmProvider} API key:`,
-      validate: (v: string) => v.length > 10 || 'API key must be at least 10 characters',
-    });
-    await validateLlmKey(llmProvider, llmApiKey);
+    const apiKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
+      : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
+      : 'AZURE_OPENAI_API_KEY';
+    if (hasKey(apiKeyVar)) {
+      console.log(chalk.dim(`  ${apiKeyVar} is already set. ${masked(apiKeyVar)}`));
+      const change = await confirm({ message: `Change ${llmProvider} API key?`, default: false });
+      if (change) {
+        llmApiKey = await password({
+          message: `${llmProvider} API key:`,
+          validate: (v: string) => v.length > 10 || 'API key must be at least 10 characters',
+        });
+        await validateLlmKey(llmProvider, llmApiKey);
+      } else {
+        llmApiKey = prev[apiKeyVar] ?? '';
+      }
+    } else {
+      llmApiKey = await password({
+        message: `${llmProvider} API key:`,
+        validate: (v: string) => v.length > 10 || 'API key must be at least 10 characters',
+      });
+      await validateLlmKey(llmProvider, llmApiKey);
+    }
   }
 
   const modelChoices = (LLM_MODELS[llmProvider] ?? ['gpt-4o']).map((m) => ({ name: m, value: m }));
-  const llmModel = await select({ message: 'Default model:', choices: modelChoices });
+  const llmModel = await select({
+    message: 'Default model:',
+    choices: modelChoices,
+    default: prev['LLM_MODEL'] ?? modelChoices[0]?.value,
+  });
 
   // ── Step 2: Interface Channel ────────────────────────────────────────────
   console.log('\n' + chalk.bold('Step 2 of 5 — Interface Channel\n'));
 
+  const prevChannel = prev['BEX_CHANNEL'];
   const channel = await select({
     message: 'Primary interface channel:',
     choices: [
-      { name: 'Web Dashboard only (add channels later)', value: 'dashboard' },
-      { name: 'Telegram Bot', value: 'telegram' },
-      { name: 'Microsoft Teams', value: 'teams' },
-      { name: 'WhatsApp (via Twilio)', value: 'whatsapp' },
+      { name: `Web Dashboard only (add channels later)${prevChannel === 'dashboard' ? ' ✓' : ''}`, value: 'dashboard' },
+      { name: `Telegram Bot${prevChannel === 'telegram' ? ' ✓' : ''}`, value: 'telegram' },
+      { name: `Microsoft Teams${prevChannel === 'teams' ? ' ✓' : ''}`, value: 'teams' },
+      { name: `WhatsApp (via Twilio)${prevChannel === 'whatsapp' ? ' ✓' : ''}`, value: 'whatsapp' },
     ],
+    default: prevChannel ?? 'dashboard',
   });
 
   const channelEnv: Record<string, string> = {};
   if (channel === 'telegram') {
-    channelEnv['TELEGRAM_BOT_TOKEN'] = await password({ message: 'Telegram Bot Token:' });
-    channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] = await input({ message: 'Approval Chat ID (your Telegram user ID):' });
+    if (hasKey('TELEGRAM_BOT_TOKEN')) {
+      console.log(chalk.dim(`  TELEGRAM_BOT_TOKEN is already set. ${masked('TELEGRAM_BOT_TOKEN')}`));
+      const change = await confirm({ message: 'Change Telegram Bot Token?', default: false });
+      channelEnv['TELEGRAM_BOT_TOKEN'] = change
+        ? await password({ message: 'Telegram Bot Token:' })
+        : prev['TELEGRAM_BOT_TOKEN'] ?? '';
+    } else {
+      channelEnv['TELEGRAM_BOT_TOKEN'] = await password({ message: 'Telegram Bot Token:' });
+    }
+    channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] = await input({
+      message: 'Approval Chat ID (your Telegram user ID):',
+      default: prev['TELEGRAM_APPROVAL_CHAT_ID'] ?? '',
+    });
   } else if (channel === 'teams') {
-    channelEnv['TEAMS_WEBHOOK_URL'] = await input({ message: 'Teams Incoming Webhook URL:' });
+    channelEnv['TEAMS_WEBHOOK_URL'] = await input({
+      message: 'Teams Incoming Webhook URL:',
+      default: prev['TEAMS_WEBHOOK_URL'] ?? '',
+    });
   } else if (channel === 'whatsapp') {
-    channelEnv['TWILIO_ACCOUNT_SID'] = await input({ message: 'Twilio Account SID:' });
-    channelEnv['TWILIO_AUTH_TOKEN'] = await password({ message: 'Twilio Auth Token:' });
-    channelEnv['TWILIO_WHATSAPP_FROM'] = await input({ message: 'WhatsApp From (e.g. whatsapp:+14155238886):' });
-    channelEnv['WHATSAPP_APPROVAL_TO'] = await input({ message: 'Approval destination number:' });
+    channelEnv['TWILIO_ACCOUNT_SID'] = await input({ message: 'Twilio Account SID:', default: prev['TWILIO_ACCOUNT_SID'] ?? '' });
+    if (hasKey('TWILIO_AUTH_TOKEN')) {
+      const change = await confirm({ message: 'Change Twilio Auth Token?', default: false });
+      channelEnv['TWILIO_AUTH_TOKEN'] = change
+        ? await password({ message: 'Twilio Auth Token:' })
+        : prev['TWILIO_AUTH_TOKEN'] ?? '';
+    } else {
+      channelEnv['TWILIO_AUTH_TOKEN'] = await password({ message: 'Twilio Auth Token:' });
+    }
+    channelEnv['TWILIO_WHATSAPP_FROM'] = await input({ message: 'WhatsApp From (e.g. whatsapp:+14155238886):', default: prev['TWILIO_WHATSAPP_FROM'] ?? '' });
+    channelEnv['WHATSAPP_APPROVAL_TO'] = await input({ message: 'Approval destination number:', default: prev['WHATSAPP_APPROVAL_TO'] ?? '' });
   }
 
   // ── Step 3: Domain integrations (XIQ / XCO) ──────────────────────────────
@@ -143,25 +196,37 @@ export async function initCommand(): Promise<void> {
 
   const domainEnv: Record<string, string> = {};
 
-  const setupXiq = await confirm({ message: 'Configure ExtremeCloud IQ (XIQ)?', default: false });
+  const setupXiq = await confirm({ message: 'Configure ExtremeCloud IQ (XIQ)?', default: hasKey('XCIQ_USERNAME') });
   if (setupXiq) {
     console.log(chalk.dim('  XIQ credentials are used to query your wireless network via the XIQ cloud API.\n'));
     domainEnv['XCIQ_USERNAME'] = await input({
       message: 'XIQ username (email):',
+      default: prev['XCIQ_USERNAME'] ?? '',
       validate: (v: string) => v.includes('@') || 'Enter a valid email',
     });
-    domainEnv['XCIQ_PASSWORD'] = await password({ message: 'XIQ password:' });
+    if (hasKey('XCIQ_PASSWORD')) {
+      const change = await confirm({ message: 'Change XIQ password?', default: false });
+      domainEnv['XCIQ_PASSWORD'] = change ? await password({ message: 'XIQ password:' }) : prev['XCIQ_PASSWORD'] ?? '';
+    } else {
+      domainEnv['XCIQ_PASSWORD'] = await password({ message: 'XIQ password:' });
+    }
   }
 
-  const setupXco = await confirm({ message: 'Configure ExtremeCloud Orchestrator (XCO)?', default: false });
+  const setupXco = await confirm({ message: 'Configure ExtremeCloud Orchestrator (XCO)?', default: hasKey('XCO_HOST') });
   if (setupXco) {
     console.log(chalk.dim('  XCO is your on-premises fabric orchestrator. Provide the management IP/hostname.\n'));
     domainEnv['XCO_HOST'] = await input({
       message: 'XCO host (IP or hostname, e.g. 10.1.1.1):',
+      default: prev['XCO_HOST'] ?? '',
       validate: (v: string) => v.trim().length > 0 || 'Required',
     });
-    domainEnv['XCO_USERNAME'] = await input({ message: 'XCO admin username:' });
-    domainEnv['XCO_PASSWORD'] = await password({ message: 'XCO admin password:' });
+    domainEnv['XCO_USERNAME'] = await input({ message: 'XCO admin username:', default: prev['XCO_USERNAME'] ?? '' });
+    if (hasKey('XCO_PASSWORD')) {
+      const change = await confirm({ message: 'Change XCO password?', default: false });
+      domainEnv['XCO_PASSWORD'] = change ? await password({ message: 'XCO admin password:' }) : prev['XCO_PASSWORD'] ?? '';
+    } else {
+      domainEnv['XCO_PASSWORD'] = await password({ message: 'XCO admin password:' });
+    }
   }
 
   // ── Step 4: Admin account ────────────────────────────────────────────────
@@ -169,18 +234,23 @@ export async function initCommand(): Promise<void> {
 
   const adminEmail = await input({
     message: 'Admin email:',
+    default: prev['BEX_ADMIN_EMAIL'] ?? '',
     validate: (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Enter a valid email address',
   });
 
   const adminPassword = await password({
-    message: 'Admin password (min 8 chars):',
-    validate: (v: string) => v.length >= 8 || 'Password must be at least 8 characters',
+    message: hasKey('BEX_ADMIN_PASSWORD') ? 'Admin password (Enter to keep existing):' : 'Admin password (min 8 chars):',
+    validate: (v: string) => (v.length === 0 && hasKey('BEX_ADMIN_PASSWORD')) || v.length >= 8 || 'Password must be at least 8 characters',
   });
+  const resolvedAdminPassword = adminPassword || (prev['BEX_ADMIN_PASSWORD'] ?? '');
 
-  const confirmPass = await password({ message: 'Confirm password:' });
-  if (adminPassword !== confirmPass) {
-    printError('Passwords do not match. Run `bex init` again.');
-    process.exit(1);
+  let confirmPass = '';
+  if (adminPassword) {
+    confirmPass = await password({ message: 'Confirm password:' });
+    if (adminPassword !== confirmPass) {
+      printError('Passwords do not match. Run `bex init` again.');
+      process.exit(1);
+    }
   }
 
   // ── Step 5: Generate config ───────────────────────────────────────────────
@@ -188,12 +258,13 @@ export async function initCommand(): Promise<void> {
 
   const skillRegistryToken = await input({
     message: 'Skill registry auth token (leave blank if registry is open):',
-    default: '',
+    default: prev['SKILL_REGISTRY_TOKEN'] ?? '',
   });
 
   const spinner = ora('Generating secrets...').start();
-  const jwtSecret = randomBytes(32).toString('hex');
-  const vaultKey = randomBytes(32).toString('hex');
+  // Preserve existing JWT/vault secrets if already set — no need to rotate them
+  const jwtSecret = prev['JWT_SECRET'] || randomBytes(32).toString('hex');
+  const vaultKey = prev['CREDENTIAL_VAULT_KEY'] || randomBytes(32).toString('hex');
   // Postgres and Redis use hardcoded defaults matching infra/docker-compose.yml
   const pgPassword = 'bexpassword';
   const redisPassword = 'bexpassword';
@@ -211,10 +282,10 @@ export async function initCommand(): Promise<void> {
     VAULT_ENCRYPTION_KEY: vaultKey,
     CREDENTIAL_VAULT_KEY: vaultKey,
     LLM_PROVIDER: llmProvider,
-    OPENAI_API_KEY: llmProvider === 'openai' ? llmApiKey : '',
-    ANTHROPIC_API_KEY: llmProvider === 'anthropic' ? llmApiKey : '',
-    AZURE_OPENAI_API_KEY: llmProvider === 'azure' ? llmApiKey : '',
-    OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : '',
+    OPENAI_API_KEY: llmProvider === 'openai' ? llmApiKey : (prev['OPENAI_API_KEY'] ?? ''),
+    ANTHROPIC_API_KEY: llmProvider === 'anthropic' ? llmApiKey : (prev['ANTHROPIC_API_KEY'] ?? ''),
+    AZURE_OPENAI_API_KEY: llmProvider === 'azure' ? llmApiKey : (prev['AZURE_OPENAI_API_KEY'] ?? ''),
+    OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : (prev['OLLAMA_BASE_URL'] ?? ''),
     LLM_MODEL: llmModel,
     PORT: '4000',
     ADMIN_API_PORT: '4001',
@@ -230,7 +301,7 @@ export async function initCommand(): Promise<void> {
     ...channelEnv,
     ...domainEnv,
     BEX_ADMIN_EMAIL: adminEmail,
-    BEX_ADMIN_PASSWORD: adminPassword,
+    BEX_ADMIN_PASSWORD: resolvedAdminPassword,
     BEX_CHANNEL: channel,
   };
 
