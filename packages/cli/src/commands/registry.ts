@@ -94,27 +94,55 @@ async function testRegistry(): Promise<void> {
 
   try {
     const hdrs = headers(token);
-    // Try /health first, fall back to listing skills
     let connected = false;
     let skillCount = 0;
 
     const healthRes = await fetch(`${registryUrl}/health`, { headers: hdrs }).catch(() => null);
-    if (healthRes?.ok) {
-      connected = true;
-      // Also fetch skill count
-      const listRes = await fetch(`${registryUrl}/registry/skills`, { headers: hdrs }).catch(() => null);
-      if (listRes?.ok) {
-        const data = await listRes.json() as { data?: unknown[] };
-        skillCount = data.data?.length ?? 0;
-      }
+    if (!healthRes?.ok) {
+      console.log(chalk.red(`\nCould not connect to registry: ${registryUrl}\n`));
+      return;
+    }
+    connected = true;
+
+    const listRes = await fetch(`${registryUrl}/registry/skills`, { headers: hdrs }).catch(() => null);
+    if (listRes?.ok) {
+      const data = await listRes.json() as { data?: unknown[] };
+      skillCount = data.data?.length ?? 0;
     }
 
-    if (connected) {
-      console.log(chalk.green(`\nConnected to registry: ${registryUrl}`));
-      console.log(`Skills available: ${skillCount}${skillCount === 0 ? chalk.dim('  — run: bex skill push --all') : ''}\n`);
+    console.log(chalk.green(`\nConnected to registry: ${registryUrl}`));
+    console.log(`Skills available: ${skillCount}`);
+
+    // Probe write auth by checking /registry/info (public) then attempting a no-op publish
+    if (token) {
+      const infoRes = await fetch(`${registryUrl}/registry/info`, { headers: hdrs }).catch(() => null);
+      const infoJson = infoRes?.ok ? (await infoRes.json() as { data?: { authRequired?: boolean } }) : null;
+      const authRequired = infoJson?.data?.authRequired ?? true;
+
+      if (!authRequired) {
+        console.log(chalk.dim('Write auth: not required (open registry)'));
+      } else {
+        // Send an intentionally invalid body — auth is checked before validation,
+        // so 400 (bad request) means auth passed; 401 means token rejected.
+        const probeRes = await fetch(`${registryUrl}/registry/publish`, {
+          method: 'POST',
+          headers: hdrs,
+          body: JSON.stringify({}),
+        }).catch(() => null);
+
+        if (probeRes?.status === 401) {
+          console.log(chalk.red('Write auth: ❌ token rejected (SKILL_REGISTRY_TOKEN does not match registry)'));
+          console.log(chalk.dim('  Update SKILL_REGISTRY_TOKEN in .env to match the registry\'s REGISTRY_AUTH_TOKEN'));
+        } else {
+          // 400 (validation error), 201, 409 — all mean auth passed
+          console.log(chalk.green('Write auth: ✓ token accepted'));
+          if (skillCount === 0) console.log(chalk.dim('  Registry is empty — run: bex skill push --all'));
+        }
+      }
     } else {
-      console.log(chalk.red(`\nCould not connect to registry: ${registryUrl}\n`));
+      console.log(chalk.dim('Write auth: no token set (SKILL_REGISTRY_TOKEN not configured)'));
     }
+    console.log('');
   } catch (err) {
     console.error(chalk.red(`Connection failed: ${err instanceof Error ? err.message : String(err)}`));
   }

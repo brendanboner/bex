@@ -39,7 +39,7 @@ async function getRegistryUrl(env: Record<string, string>): Promise<string> {
 }
 
 async function getRegistryToken(env: Record<string, string>): Promise<string> {
-  return env['REGISTRY_AUTH_TOKEN'] ?? process.env['REGISTRY_AUTH_TOKEN'] ?? env['SKILL_REGISTRY_TOKEN'] ?? '';
+  return env['SKILL_REGISTRY_TOKEN'] ?? process.env['SKILL_REGISTRY_TOKEN'] ?? '';
 }
 
 async function getPrisma(env: Record<string, string>) {
@@ -200,8 +200,8 @@ export async function skillDeleteCommand(domain: string, opts: { version?: strin
   const { fetch } = await import('undici');
   const env = loadEnv();
   const registryUrl = await getRegistryUrl(env);
-  // DELETE requires the admin token (REGISTRY_ADMIN_TOKEN), falls back to REGISTRY_AUTH_TOKEN
-  const adminToken = env['REGISTRY_ADMIN_TOKEN'] ?? process.env['REGISTRY_ADMIN_TOKEN'] ?? await getRegistryToken(env);
+  // DELETE uses SKILL_REGISTRY_ADMIN_TOKEN if set (separate high-privilege token), else SKILL_REGISTRY_TOKEN
+  const adminToken = env['SKILL_REGISTRY_ADMIN_TOKEN'] ?? process.env['SKILL_REGISTRY_ADMIN_TOKEN'] ?? await getRegistryToken(env);
 
   const version = await resolveVersion(fetch, registryUrl, adminToken, domain, opts.version);
   const res = await fetch(`${registryUrl}/registry/skills/${encodeURIComponent(domain)}/${encodeURIComponent(version)}`, {
@@ -212,7 +212,7 @@ export async function skillDeleteCommand(domain: string, opts: { version?: strin
   if (res.ok) {
     console.log(`✅ Deleted ${domain}@${version} from registry`);
   } else if (res.status === 401) {
-    console.error('❌ Unauthorized — DELETE requires the admin token (REGISTRY_ADMIN_TOKEN in .env)');
+    console.error('❌ Unauthorized — DELETE may require a separate admin token (SKILL_REGISTRY_ADMIN_TOKEN in .env)');
     process.exit(1);
   } else {
     const txt = await res.text();
