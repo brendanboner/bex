@@ -39,27 +39,63 @@ async function checkRegistrySync(root: string): Promise<void> {
 
   try {
     const { fetch } = await import('undici');
-    const hdrs = (tok: string) => ({ 'Content-Type': 'application/json', ...(tok ? { Authorization: `Bearer ${tok}` } : {}) });
+    const apiHdrs  = { 'Content-Type': 'application/json', ...(adminToken   ? { Authorization: `Bearer ${adminToken}`   } : {}) };
+    const regHdrs  = { 'Content-Type': 'application/json', ...(registryToken ? { Authorization: `Bearer ${registryToken}` } : {}) };
 
     const [localRes, remoteRes] = await Promise.all([
-      fetch('http://localhost:4000/skills', { headers: hdrs(adminToken) }).catch(() => null),
-      fetch(`${registryUrl}/registry/skills`, { headers: hdrs(registryToken) }).catch(() => null),
+      fetch('http://localhost:4000/skills', { headers: apiHdrs }).catch(() => null),
+      fetch(`${registryUrl}/registry/skills`, { headers: regHdrs }).catch(() => null),
     ]);
 
     if (!localRes?.ok || !remoteRes?.ok) return;
 
-    const localData  = await localRes.json()  as { data?: unknown[] };
+    const localData  = await localRes.json()  as { data?: Array<{ id: string; domain: string; name: string }> };
     const remoteData = await remoteRes.json() as { data?: unknown[] };
 
-    const localCount  = localData.data?.length  ?? 0;
+    const localSkills = localData.data ?? [];
     const remoteCount = remoteData.data?.length ?? 0;
 
-    if (localCount > 0 && remoteCount === 0) {
+    if (localSkills.length === 0 || remoteCount > 0) return;
+
+    // Remote is empty, local has skills
+    if (!registryToken) {
+      // No auth token — can't push, just warn
       console.log('');
       console.log(chalk.yellow('  ⚠  Remote registry is empty but local DB has skills.'));
-      console.log(chalk.dim(`     Push them with: ${chalk.white('bex skill push --all')}`));
+      console.log(chalk.dim(`     Set SKILL_REGISTRY_TOKEN in .env then run: ${chalk.white('bex skill push --all')}`));
       console.log('');
+      return;
     }
+
+    // Token is set — auto-push via API gateway (includes entity graph + playbooks + knowledge docs)
+    console.log('');
+    const spinner = ora(`  Syncing ${localSkills.length} skill(s) to remote registry (with playbooks)…`).start();
+    let pushed = 0;
+    let failed = 0;
+
+    for (const skill of localSkills) {
+      try {
+        const res = await fetch(`http://localhost:4000/skills/${skill.id}/publish-to-registry`, {
+          method: 'POST',
+          headers: apiHdrs,
+        });
+        if (res.ok) {
+          pushed++;
+        } else {
+          failed++;
+          spinner.text = `  Syncing skills… (${pushed} done, ${failed} failed)`;
+        }
+      } catch {
+        failed++;
+      }
+    }
+
+    if (failed === 0) {
+      spinner.succeed(`  Synced ${pushed} skill(s) to registry (entity graphs + playbooks included)`);
+    } else {
+      spinner.warn(`  Synced ${pushed}/${localSkills.length} skills (${failed} failed — run: bex skill push --all)`);
+    }
+    console.log('');
   } catch { /* non-fatal */ }
 }
 
