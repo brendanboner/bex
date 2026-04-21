@@ -200,8 +200,9 @@ export function buildTools(
           if (!accessToken) {
             // Resolve username/password from vault and login
             const creds = await vault.resolve(credentialId, agentPermissions);
-            const username = String(creds['username'] ?? '');
-            const password = String(creds['password'] ?? '');
+            // Support both bex-init key names (xiq_username/xiq_password) and canonical (username/password)
+            const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+            const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
 
             const loginResp = await fetch(loginUrl, {
               method: 'POST',
@@ -249,7 +250,7 @@ export function buildTools(
             const freshLogin = await fetch(loginUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({ username: String(creds2['username'] ?? ''), password: String(creds2['password'] ?? '') }),
+              body: JSON.stringify({ username: String(creds2['username'] ?? creds2['xiq_username'] ?? ''), password: String(creds2['password'] ?? creds2['xiq_password'] ?? '') }),
             });
             if (freshLogin.ok) {
               const freshData = await freshLogin.json() as { access_token?: string; expires_in?: number };

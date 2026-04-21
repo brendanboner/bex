@@ -488,6 +488,8 @@ export async function initCommand(): Promise<void> {
       const loginJson = (await loginRes.json()) as { ok: boolean; data?: { token?: string } };
       if (loginJson.ok && loginJson.data?.token) {
         registryAuthHeader = { Authorization: `Bearer ${loginJson.data.token}` };
+        // Persist as bot API key so Telegram/Teams bots can call the API without separate auth
+        writeEnv({ BEX_BOT_API_KEY: loginJson.data.token });
       }
     } catch { /* proceed without auth */ }
   }
@@ -698,6 +700,22 @@ Be concise and technical in your responses.`,
         if (buildResult.stderr) console.error(chalk.dim(buildResult.stderr.slice(0, 500)));
       }
     }
+  }
+
+  // ── Persist Telegram/bot env vars ─────────────────────────────────────────
+  // Look up the XIQ agent ID (created by seed script or registry pull) and save it
+  // so the Telegram bot can route messages to it automatically.
+  if (setupXiq && xiqReady) {
+    try {
+      const agentsRes = await fetch('http://localhost:4000/agents', { headers: registryAuthHeader });
+      const agentsJson = (await agentsRes.json()) as { ok: boolean; data?: Array<{ id: string; name: string }> };
+      const xiqAgent = (agentsJson.data ?? []).find(
+        (a) => a.name === 'ExtremeCloud IQ Monitor' || a.name === 'ExtremeCloud IQ',
+      );
+      if (xiqAgent) {
+        writeEnv({ TELEGRAM_DEFAULT_AGENT_ID: xiqAgent.id });
+      }
+    } catch { /* non-fatal — can be set manually in .env */ }
   }
 
   // ── Done ──────────────────────────────────────────────────────────────────

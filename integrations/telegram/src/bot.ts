@@ -118,6 +118,9 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
   const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
   const DEFAULT_AGENT_ID = process.env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '';
   const BOT_API_KEY = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+  if (!BOT_API_KEY) {
+    console.warn('[telegram] BEX_BOT_API_KEY not set — API requests will fail. Run: bex init');
+  }
 
   const bot = new Bot<BotContext>(botToken);
   bot.use(session({ initial: (): SessionData => ({}) }));
