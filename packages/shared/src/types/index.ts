@@ -181,6 +181,11 @@ export type SkillManifest = {
   publishedAt: string;
   /** Optional knowledge docs bundled with this skill — installed into KnowledgeStore on pull */
   knowledgeDocs?: SkillManifestKnowledgeDoc[];
+  /** Domain intelligence: entity graph and analysis playbooks for this domain */
+  domainKnowledge?: {
+    entityGraph: Record<string, unknown>;
+    playbooks: Array<Record<string, unknown>>;
+  };
 };
 
 // ─── Agent Charter ────────────────────────────────────────────────────────────

@@ -324,6 +324,13 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
             }),
           )).filter((d): d is NonNullable<typeof d> => d !== null);
 
+          // Bundle domain intelligence (entity graph + playbooks) — doc index intentionally omitted
+          // as URLs are instance-specific and may go stale
+          const domainKnowledgeRecord = await prisma.domainKnowledge.findUnique({ where: { domain: rootDomain } });
+          const entityGraph = (domainKnowledgeRecord?.entityGraph as Record<string, unknown> | null) ?? {};
+          const playbooks = (domainKnowledgeRecord?.playbooks as Array<Record<string, unknown>> | null) ?? [];
+          const hasDomainKnowledge = Object.keys(entityGraph).length > 0 || playbooks.length > 0;
+
           const manifest = {
             domain: skill.domain,
             version: skill.version,
@@ -335,10 +342,11 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
             checksum,
             publishedAt: new Date().toISOString(),
             ...(knowledgeDocs.length > 0 && { knowledgeDocs }),
+            ...(hasDomainKnowledge && { domainKnowledge: { entityGraph, playbooks } }),
           } as import('@bclaw/shared').SkillManifest;
 
           const { url } = await remoteRegistry.publish(manifest);
-          app.log.info({ skillId: request.params.id, domain: skill.domain, registryUrl: url }, 'Skill pushed to standalone registry');
+          app.log.info({ skillId: request.params.id, domain: skill.domain, registryUrl: url, playbooksIncluded: playbooks.length }, 'Skill pushed to standalone registry');
 
           // Store the registry entry locally for lookup
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -349,7 +357,7 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
             update: { name: skill.name, description: skill.description, registryUrl: url, manifest: manifestJson },
           });
 
-          return reply.send(ok({ published: true, skillId: request.params.id, registryUrl: url }));
+          return reply.send(ok({ published: true, skillId: request.params.id, registryUrl: url, playbooksIncluded: playbooks.length }));
         } catch (e) {
           app.log.warn({ err: e }, 'Failed to push to standalone registry — skill marked PUBLISHED locally only');
         }

@@ -145,3 +145,19 @@ Client count summary:
   - **PoxieMoxie**: 12 clients (Embedded OS, Tizen OS, Undetermined)
 
 Total clients: 48.
+
+<!-- 2026-04-21T21:30:57.515Z — AP/SSID Client Monitor (15 min) -->
+Client count summary:
+
+- **Office AP5020**
+  - **OfficeLaan**: 4 clients (Embedded OS)
+
+- **FrontAP3000**
+  - **B13-Home**: 5 clients (Brother Printer, Tizen OS, Android OS, Unknown)
+  - **PoxieMoxie**: 12 clients (Embedded OS, Xbox 360, Undetermined)
+
+- **Beverly Main AP5010**
+  - **B13-Home**: 10 clients (Apple iOS, Android OS, Unknown, Embedded OS)
+  - **PoxieMoxie**: 12 clients (Embedded OS, Tizen OS, Undetermined)
+
+Total clients: 47.

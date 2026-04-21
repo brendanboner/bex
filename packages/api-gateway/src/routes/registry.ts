@@ -18,6 +18,49 @@ async function installKnowledgeDocs(manifest: SkillManifest): Promise<number> {
   return docs.length;
 }
 
+/**
+ * Merge domain knowledge from a manifest into the local DomainKnowledge table.
+ * Playbooks are deduped by name (incoming wins on conflict). Doc index is unchanged
+ * (we don't bundle it — URLs are instance-specific). Entity graph is merged shallowly.
+ */
+async function installDomainKnowledge(manifest: SkillManifest, prisma: PrismaClient): Promise<void> {
+  const dk = manifest.domainKnowledge;
+  if (!dk) return;
+  if (Object.keys(dk.entityGraph).length === 0 && dk.playbooks.length === 0) return;
+
+  const topDomain = manifest.domain.split('.')[0]!;
+  const existing = await prisma.domainKnowledge.findUnique({ where: { domain: topDomain } });
+
+  const existingPlaybooks = (existing?.playbooks as Array<Record<string, unknown>> | null) ?? [];
+  const existingEntityGraph = (existing?.entityGraph as Record<string, unknown> | null) ?? {};
+
+  // Merge playbooks by name (incoming wins)
+  const pbMap = new Map<string, Record<string, unknown>>(
+    existingPlaybooks.map((p) => [String(p['name'] ?? ''), p]),
+  );
+  for (const p of dk.playbooks) {
+    if (p['name']) pbMap.set(p['name'] as string, p);
+  }
+  const mergedPlaybooks = [...pbMap.values()];
+
+  // Merge entity graph shallowly (incoming wins on key conflict)
+  const mergedEntityGraph = { ...existingEntityGraph, ...dk.entityGraph };
+
+  await prisma.domainKnowledge.upsert({
+    where: { domain: topDomain },
+    create: {
+      domain: topDomain,
+      docIndex: [],
+      entityGraph: mergedEntityGraph as Prisma.InputJsonValue,
+      playbooks: mergedPlaybooks as Prisma.InputJsonValue,
+    },
+    update: {
+      entityGraph: mergedEntityGraph as Prisma.InputJsonValue,
+      playbooks: mergedPlaybooks as Prisma.InputJsonValue,
+    },
+  });
+}
+
 /** Read all knowledge docs for a given domain prefix from the local KnowledgeStore. */
 async function readKnowledgeDocsForDomain(skillDomain: string): Promise<SkillManifest['knowledgeDocs']> {
   const store = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
@@ -248,6 +291,9 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
         // Install any bundled knowledge docs
         const docsInstalled = await installKnowledgeDocs(manifest);
 
+        // Merge any bundled domain intelligence (playbooks + entity graph)
+        await installDomainKnowledge(manifest, prisma);
+
         return reply.send(ok({ skillId: skill.id, domain: skill.domain, version: skill.version, docsInstalled }));
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -310,6 +356,9 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
             manifest: manifest as Prisma.InputJsonValue,
           },
         });
+
+        // Merge any bundled domain intelligence (playbooks + entity graph)
+        await installDomainKnowledge(manifest, prisma);
 
         return reply.send(ok({ skillId: skill.id, domain: skill.domain, version: skill.version, name: skill.name }));
       } catch (error) {
