@@ -415,11 +415,15 @@ export async function initCommand(): Promise<void> {
       const { default: fetch } = await import('node-fetch');
       const authHeader = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
 
-      async function storeSystemCred(name: string, value: Record<string, string>): Promise<void> {
+      async function storeSystemCred(
+        name: string,
+        credentialType: 'API_TOKEN' | 'USERNAME_PASSWORD',
+        value: Record<string, string>,
+      ): Promise<void> {
         await fetch('http://localhost:4000/credentials', {
           method: 'POST',
           headers: authHeader,
-          body: JSON.stringify({ name, scope: 'SYSTEM', credentialType: 'API_TOKEN', value }),
+          body: JSON.stringify({ name, scope: 'SYSTEM', credentialType, value }),
         });
       }
 
@@ -428,26 +432,26 @@ export async function initCommand(): Promise<void> {
         : 'AZURE_OPENAI_API_KEY';
       const currentLlmKey = envVars[llmKeyVar];
       if (currentLlmKey) {
-        await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, { [llmKeyVar.toLowerCase()]: currentLlmKey });
+        await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, 'API_TOKEN', { [llmKeyVar.toLowerCase()]: currentLlmKey });
       }
       if (channelEnv['TELEGRAM_BOT_TOKEN']) {
-        await storeSystemCred('system.telegram_bot_token', { telegram_bot_token: channelEnv['TELEGRAM_BOT_TOKEN'] });
+        await storeSystemCred('system.telegram_bot_token', 'API_TOKEN', { telegram_bot_token: channelEnv['TELEGRAM_BOT_TOKEN'] });
       }
       if (domainEnv['XCIQ_USERNAME']) {
-        await storeSystemCred('system.xciq_credentials', {
+        await storeSystemCred('system.xciq_credentials', 'USERNAME_PASSWORD', {
           xciq_username: domainEnv['XCIQ_USERNAME'] ?? '',
           xciq_password: domainEnv['XCIQ_PASSWORD'] ?? '',
         });
       }
       if (domainEnv['XCO_HOST']) {
-        await storeSystemCred('system.xco_credentials', {
+        await storeSystemCred('system.xco_credentials', 'USERNAME_PASSWORD', {
           xco_host: domainEnv['XCO_HOST'] ?? '',
           xco_username: domainEnv['XCO_USERNAME'] ?? '',
           xco_password: domainEnv['XCO_PASSWORD'] ?? '',
         });
       }
       if (channelEnv['TWILIO_ACCOUNT_SID']) {
-        await storeSystemCred('system.twilio_credentials', {
+        await storeSystemCred('system.twilio_credentials', 'API_TOKEN', {
           twilio_account_sid: channelEnv['TWILIO_ACCOUNT_SID'] ?? '',
           twilio_auth_token: channelEnv['TWILIO_AUTH_TOKEN'] ?? '',
           twilio_whatsapp_from: channelEnv['TWILIO_WHATSAPP_FROM'] ?? '',
