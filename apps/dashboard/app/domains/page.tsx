@@ -42,13 +42,14 @@ type DomainKnowledge = {
 };
 
 const DOC_TYPE_COLORS: Record<string, string> = {
-  api_guide:      'bg-blue-100 text-blue-700 border border-blue-200',
-  cli:            'bg-purple-100 text-purple-700 border border-purple-200',
-  troubleshooting:'bg-red-100 text-red-700 border border-red-200',
-  release_notes:  'bg-amber-100 text-amber-700 border border-amber-200',
-  user_guide:     'bg-emerald-100 text-emerald-700 border border-emerald-200',
-  other:          'bg-gray-100 text-gray-600 border border-gray-200',
+  api_guide:       'bg-violet-500/10 text-violet-300 border border-violet-500/20',
+  cli:             'bg-blue-500/10 text-blue-300 border border-blue-500/20',
+  troubleshooting: 'bg-red-500/10 text-red-300 border border-red-500/20',
+  release_notes:   'bg-amber-500/10 text-amber-300 border border-amber-500/20',
+  user_guide:      'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20',
+  other:           'bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-muted))] border border-[rgb(var(--border))]',
 };
+
 
 function JsonEditor({ label, value, onChange }: { label: string; value: unknown; onChange: (v: unknown) => void }) {
   const [text, setText] = useState(() => JSON.stringify(value, null, 2));

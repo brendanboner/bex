@@ -648,6 +648,12 @@ export class OrchestratorService {
       userInput.toLowerCase().match(/\b\w{3,}\b/g) ?? [],
     );
 
+    // Explicit @playbook-name mentions — bypass trigger scoring and inject directly.
+    // Users can write "@vlan-ip-range-mapping" or "@client-health-overview" in their message.
+    const atMentions = new Set(
+      (userInput.match(/@([\w-]+)/g) ?? []).map((m) => m.slice(1).toLowerCase()),
+    );
+
     const parts: string[] = [];
 
     for (const rec of records) {
@@ -659,16 +665,21 @@ export class OrchestratorService {
         parts.push(`## Entity Relationships (${rec.domain})\n${JSON.stringify(entityGraph, null, 2)}`);
       }
 
-      // Inject playbooks where ≥2 trigger words appear in the query
+      // Inject playbooks that are explicitly @mentioned OR where ≥2 trigger words appear
       if (Array.isArray(playbooks)) {
         for (const pb of playbooks) {
+          const pbName = String(pb['name'] ?? '').toLowerCase();
+          const pbSlug = pbName.replace(/\s+/g, '-');
+
+          const explicitlyMentioned = atMentions.has(pbName) || atMentions.has(pbSlug);
+
           const triggers = (pb['triggerPatterns'] as string[] | undefined) ?? [];
           const matchCount = triggers.reduce((n, phrase) => {
             const phraseWords = phrase.toLowerCase().match(/\b\w{3,}\b/g) ?? [];
             return n + phraseWords.filter((w) => queryWords.has(w)).length;
           }, 0);
 
-          if (matchCount >= 2) {
+          if (explicitlyMentioned || matchCount >= 2) {
             parts.push(`## Analysis Playbook: ${pb['name']}\n${JSON.stringify(pb, null, 2)}`);
           }
         }
