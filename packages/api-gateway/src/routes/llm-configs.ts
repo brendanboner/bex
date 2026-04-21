@@ -72,18 +72,36 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
     return reply.status(201).send(ok(config));
   });
 
-  // PATCH /llm-configs/:id — update (including setting as default)
+  // PATCH /llm-configs/:id — update (including setting as default and rotating API key)
   app.patch<{ Params: { id: string }; Body: Partial<LLMConfigBody> }>(
     '/llm-configs/:id',
     async (request, reply) => {
       const { id } = request.params;
-      const { name, provider, model, isDefault } = request.body;
+      const { name, provider, model, isDefault, apiKey, baseUrl } = request.body;
 
       const existing = await prisma.lLMConfig.findUnique({ where: { id } });
       if (!existing) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'LLM config not found'));
 
       if (isDefault) {
         await prisma.lLMConfig.updateMany({ where: { id: { not: id } }, data: { isDefault: false } });
+      }
+
+      // Rotate the API key if a new one was provided
+      let credentialId = existing.credentialId ?? undefined;
+      if (apiKey) {
+        if (credentialId) {
+          // Delete old credential and create new one
+          await vault.delete(credentialId).catch(() => {});
+        }
+        const cred = await vault.create({
+          name: `llm-${(name ?? existing.name).toLowerCase().replace(/\s+/g, '-')}-key`,
+          description: `API key for LLM config: ${name ?? existing.name}`,
+          scope: 'SYSTEM',
+          credentialType: 'API_TOKEN',
+          allowedAgentPermissions: [],
+          value: { apiKey },
+        }, undefined);
+        credentialId = cred.id;
       }
 
       const updated = await prisma.lLMConfig.update({
@@ -93,6 +111,8 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
           ...(provider && { provider }),
           ...(model && { model }),
           ...(isDefault !== undefined && { isDefault }),
+          ...(baseUrl !== undefined && { baseUrl }),
+          ...(credentialId && credentialId !== existing.credentialId && { credentialId }),
         },
       });
 

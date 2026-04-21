@@ -20,13 +20,21 @@ export async function endpointRoutes(app: FastifyInstance, prisma: PrismaClient)
     if (!parsed.success) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
     }
-    const endpoint = await prisma.endpoint.create({ data: {
-      name: parsed.data.name,
-      baseUrl: parsed.data.baseUrl,
-      tags: parsed.data.tags,
-      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
-      ...(parsed.data.notes !== undefined ? { notes: parsed.data.notes } : {}),
-    } });
+    const { name, description, baseUrl, tags, aliases, notes, sshEnabled, hostname, sshPort, credentialId } = parsed.data;
+    const endpoint = await prisma.endpoint.create({
+      data: {
+        name,
+        ...(description !== undefined ? { description } : {}),
+        ...(baseUrl !== undefined ? { baseUrl } : {}),
+        tags,
+        aliases,
+        ...(notes !== undefined ? { notes } : {}),
+        sshEnabled: sshEnabled ?? false,
+        ...(hostname !== undefined ? { hostname } : {}),
+        sshPort: sshPort ?? 22,
+        ...(credentialId !== undefined ? { credentialId } : {}),
+      },
+    });
     return reply.status(201).send(ok(endpoint));
   });
 

@@ -40,8 +40,12 @@ const TG_BOT_TOKEN    = process.env['TELEGRAM_BOT_TOKEN'] ?? '';
 const TG_CHAT_ID      = process.env['TELEGRAM_APPROVAL_CHAT_ID'] ?? '';
 
 // Credentials from env (preferred) or discovered from DB
-const XCIQ_USERNAME   = process.env['XCIQ_USERNAME'] ?? '';
-const XCIQ_PASSWORD   = process.env['XCIQ_PASSWORD'] ?? '';
+const XIQ_USERNAME    = process.env['XIQ_USERNAME'] ?? process.env['XCIQ_USERNAME'] ?? '';
+const XIQ_PASSWORD    = process.env['XIQ_PASSWORD'] ?? process.env['XCIQ_PASSWORD'] ?? '';
+
+// LLM config — use caller's provider so agents match the rest of the platform
+const LLM_PROVIDER    = (process.env['LLM_PROVIDER'] ?? 'openai') as 'openai' | 'anthropic' | 'azure' | 'ollama';
+const LLM_MODEL       = process.env['LLM_MODEL'] ?? 'gpt-4o';
 
 // Tags to consolidate into fewer meaningful skills instead of one-per-tag
 const TAG_GROUPS: Record<string, string[]> = {
@@ -103,12 +107,12 @@ async function main() {
 
   console.log(`  Found ${Object.keys((spec.paths ?? {}) as Record<string, unknown>).length} paths`);
 
-  // ── 2. Resolve the XCIQ credential ───────────────────────────────────────
+  // ── 2. Resolve the XIQ credential ────────────────────────────────────────
   let credentialId: string;
 
-  if (XCIQ_USERNAME && XCIQ_PASSWORD) {
+  if (XIQ_USERNAME && XIQ_PASSWORD) {
     // Env vars provided — upsert a credential
-    const credName = `ExtremeCloud IQ (${XCIQ_USERNAME})`;
+    const credName = `ExtremeCloud IQ (${XIQ_USERNAME})`;
     const existingCred = await prisma.credential.findFirst({
       where: { name: credName },
       select: { id: true },
@@ -119,11 +123,11 @@ async function main() {
     } else {
       const cred = await vault.create({
         name: credName,
-        description: `ExtremeCloud IQ credentials for ${XCIQ_USERNAME}`,
+        description: `ExtremeCloud IQ credentials for ${XIQ_USERNAME}`,
         scope: 'SYSTEM',
         credentialType: 'USERNAME_PASSWORD',
-        value: { username: XCIQ_USERNAME, password: XCIQ_PASSWORD },
-        allowedAgentPermissions: ['xciq:read', 'xciq:write', '*'],
+        value: { username: XIQ_USERNAME, password: XIQ_PASSWORD },
+        allowedAgentPermissions: ['xiq:read', 'xiq:write', '*'],
       });
       credentialId = cred.id;
       console.log(`✔ Created credential: ${credentialId}`);
@@ -147,7 +151,7 @@ async function main() {
       console.log(`✔ Using existing credential "${existingCred.name}": ${credentialId}`);
     } else {
       console.error('❌ No XIQ credential found.\n');
-      console.error('   Either set env vars:  XCIQ_USERNAME=you@company.com XCIQ_PASSWORD=yourpass');
+      console.error('   Either set env vars:  XIQ_USERNAME=you@company.com XIQ_PASSWORD=yourpass');
       console.error('   Or add a credential in the dashboard (Vault → New Credential, type: USERNAME_PASSWORD,');
       console.error('   name containing "XIQ" or "ExtremeCloud IQ") before running this script.');
       process.exit(1);
@@ -168,9 +172,9 @@ async function main() {
   const agentPayload = {
     name: 'ExtremeCloud IQ Monitor',
     description: 'Full-featured ExtremeCloud IQ agent: manage devices, clients, VLANs, SSIDs, policies, and more.',
-    llmProvider: 'openai' as const,
-    llmModel: 'gpt-4o',
-    permissions: ['xciq:read', 'xciq:write', '*'],
+    llmProvider: LLM_PROVIDER,
+    llmModel: LLM_MODEL,
+    permissions: ['xiq:read', 'xiq:write', '*'],
     persona: {
       systemPrompt: `You are a comprehensive ExtremeCloud IQ network assistant with full API access.
 
@@ -229,7 +233,7 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
       specUrl: XCIQ_SPEC_URL,
       baseUrl: XCIQ_BASE_URL,
       loginUrl: XCIQ_LOGIN_URL,
-      handlerType: 'xciq_http_call',
+      handlerType: 'xiq_http_call',
       domainPrefix: DOMAIN_PREFIX,
       includeTags: tags,
       maxToolsPerSkill: 35,

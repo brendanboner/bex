@@ -198,6 +198,61 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
     },
   );
 
+  // GET /setup/notifications — return current channel config (sensitive fields masked)
+  app.get('/setup/notifications', async (_request, reply) => {
+    const { fetch } = await import('undici');
+    const channels = ['telegram', 'teams', 'whatsapp'] as const;
+    const result: Record<string, unknown> = { activeChannel: process.env['DEFAULT_APPROVAL_CHANNEL'] ?? null };
+
+    for (const ch of channels) {
+      const cred = await prisma.credential.findFirst({
+        where: { name: `bex.channel.${ch}` },
+        select: { id: true },
+      });
+      if (!cred) continue;
+
+      let raw: Record<string, string> = {};
+      try {
+        const resolved = await vault.resolve(cred.id, []);
+        raw = resolved as Record<string, string>;
+      } catch { continue; }
+
+      if (ch === 'telegram') {
+        const token = raw['TELEGRAM_BOT_TOKEN'] ?? raw['botToken'] ?? '';
+        let botName: string | undefined;
+        if (token) {
+          try {
+            const r = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(5000) });
+            if (r.ok) {
+              const j = (await r.json()) as { result?: { username?: string; first_name?: string } };
+              botName = j.result?.username ? `@${j.result.username}` : j.result?.first_name;
+            }
+          } catch { /* non-fatal */ }
+        }
+        result[ch] = {
+          configured: true,
+          botToken: token ? '••••••' : null,
+          chatId: raw['TELEGRAM_APPROVAL_CHAT_ID'] ?? raw['chatId'] ?? null,
+          botName,
+        };
+      } else if (ch === 'teams') {
+        const url = raw['TEAMS_WEBHOOK_URL'] ?? raw['webhookUrl'] ?? '';
+        result[ch] = {
+          configured: true,
+          webhookUrl: url ? url.slice(0, 40) + '…' : null,
+        };
+      } else if (ch === 'whatsapp') {
+        result[ch] = {
+          configured: true,
+          twilioSid: (raw['TWILIO_ACCOUNT_SID'] ?? raw['twilioSid']) ? '••••••' : null,
+          fromNumber: raw['TWILIO_WHATSAPP_FROM'] ?? raw['fromNumber'] ?? null,
+        };
+      }
+    }
+
+    return reply.send({ ok: true, data: result });
+  });
+
   // POST /setup/notifications — wizard step: configure notification channel (authenticated)
   app.post<{ Body: { channel: string; [key: string]: unknown } }>(
     '/setup/notifications',
@@ -206,14 +261,18 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       if (!channel) return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'channel is required' } });
 
       if (channel !== 'dashboard') {
-        await vault.create({
-          name: `bex.channel.${channel}`,
-          description: `${channel} channel config`,
-          scope: 'SYSTEM',
-          credentialType: 'API_TOKEN',
-          allowedAgentPermissions: [],
-          value: channelConfig as Record<string, string>,
-        }, undefined);
+      const credName = `bex.channel.${channel}`;
+      // Upsert: delete existing then recreate with new values
+      const existing = await prisma.credential.findFirst({ where: { name: credName }, select: { id: true } });
+      if (existing) await vault.delete(existing.id);
+      await vault.create({
+        name: credName,
+        description: `${channel} channel config`,
+        scope: 'SYSTEM',
+        credentialType: 'API_TOKEN',
+        allowedAgentPermissions: [],
+        value: channelConfig as Record<string, string>,
+      }, undefined);
       }
 
       return reply.send({ ok: true, data: { channel } });

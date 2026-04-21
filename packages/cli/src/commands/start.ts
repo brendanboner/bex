@@ -138,5 +138,6 @@ export async function startCommand(args: string[] = []): Promise<void> {
   console.log(chalk.bold('  │') + chalk.dim('  bex start dashboard  — rebuild + restart UI     ') + chalk.bold('│'));
   console.log(chalk.bold('  └──────────────────────────────────────────────────┘'));
   console.log('');
+  process.exit(0);
 }
 

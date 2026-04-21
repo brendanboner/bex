@@ -10,7 +10,7 @@ const SYSTEM_CREDENTIAL_MAP: Record<string, string[]> = {
   'system.anthropic_api_key':     ['ANTHROPIC_API_KEY'],
   'system.azure_openai_api_key':  ['AZURE_OPENAI_API_KEY'],
   'system.telegram_bot_token':    ['TELEGRAM_BOT_TOKEN'],
-  'system.xciq_credentials':      ['XCIQ_USERNAME', 'XCIQ_PASSWORD'],
+  'system.xiq_credentials':       ['XIQ_USERNAME', 'XIQ_PASSWORD'],
   'system.xco_credentials':       ['XCO_HOST', 'XCO_USERNAME', 'XCO_PASSWORD'],
   'system.twilio_credentials':    ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM', 'WHATSAPP_APPROVAL_TO'],
 };

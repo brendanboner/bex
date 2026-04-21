@@ -14,17 +14,20 @@ const root  = __dirname;
 require('dotenv').config({ path: path.join(root, '.env') });
 
 const sharedEnv = {
-  DATABASE_URL:         process.env.DATABASE_URL,
-  REDIS_URL:            process.env.REDIS_URL,
-  JWT_SECRET:           process.env.JWT_SECRET,
-  CREDENTIAL_VAULT_KEY: process.env.CREDENTIAL_VAULT_KEY,
-  OPENAI_API_KEY:       process.env.OPENAI_API_KEY   ?? '',
-  ANTHROPIC_API_KEY:    process.env.ANTHROPIC_API_KEY ?? '',
-  CORS_ORIGIN:          process.env.CORS_ORIGIN      ?? 'http://localhost:3000',
-  SKILL_REGISTRY_URL:   process.env.SKILL_REGISTRY_URL ?? 'http://localhost:5050',
-  SKILL_REGISTRY_TOKEN: process.env.SKILL_REGISTRY_TOKEN ?? 'bex-registry-dev',
-  KNOWLEDGE_BASE_DIR:   process.env.KNOWLEDGE_BASE_DIR ?? './knowledge',
-  KNOWLEDGE_DIR:        process.env.KNOWLEDGE_DIR ?? './knowledge',
+  DATABASE_URL:          process.env.DATABASE_URL,
+  REDIS_URL:             process.env.REDIS_URL,
+  JWT_SECRET:            process.env.JWT_SECRET,
+  CREDENTIAL_VAULT_KEY:  process.env.CREDENTIAL_VAULT_KEY,
+  // LLM API keys are NOT passed here — loadSystemSecrets() injects them from
+  // the credential vault at service startup (see @bclaw/credential-vault).
+  CORS_ORIGIN:           process.env.CORS_ORIGIN      ?? 'http://localhost:3000',
+  SKILL_REGISTRY_URL:    process.env.SKILL_REGISTRY_URL ?? 'http://localhost:5050',
+  SKILL_REGISTRY_TOKEN:  process.env.SKILL_REGISTRY_TOKEN ?? 'bex-registry-dev',
+  KNOWLEDGE_BASE_DIR:    process.env.KNOWLEDGE_BASE_DIR ?? './knowledge',
+  KNOWLEDGE_DIR:         process.env.KNOWLEDGE_DIR ?? './knowledge',
+  TELEGRAM_APPROVAL_CHAT_ID: process.env.TELEGRAM_APPROVAL_CHAT_ID ?? '',
+  BEX_XIQ_ENABLED: process.env.BEX_XIQ_ENABLED ?? '',
+  BEX_XCO_ENABLED: process.env.BEX_XCO_ENABLED ?? '',
 };
 
 module.exports = {
@@ -36,6 +39,7 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      merge_logs: true,
       error_file: path.join(root, 'logs/skill-registry.error.log'),
       out_file:   path.join(root, 'logs/skill-registry.log'),
       env: {
@@ -51,6 +55,7 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      merge_logs: true,
       error_file: path.join(root, 'logs/api-gateway.error.log'),
       out_file:   path.join(root, 'logs/api-gateway.log'),
       env: { ...sharedEnv },
@@ -62,6 +67,7 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      merge_logs: true,
       error_file: path.join(root, 'logs/admin-api.error.log'),
       out_file:   path.join(root, 'logs/admin-api.log'),
       env: {
@@ -79,6 +85,7 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      merge_logs: true,
       error_file: path.join(root, 'logs/worker.error.log'),
       out_file:   path.join(root, 'logs/worker.log'),
       env: { ...sharedEnv },
@@ -90,6 +97,7 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      merge_logs: true,
       error_file: path.join(root, 'logs/dashboard.error.log'),
       out_file:   path.join(root, 'logs/dashboard.log'),
       env: {
@@ -106,16 +114,19 @@ module.exports = {
       instances: 1,
       autorestart: true,
       watch: false,
+      merge_logs: true,
       error_file: path.join(root, 'logs/telegram-bot.error.log'),
       out_file:   path.join(root, 'logs/telegram-bot.log'),
       env: {
-        TELEGRAM_BOT_TOKEN:         process.env.TELEGRAM_BOT_TOKEN ?? '',
+        // TELEGRAM_BOT_TOKEN is loaded from the credential vault at startup
+        // by loadSystemSecrets() — not passed via env.
         TELEGRAM_DEFAULT_AGENT_ID:  process.env.TELEGRAM_DEFAULT_AGENT_ID ?? '',
         BEX_BOT_API_KEY:            process.env.BEX_BOT_API_KEY ?? process.env.BEX_ADMIN_TOKEN ?? '',
         API_GATEWAY_URL:            'http://localhost:4000',
         DATABASE_URL:               process.env.DATABASE_URL,
         REDIS_URL:                  process.env.REDIS_URL,
         JWT_SECRET:                 process.env.JWT_SECRET,
+        CREDENTIAL_VAULT_KEY:       process.env.CREDENTIAL_VAULT_KEY,
       },
     },
   ],

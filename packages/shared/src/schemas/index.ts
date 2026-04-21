@@ -144,9 +144,15 @@ export const CreateAgentRequestSchema = z.object({
 export const EndpointSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).optional(),
-  baseUrl: z.string().url(),
+  baseUrl: z.string().url().optional(),
   tags: z.array(z.string()).default([]),
+  aliases: z.array(z.string()).default([]),
   notes: z.string().optional(),
+  // SSH fields (optional)
+  sshEnabled: z.boolean().default(false),
+  hostname: z.string().optional(),
+  sshPort: z.number().int().min(1).max(65535).default(22),
+  credentialId: z.string().optional(),
 });
 
 // ─── Scheduled Job ────────────────────────────────────────────────────────────

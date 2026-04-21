@@ -105,9 +105,12 @@ export async function waitForService(
 ): Promise<boolean> {
   const start = Date.now();
   const { default: fetch } = await import('node-fetch');
+  const http = await import('node:http');
+  // Use a non-keep-alive agent so connections don't hold the event loop open
+  const agent = new http.Agent({ keepAlive: false });
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(2000), agent });
       if (res.ok) {
         printSuccess(`${label} ready`);
         return true;
@@ -144,14 +147,11 @@ export function startLocalServices(root: string): void {
   mkdirSync(resolve(root, 'logs'), { recursive: true });
   ensureDashboardBuilt(root);
   const eco = resolve(root, ECOSYSTEM_FILE);
-  // If pm2 already knows about bex apps, restart them; otherwise start fresh.
-  const existing = spawnSync('pm2', ['id', 'bex-api'], { stdio: 'pipe', encoding: 'utf-8' });
-  const alreadyRunning = existing.stdout?.includes('bex-api');
-  if (alreadyRunning) {
-    spawnSync('pm2', ['restart', eco], { stdio: 'inherit', cwd: root });
-  } else {
-    spawnSync('pm2', ['start', eco], { stdio: 'inherit', cwd: root });
-  }
+  // Always delete existing pm2 entries before starting — this ensures stale
+  // script paths (e.g. from a renamed project directory) are never reused.
+  spawnSync('pm2', ['delete', 'bex-api', 'bex-registry', 'bex-admin', 'bex-worker', 'bex-dashboard', 'bex-telegram'],
+    { stdio: 'pipe', cwd: root });
+  spawnSync('pm2', ['start', eco], { stdio: 'inherit', cwd: root });
 }
 
 /** Stop all bex services via pm2. */

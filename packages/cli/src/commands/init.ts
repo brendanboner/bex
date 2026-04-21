@@ -198,19 +198,19 @@ export async function initCommand(): Promise<void> {
 
   const domainEnv: Record<string, string> = {};
 
-  const setupXiq = await confirm({ message: 'Configure ExtremeCloud IQ (XIQ)?', default: hasKey('XCIQ_USERNAME') });
+  const setupXiq = await confirm({ message: 'Configure ExtremeCloud IQ (XIQ)?', default: hasKey('XIQ_USERNAME') });
   if (setupXiq) {
     console.log(chalk.dim('  XIQ credentials are used to query your wireless network via the XIQ cloud API.\n'));
-    domainEnv['XCIQ_USERNAME'] = await input({
-      message: `XIQ username (email):${hint('XCIQ_USERNAME')}`,
-      default: prev['XCIQ_USERNAME'] ?? '',
+    domainEnv['XIQ_USERNAME'] = await input({
+      message: `XIQ username (email):${hint('XIQ_USERNAME')}`,
+      default: prev['XIQ_USERNAME'] ?? '',
       validate: (v: string) => v.includes('@') || 'Enter a valid email',
     });
-    if (hasKey('XCIQ_PASSWORD')) {
-      const change = await confirm({ message: `XIQ password${hintSecret('XCIQ_PASSWORD')} — change it?`, default: false });
-      domainEnv['XCIQ_PASSWORD'] = change ? await password({ message: 'XIQ password:' }) : prev['XCIQ_PASSWORD'] ?? '';
+    if (hasKey('XIQ_PASSWORD')) {
+      const change = await confirm({ message: `XIQ password${hintSecret('XIQ_PASSWORD')} — change it?`, default: false });
+      domainEnv['XIQ_PASSWORD'] = change ? await password({ message: 'XIQ password:' }) : prev['XIQ_PASSWORD'] ?? '';
     } else {
-      domainEnv['XCIQ_PASSWORD'] = await password({ message: 'XIQ password:' });
+      domainEnv['XIQ_PASSWORD'] = await password({ message: 'XIQ password:' });
     }
   }
 
@@ -283,12 +283,8 @@ export async function initCommand(): Promise<void> {
     JWT_SECRET: jwtSecret,
     CREDENTIAL_VAULT_KEY: vaultKey,
     LLM_PROVIDER: llmProvider,
-    // LLM API keys written temporarily so services can start; moved to vault below
-    OPENAI_API_KEY: llmProvider === 'openai' ? llmApiKey : (prev['OPENAI_API_KEY'] ?? ''),
-    ANTHROPIC_API_KEY: llmProvider === 'anthropic' ? llmApiKey : (prev['ANTHROPIC_API_KEY'] ?? ''),
-    AZURE_OPENAI_API_KEY: llmProvider === 'azure' ? llmApiKey : (prev['AZURE_OPENAI_API_KEY'] ?? ''),
-    OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : (prev['OLLAMA_BASE_URL'] ?? ''),
     LLM_MODEL: llmModel,
+    OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : (prev['OLLAMA_BASE_URL'] ?? ''),
     PORT: '4000',
     ADMIN_API_PORT: '4001',
     DASHBOARD_PORT: '3000',
@@ -300,11 +296,16 @@ export async function initCommand(): Promise<void> {
     CORS_ORIGIN: 'http://localhost:3000',
     RATE_LIMIT_MAX: '100',
     DEFAULT_APPROVAL_CHANNEL: channel !== 'dashboard' ? channel : '',
-    ...channelEnv,
-    ...domainEnv,
+    // Non-sensitive channel metadata (approval routing — not secrets)
+    ...(channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] && { TELEGRAM_APPROVAL_CHAT_ID: channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] }),
     BEX_ADMIN_EMAIL: adminEmail,
-    BEX_ADMIN_PASSWORD: resolvedAdminPassword,
     BEX_CHANNEL: channel,
+    // Integration flags — tell api-gateway which domains are configured so
+    // provision.ts can create default agents even before credentials are in vault
+    ...(setupXiq && { BEX_XIQ_ENABLED: 'true' }),
+    ...(setupXco && { BEX_XCO_ENABLED: 'true' }),
+    // All sensitive credentials (LLM keys, tokens, passwords) go to the
+    // credential vault only — never stored in .env.
   };
 
   writeEnv(envVars);
@@ -388,6 +389,7 @@ export async function initCommand(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         adminEmail, adminPassword: resolvedAdminPassword, llmProvider, llmApiKey, llmModel, channel,
+        channelConfig: channelEnv,
         ...(ollamaBaseUrl && { ollamaBaseUrl }),
       }),
     });
@@ -410,7 +412,7 @@ export async function initCommand(): Promise<void> {
 
   // ── Store sensitive credentials in vault, remove from .env ───────────────
   if (adminToken) {
-    const vaultSpinner = ora('Moving secrets to credential vault…').start();
+    const vaultSpinner = ora('Storing secrets in credential vault…').start();
     try {
       const { default: fetch } = await import('node-fetch');
       const authHeader = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
@@ -427,20 +429,21 @@ export async function initCommand(): Promise<void> {
         });
       }
 
+      // Store LLM key under the well-known system name so loadSystemSecrets
+      // can inject it into process.env on subsequent service restarts.
       const llmKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
         : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
         : 'AZURE_OPENAI_API_KEY';
-      const currentLlmKey = envVars[llmKeyVar];
-      if (currentLlmKey) {
-        await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, 'API_TOKEN', { [llmKeyVar.toLowerCase()]: currentLlmKey });
+      if (llmApiKey) {
+        await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, 'API_TOKEN', { [llmKeyVar.toLowerCase()]: llmApiKey });
       }
       if (channelEnv['TELEGRAM_BOT_TOKEN']) {
         await storeSystemCred('system.telegram_bot_token', 'API_TOKEN', { telegram_bot_token: channelEnv['TELEGRAM_BOT_TOKEN'] });
       }
-      if (domainEnv['XCIQ_USERNAME']) {
-        await storeSystemCred('system.xciq_credentials', 'USERNAME_PASSWORD', {
-          xciq_username: domainEnv['XCIQ_USERNAME'] ?? '',
-          xciq_password: domainEnv['XCIQ_PASSWORD'] ?? '',
+      if (domainEnv['XIQ_USERNAME']) {
+        await storeSystemCred('system.xiq_credentials', 'USERNAME_PASSWORD', {
+          xiq_username: domainEnv['XIQ_USERNAME'] ?? '',
+          xiq_password: domainEnv['XIQ_PASSWORD'] ?? '',
         });
       }
       if (domainEnv['XCO_HOST']) {
@@ -459,23 +462,10 @@ export async function initCommand(): Promise<void> {
         });
       }
 
-      // Strip sensitive keys from .env — vault is now the source of truth
-      const keysToRemove = [
-        'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'AZURE_OPENAI_API_KEY',
-        'TELEGRAM_BOT_TOKEN', 'XCIQ_USERNAME', 'XCIQ_PASSWORD',
-        'XCO_HOST', 'XCO_USERNAME', 'XCO_PASSWORD',
-        'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM', 'WHATSAPP_APPROVAL_TO',
-        'BEX_ADMIN_PASSWORD',
-      ];
-      const cleanedVars = Object.fromEntries(
-        Object.entries(envVars).filter(([k]) => !keysToRemove.includes(k)),
-      );
-      writeEnv(cleanedVars);
-
-      vaultSpinner.succeed('Secrets stored in vault — removed from .env');
+      vaultSpinner.succeed('Secrets stored in credential vault');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      vaultSpinner.warn(`Could not store in vault (${message}) — secrets remain in .env`);
+      vaultSpinner.warn(`Could not store in vault (${message}) — re-run bex init to retry`);
     }
   }
 
@@ -506,7 +496,7 @@ export async function initCommand(): Promise<void> {
     label: string,
     domain: string,
     version = '1.0.0',
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     console.log('');
     const sp = ora(`Installing ${label} skill from registry…`).start();
     try {
@@ -514,35 +504,199 @@ export async function initCommand(): Promise<void> {
         `http://localhost:4000/registry/install/${encodeURIComponent(domain)}/${encodeURIComponent(version)}`,
         { method: 'POST', headers: { 'Content-Type': 'application/json', ...registryAuthHeader } },
       );
-      const json = (await res.json()) as { ok: boolean; error?: unknown };
-      if (json.ok) {
-        sp.succeed(`${label} skill installed from registry`);
-        return true;
+      const json = (await res.json()) as { ok: boolean; data?: { skillId?: string }; error?: unknown };
+      if (json.ok && json.data?.skillId) {
+        sp.succeed(`${label} skill installed`);
+        return json.data.skillId;
       }
       sp.warn(`${label} not in registry — build manually: bex skill build`);
-      return false;
+      return null;
     } catch {
       sp.warn(`Could not reach registry — build manually: bex skill build`);
+      return null;
+    }
+  }
+
+  async function createDefaultAgent(opts: {
+    name: string;
+    description: string;
+    systemPrompt: string;
+    skillIds: string[];
+    permissions: string[];
+    posture: 'AUTONOMOUS' | 'SUPERVISED' | 'INTERACTIVE';
+    mandate: string;
+    conductBoundaries: string[];
+  }): Promise<boolean> {
+    if (opts.skillIds.length === 0) return false;
+    const sp = ora(`Creating agent: ${opts.name}…`).start();
+    try {
+      // Create agent
+      const agentRes = await fetch('http://localhost:4000/agents', {
+        method: 'POST',
+        headers: { ...registryAuthHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: opts.name,
+          description: opts.description,
+          llmProvider,
+          llmModel,
+          permissions: opts.permissions,
+          skillIds: opts.skillIds,
+          persona: { systemPrompt: opts.systemPrompt },
+        }),
+      });
+      const agentJson = (await agentRes.json()) as { ok: boolean; data?: { id?: string } };
+      if (!agentJson.ok || !agentJson.data?.id) {
+        sp.warn(`Could not create agent: ${opts.name}`);
+        return false;
+      }
+      const agentId = agentJson.data.id;
+      // Set charter
+      await fetch(`http://localhost:4000/agents/${agentId}/charter`, {
+        method: 'PUT',
+        headers: { ...registryAuthHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mandate: opts.mandate,
+          posture: opts.posture,
+          conductBoundaries: opts.conductBoundaries,
+        }),
+      });
+      sp.succeed(`Agent ready: ${opts.name} (${agentId.slice(-8)})`);
+      return true;
+    } catch {
+      sp.warn(`Could not create agent: ${opts.name}`);
       return false;
     }
   }
+
+  // Derive the LLM API key env var name for passing to subprocesses
+  const llmApiKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
+    : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
+    : 'AZURE_OPENAI_API_KEY';
+  const subprocEnvBase = {
+    ...process.env,
+    DATABASE_URL:          envVars['DATABASE_URL']!,
+    CREDENTIAL_VAULT_KEY:  envVars['CREDENTIAL_VAULT_KEY']!,
+    LLM_PROVIDER:          llmProvider,
+    LLM_MODEL:             llmModel,
+    SKILL_REGISTRY_URL:    envVars['SKILL_REGISTRY_URL'] ?? '',
+    SKILL_REGISTRY_TOKEN:  envVars['SKILL_REGISTRY_TOKEN'] ?? '',
+    ...(llmApiKey ? { [llmApiKeyVar]: llmApiKey } : {}),
+  };
 
   let xiqReady = false;
   let xcoReady = false;
 
   if (setupXiq) {
-    xiqReady = await pullSkillFromRegistry('ExtremeCloud IQ', 'extremecloudiq.networking');
-    if (!xiqReady) {
-      console.log(chalk.dim('  To build from scratch: npx tsx scripts/seed-xciq-full.ts'));
+    // Install all key XIQ skills from registry
+    const xiqDomains = [
+      ['ExtremeCloud IQ — Core',       'extremecloudiq.networking'],
+      ['ExtremeCloud IQ — Devices',    'extremecloudiq.devices'],
+      ['ExtremeCloud IQ — Clients',    'extremecloudiq.clients'],
+      ['ExtremeCloud IQ — Monitoring', 'extremecloudiq.monitoring'],
+      ['ExtremeCloud IQ — Alerts',     'extremecloudiq.alerts.logs'],
+      ['ExtremeCloud IQ — Policies',   'extremecloudiq.network.policy'],
+    ] as const;
+
+    const xiqSkillIds: string[] = [];
+    for (const [label, domain] of xiqDomains) {
+      const skillId = await pullSkillFromRegistry(label, domain);
+      if (skillId) xiqSkillIds.push(skillId);
+    }
+
+    if (xiqSkillIds.length > 0) {
+      // Registry had skills — create a simple agent with them
+      xiqReady = true;
+      await createDefaultAgent({
+        name: 'ExtremeCloud IQ',
+        description: 'Manages and monitors your ExtremeCloud IQ wireless network — devices, clients, alerts, policies, and more.',
+        systemPrompt: `You are a comprehensive ExtremeCloud IQ network assistant.
+
+You can: list and monitor devices, view client connections, check alerts and logs, manage network policies, and more.
+
+IMPORTANT: For any write operation (create, update, delete, push config), always:
+1. Describe exactly what will change
+2. Ask for explicit confirmation before proceeding
+3. Report the outcome clearly
+
+Be concise and clear in your responses.`,
+        skillIds: xiqSkillIds,
+        permissions: ['xiq:read', 'xiq:write'],
+        posture: 'SUPERVISED',
+        mandate: 'Manage and monitor ExtremeCloud IQ. Read operations are autonomous. Write operations require human approval.',
+        conductBoundaries: ['delete:*', 'push:config'],
+      });
+    } else {
+      // Registry doesn't have XIQ skills — build locally from the live OpenAPI spec
+      console.log('');
+      const buildSp = ora('Building ExtremeCloud IQ skills from OpenAPI spec (this may take ~60s)…').start();
+      const buildResult = spawnSync(
+        'npx', ['tsx', 'scripts/seed-xciq-full.ts'],
+        {
+          cwd: root,
+          env: {
+            ...subprocEnvBase,
+            XIQ_USERNAME: domainEnv['XIQ_USERNAME'] ?? '',
+            XIQ_PASSWORD: domainEnv['XIQ_PASSWORD'] ?? '',
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+          encoding: 'utf-8',
+          timeout: 180_000,
+        },
+      );
+      if (buildResult.status === 0 && !buildResult.error) {
+        buildSp.succeed('ExtremeCloud IQ skills built and agent created');
+        xiqReady = true;
+      } else {
+        buildSp.warn('Could not build XIQ skills automatically — run manually: npx tsx scripts/seed-xciq-full.ts');
+        if (buildResult.stderr) console.error(chalk.dim(buildResult.stderr.slice(0, 500)));
+      }
     }
   }
 
   if (setupXco) {
-    const monitorOk = await pullSkillFromRegistry('XCO Monitor', 'networking.extreme-xco.monitor');
-    const opsOk = await pullSkillFromRegistry('XCO Operations', 'networking.extreme-xco.operations');
-    xcoReady = monitorOk && opsOk;
-    if (!xcoReady) {
-      console.log(chalk.dim('  To build from scratch: node scripts/setup-xco.js'));
+    const xcoMonitorId = await pullSkillFromRegistry('XCO Monitor', 'networking.extreme-xco.monitor');
+    const xcoOpsId = await pullSkillFromRegistry('XCO Operations', 'networking.extreme-xco.operations');
+    xcoReady = !!(xcoMonitorId && xcoOpsId);
+
+    if (xcoReady) {
+      const xcoSkillIds = [xcoMonitorId, xcoOpsId].filter(Boolean) as string[];
+      await createDefaultAgent({
+        name: 'ExtremeCloud Orchestrator',
+        description: 'Monitors and manages your ExtremeCloud Orchestrator fabric network — health, alarms, topology, and operations.',
+        systemPrompt: `You are an ExtremeCloud Orchestrator (XCO) network agent.
+
+You can: monitor fabric health and topology, retrieve alarms, check device inventory, validate CLOS topology, detect configuration drift.
+
+Write operations (fabric creation, switch management, alarm management) require explicit approval.
+
+Be concise and technical in your responses.`,
+        skillIds: xcoSkillIds,
+        permissions: ['xco:read', 'xco:write'],
+        posture: 'SUPERVISED',
+        mandate: 'Monitor and manage ExtremeCloud Orchestrator. Read operations are autonomous. Write operations require approval.',
+        conductBoundaries: ['delete:*', 'fabric:reset', 'switch:remove'],
+      });
+    } else {
+      // Registry doesn't have XCO skills — build locally using SkillBuilderService (LLM-driven)
+      console.log('');
+      const buildSp = ora('Building ExtremeCloud Orchestrator skills via LLM (this may take ~90s)…').start();
+      const buildResult = spawnSync(
+        'node', ['scripts/setup-xco.js'],
+        {
+          cwd: root,
+          env: subprocEnvBase,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          encoding: 'utf-8',
+          timeout: 240_000,
+        },
+      );
+      if (buildResult.status === 0 && !buildResult.error) {
+        buildSp.succeed('ExtremeCloud Orchestrator skills built and agents created');
+        xcoReady = true;
+      } else {
+        buildSp.warn('Could not build XCO skills automatically — run manually: node scripts/setup-xco.js');
+        if (buildResult.stderr) console.error(chalk.dim(buildResult.stderr.slice(0, 500)));
+      }
     }
   }
 
@@ -560,8 +714,8 @@ export async function initCommand(): Promise<void> {
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));
   console.log(V('  ║') + D(`  Login: ${adminEmail.padEnd(44)}`) + V('║'));
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));
-  if (setupXiq && xiqReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud IQ skills ready                     ') + V('║'));
-  if (setupXco && xcoReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud Orchestrator skills ready           ') + V('║'));
+  if (setupXiq && xiqReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud IQ agent + skills ready             ') + V('║'));
+  if (setupXco && xcoReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud Orchestrator agent ready            ') + V('║'));
   if (setupXiq && !xiqReady) console.log(V('  ║') + chalk.yellow('  ⚠ XIQ: run npx tsx scripts/seed-xciq-full.ts      ') + V('║'));
   if (setupXco && !xcoReady) console.log(V('  ║') + chalk.yellow('  ⚠ XCO: run node scripts/setup-xco.js              ') + V('║'));
   if (!setupXiq) console.log(V('  ║') + D('  XIQ: re-run bex init or add creds via dashboard    ') + V('║'));
@@ -571,4 +725,5 @@ export async function initCommand(): Promise<void> {
   console.log(V('  ║') + D('  bex logs     — tail all logs                      ') + V('║'));
   console.log(V('  ╚══════════════════════════════════════════════════════╝'));
   console.log('');
+  process.exit(0);
 }

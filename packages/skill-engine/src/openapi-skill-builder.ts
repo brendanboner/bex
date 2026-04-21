@@ -3,7 +3,7 @@
  *
  * Parses an OpenAPI 3.x spec and generates Forge skill definitions grouped by tag.
  * Each tag becomes a skill with tools for each operation.
- * GET operations → handlerType: 'xciq_http_call' (or configurable)
+ * GET operations → handlerType: 'xiq_http_call' (or configurable)
  * POST/PUT/PATCH/DELETE → same handler, but marked as write ops (require approval)
  */
 
@@ -144,7 +144,7 @@ export async function buildSkillsFromOpenApi(opts: BuildSkillsOptions): Promise<
     specUrl,
     baseUrl,
     loginUrl,
-    handlerType = 'xciq_http_call',
+    handlerType = 'xiq_http_call',
     domainPrefix,
     includeTags = [],
     excludeTags = [],

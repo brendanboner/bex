@@ -198,7 +198,7 @@ export class OrchestratorService {
       for (const ep of endpointRows) {
         // If we matched a specific endpoint, only use that endpoint for its tags
         const useThisEp = !matchedEndpoint || matchedEndpoint.name === ep.name;
-        if (useThisEp) {
+        if (useThisEp && ep.baseUrl) {
           for (const tag of ep.tags) {
             hostMap[`${tag}-host`] = ep.baseUrl.replace(/\/$/, '');
           }
@@ -207,6 +207,7 @@ export class OrchestratorService {
       // If no match, fallback to all endpoints (first one wins per tag)
       if (matchedEndpoint === undefined) {
         for (const ep of endpointRows) {
+          if (!ep.baseUrl) continue;
           for (const tag of ep.tags) {
             if (!hostMap[`${tag}-host`]) {
               hostMap[`${tag}-host`] = ep.baseUrl.replace(/\/$/, '');

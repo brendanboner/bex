@@ -376,24 +376,33 @@ model AgentRequest {
 }
 
 // ─── Endpoints / Systems Registry ────────────────────────────────────────────
-// Loaded from a markdown endpoints file; also editable via dashboard
+// Loaded from a markdown endpoints file; also editable via dashboard.
+// Endpoints can be pure REST API endpoints OR SSH-accessible hosts (or both).
 
 model Endpoint {
   id          String   @id @default(cuid())
   name        String   @unique
   description String?
-  baseUrl     String
+  baseUrl     String?
   // Tags for discovery (e.g. ["networking", "extreme-xco"])
   tags        String[] @default([])
   // Natural-language aliases for smart routing (e.g. ["office network", "home xco"])
   aliases     String[] @default([])
-  // Markdown notes / setup info
+  // Markdown notes / connection hints
   notes       String?
+
+  // ── SSH (optional) ────────────────────────────────────────────────────────
+  sshEnabled   Boolean  @default(false)
+  hostname     String?             // FQDN or IP address
+  sshPort      Int      @default(22)
+  credentialId String?             // Reference to vault credential (username + key/password)
+  sshVerified  Boolean  @default(false)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([tags])
+  @@index([sshEnabled])
 }
 
 // ─── Scheduled Jobs ───────────────────────────────────────────────────────────

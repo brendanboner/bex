@@ -12,6 +12,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@bclaw/credential-vault": "*",
     "@bclaw/shared": "*",
     "dotenv": "^16.4.0",
     "grammy": "^1.29.0",

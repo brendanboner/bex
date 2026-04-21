@@ -14,9 +14,7 @@ import {
   LayoutDashboard,
   LogOut,
   MessageSquare,
-  Monitor,
   Network,
-  Package,
   Settings,
   UserPlus,
   Users,
@@ -36,14 +34,12 @@ const navSections = [
   {
     items: [
       { href: '/skills',         label: 'Skill Exchange',  icon: Brain },
-      { href: '/marketplace',    label: 'Marketplace',     icon: Package },
       { href: '/personas',       label: 'Personas',        icon: UserPlus },
     ],
   },
   {
     items: [
       { href: '/scheduled-jobs', label: 'Scheduled',       icon: Calendar },
-      { href: '/targets',        label: 'Targets',         icon: Monitor },
       { href: '/endpoints',      label: 'Endpoints',       icon: Network },
       { href: '/credentials',    label: 'Vault',           icon: Key },
       { href: '/users',          label: 'Users',           icon: Users },

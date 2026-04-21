@@ -38,7 +38,7 @@ type ExtendedSkillTool = SkillTool & {
   config?: Record<string, unknown>;
 };
 
-/** In-process token cache for xciq_http_call — avoids re-logging in on every tool call. */
+/** In-process token cache for xiq_http_call — avoids re-logging in on every tool call. */
 const xciqTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 /** In-process token cache for xco_http_call — per XCO endpoint. */
@@ -174,17 +174,18 @@ export function buildTools(
         const handlerType = skillTool.handlerType;
         const config = skillTool.config ?? {};
 
-        // ── xciq_http_call: ExtremeCloud IQ login-then-call pattern ──────────
+        // ── xiq_http_call: ExtremeCloud IQ login-then-call pattern ───────────
         // Logs in via POST /login with username/password credential, then calls
         // the actual API endpoint using the returned Bearer token.
-        if (handlerType === 'xciq_http_call') {
+        // Accepts both 'xiq_http_call' and legacy 'xciq_http_call' handler names.
+        if (handlerType === 'xiq_http_call' || handlerType === 'xciq_http_call') {
           if (!credentialId) {
-            return { error: 'xciq_http_call requires a credentialId' };
+            return { error: 'xiq_http_call requires a credentialId' };
           }
           const loginUrl = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? '';
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
-          if (!urlTemplate) return { error: 'No urlTemplate configured for xciq_http_call tool' };
+          if (!urlTemplate) return { error: 'No urlTemplate configured for xiq_http_call tool' };
 
           // Quick reachability check — fail fast if endpoint is unreachable (VPN, private net, etc.)
           const reach = await checkReachable(loginUrl);
@@ -214,7 +215,7 @@ export function buildTools(
             accessToken = loginData.access_token ?? null;
             if (!accessToken) return { error: 'No access_token in ExtremeCloud IQ login response' };
             setCachedToken(credentialId, accessToken, loginData.expires_in ?? 82800);
-            console.info(`[xciq_http_call] Logged in, token cached for credential ${credentialId}`);
+            console.info(`[xiq_http_call] Logged in, token cached for credential ${credentialId}`);
           }
 
           // Step 2: Build URL — replace {param} placeholders, drop empty optional params
@@ -243,7 +244,7 @@ export function buildTools(
           // On 401, clear token cache and retry once with a fresh login
           if (apiResp.status === 401) {
             xciqTokenCache.delete(credentialId);
-            console.info(`[xciq_http_call] 401 — clearing token cache, re-logging in`);
+            console.info(`[xiq_http_call] 401 — clearing token cache, re-logging in`);
             const creds2 = await vault.resolve(credentialId, agentPermissions);
             const freshLogin = await fetch(loginUrl, {
               method: 'POST',
@@ -260,7 +261,7 @@ export function buildTools(
             }
           }
           const apiText = await apiResp.text();
-          console.info(`[xciq_http_call] ${method} ${url} → ${apiResp.status}`);
+          console.info(`[xiq_http_call] ${method} ${url} → ${apiResp.status}`);
           if (!apiResp.ok) {
             return { error: `ExtremeCloud IQ API error ${apiResp.status}`, url, detail: apiText.slice(0, 500) };
           }

@@ -10,31 +10,13 @@
 const { PrismaClient } = require('@prisma/client');
 const { SkillBuilderService } = require('@bclaw/skill-engine');
 
-const BASE_URL = 'http://localhost:4000';
-const ADMIN_EMAIL = 'admin@forge.local';
-const ADMIN_PASS = 'Forge2024!';
+// LLM config — read from env so agents match the platform's configured provider
+const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
+const LLM_MODEL    = process.env.LLM_MODEL    || 'gpt-4o';
 
-// ─── API helpers ──────────────────────────────────────────────────────────────
-
-async function login() {
-  const res = await fetch(`${BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASS }),
-  });
-  const d = await res.json();
-  if (!d.ok) throw new Error(`Login failed: ${JSON.stringify(d)}`);
-  return d.data.token;
-}
-
-async function api(token, method, path, body) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  return res.json();
-}
+// Registry config for publishing skills
+const REGISTRY_URL   = process.env.SKILL_REGISTRY_URL   || 'http://localhost:5050';
+const REGISTRY_TOKEN = process.env.SKILL_REGISTRY_TOKEN || 'bex-registry-dev';
 
 function log(msg) { console.log(`\n[XCO-SETUP] ${msg}`); }
 function ok(msg)  { console.log(`  ✓ ${msg}`); }
@@ -202,10 +184,6 @@ async function main() {
   await prisma.$connect();
   ok('Database connected');
 
-  log('Logging in to Forge API...');
-  const token = await login();
-  ok('Authenticated');
-
   // ── 1. Clean up old placeholder skills ──────────────────────────────────────
   log('Cleaning up placeholder XCO skills...');
   const oldSkills = await prisma.skill.findMany({
@@ -220,7 +198,7 @@ async function main() {
   }
 
   // ── 2. Build skills from real API docs ──────────────────────────────────────
-  const builder = new SkillBuilderService(prisma, 'openai');
+  const builder = new SkillBuilderService(prisma, LLM_PROVIDER);
 
   log('Building networking.extreme-xco.monitor skill from real API docs...');
   info('Sources: Auth API + Fault Manager + Fabric Monitor + Inventory + System Monitor');
@@ -264,13 +242,42 @@ Authentication uses POST /auth/token first.`,
   info(`Capabilities: ${opsResult.skill.capabilities.join(', ')}`);
   info(`Tools: ${opsResult.skill.tools.map(t => t.name).join(', ')}`);
 
-  // ── 3. Publish skills ────────────────────────────────────────────────────────
+  // ── 3. Publish skills locally and push to registry ──────────────────────────
   log('Publishing skills...');
   await prisma.skill.updateMany({
     where: { id: { in: [monitorResult.skillId, opsResult.skillId] } },
     data: { status: 'PUBLISHED' },
   });
-  ok('Both skills published');
+  ok('Both skills published locally');
+
+  // Push to skill registry so future installs can pull them
+  for (const result of [monitorResult, opsResult]) {
+    try {
+      const res = await fetch(`${REGISTRY_URL}/registry/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${REGISTRY_TOKEN}`,
+        },
+        body: JSON.stringify({
+          domain: result.skill.domain,
+          name: result.skill.name,
+          version: result.skill.version ?? '1.0.0',
+          description: result.skill.description,
+          capabilities: result.skill.capabilities,
+          systemPrompt: result.skill.systemPrompt,
+          tools: result.skill.tools,
+        }),
+      });
+      if (res.ok) {
+        ok(`Pushed to registry: ${result.skill.domain}`);
+      } else {
+        info(`Registry push skipped (${res.status}) for ${result.skill.domain} — install will work locally`);
+      }
+    } catch {
+      info(`Registry unreachable — ${result.skill.domain} available locally`);
+    }
+  }
 
   // ── 4. Create agents ─────────────────────────────────────────────────────────
   log('Creating XCO Monitor Agent (AUTONOMOUS — read-only)...');
@@ -281,8 +288,8 @@ Authentication uses POST /auth/token first.`,
     data: {
       name: 'XCO Monitor',
       description: 'Autonomous read-only agent for monitoring XCO fabrics, alarms, devices, and service health.',
-      llmProvider: 'openai',
-      llmModel: 'gpt-4o',
+      llmProvider: LLM_PROVIDER,
+      llmModel: LLM_MODEL,
       permissions: ['read:data', 'read:metrics'],
       status: 'ACTIVE',
       ownerId: systemUser.id,
@@ -322,8 +329,8 @@ If you find Critical/Major uncleared alarms, explicitly flag them for escalation
     data: {
       name: 'XCO Operator',
       description: 'Supervised operator agent for XCO. Can read all data and perform alarm management (acknowledge, close). All write operations require explicit approval.',
-      llmProvider: 'openai',
-      llmModel: 'gpt-4o',
+      llmProvider: LLM_PROVIDER,
+      llmModel: LLM_MODEL,
       permissions: ['read:data', 'read:metrics', 'write:alarms'],
       status: 'ACTIVE',
       ownerId: systemUser.id,
@@ -363,8 +370,8 @@ For alarm closure: only close alarms that are genuinely resolved.`,
     data: {
       name: 'XCO Provisioner',
       description: 'Deliberate provisioner for XCO fabric lifecycle management. Creates/deletes fabrics, registers/removes devices. Every action requires explicit step-by-step approval.',
-      llmProvider: 'openai',
-      llmModel: 'gpt-4o',
+      llmProvider: LLM_PROVIDER,
+      llmModel: LLM_MODEL,
       permissions: ['read:data', 'write:fabric', 'write:devices', 'ssh:exec'],
       status: 'ACTIVE',
       ownerId: systemUser.id,

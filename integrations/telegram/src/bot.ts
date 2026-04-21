@@ -4,14 +4,11 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { Bot, Context, session } from 'grammy';
 import type { SessionFlavor } from 'grammy';
 import { fetch } from 'undici';
+import { PrismaClient } from '@prisma/client';
+import { loadSystemSecrets } from '@bclaw/credential-vault';
 
 // Load .env from repo root (two directories up from integrations/telegram/dist)
 dotenvConfig({ path: resolve(__dirname, '../../../.env') });
-
-const BOT_TOKEN = requireEnv('TELEGRAM_BOT_TOKEN');
-const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
-const DEFAULT_AGENT_ID = process.env.TELEGRAM_DEFAULT_AGENT_ID ?? '';
-const BOT_API_KEY = process.env.BEX_BOT_API_KEY ?? process.env.BEX_ADMIN_TOKEN ?? '';
 
 const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
 
@@ -20,10 +17,6 @@ interface SessionData {
 }
 
 type BotContext = Context & SessionFlavor<SessionData>;
-
-const bot = new Bot<BotContext>(BOT_TOKEN);
-
-bot.use(session({ initial: (): SessionData => ({}) }));
 
 // Persist chat IDs so we can send proactive notifications across restarts
 const knownChatIds = new Set<number>(loadPersistedChatIds());
@@ -48,14 +41,95 @@ function trackChatId(chatId: number): void {
   } catch {}
 }
 
-/** Send a message to all known chats */
-export async function broadcastMessage(text: string): Promise<void> {
-  for (const chatId of knownChatIds) {
+const TELEGRAM_MAX = 4096;
+
+function chunkText(text: string, max = TELEGRAM_MAX): string[] {
+  if (text.length <= max) return [text];
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= max) {
+      chunks.push(remaining);
+      break;
+    }
+    let cut = remaining.lastIndexOf('\n', max);
+    if (cut <= 0) cut = max;
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut).replace(/^\n/, '');
+  }
+  return chunks;
+}
+
+function requireEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+  return value;
+}
+
+async function safeSend(ctx: BotContext, text: string): Promise<void> {
+  const toMdV2 = (s: string): string =>
+    s
+      .replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+      .replace(/\\\*\\\*(.*?)\\\*\\\*/g, '*$1*')
+      .replace(/(?<!\\\*)\\\*((?!\\\*).*?)\\\*/g, '_$1_');
+
+  for (const chunk of chunkText(text)) {
     try {
-      await bot.api.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-    } catch {}
+      await ctx.reply(toMdV2(chunk), { parse_mode: 'MarkdownV2' });
+    } catch {
+      const plain = chunk.replace(/[*_`[\]]/g, '');
+      try {
+        await ctx.reply(plain);
+      } catch (err) {
+        console.error('[telegram] Failed to send message:', err);
+      }
+    }
   }
 }
+
+// ─── Async startup: load vault secrets, then initialize bot ──────────────────
+
+(async () => {
+  // TELEGRAM_BOT_TOKEN is stored in the credential vault during `bex init`.
+  // If not already in env, load from vault with retries — the token may not
+  // be available yet if the bot starts before init completes.
+  let botToken: string | undefined = process.env['TELEGRAM_BOT_TOKEN'];
+  if (!botToken) {
+    console.warn('[telegram] TELEGRAM_BOT_TOKEN not in env — loading from credential vault...');
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const prisma = new PrismaClient();
+      try {
+        await loadSystemSecrets(prisma);
+      } finally {
+        await prisma.$disconnect();
+      }
+      botToken = process.env['TELEGRAM_BOT_TOKEN'];
+      if (botToken) break;
+      console.warn(`[telegram] Token not in vault yet (attempt ${attempt + 1}/30) — retrying in 10s...`);
+      await new Promise((r) => setTimeout(r, 10_000));
+    }
+  }
+
+  if (!botToken) {
+    console.error('[telegram] TELEGRAM_BOT_TOKEN not found after 30 attempts. Run: bex init');
+    process.exit(1);
+  }
+
+  const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
+  const DEFAULT_AGENT_ID = process.env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '';
+  const BOT_API_KEY = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+
+  const bot = new Bot<BotContext>(botToken);
+  bot.use(session({ initial: (): SessionData => ({}) }));
+
+  /** Send a message to all known chats */
+  async function broadcastMessage(text: string): Promise<void> {
+    for (const chatId of knownChatIds) {
+      try {
+        await bot.api.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+      } catch {}
+    }
+  }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
@@ -343,30 +417,6 @@ async function backgroundPoll(chatId: number, requestId: string): Promise<void> 
   );
 }
 
-const TELEGRAM_MAX = 4096;
-
-/**
- * Split a string into chunks of at most `max` characters, preferring to
- * break at newlines so responses stay readable.
- */
-function chunkText(text: string, max = TELEGRAM_MAX): string[] {
-  if (text.length <= max) return [text];
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= max) {
-      chunks.push(remaining);
-      break;
-    }
-    // Try to break at the last newline within the window
-    let cut = remaining.lastIndexOf('\n', max);
-    if (cut <= 0) cut = max; // no newline found — hard cut
-    chunks.push(remaining.slice(0, cut));
-    remaining = remaining.slice(cut).replace(/^\n/, '');
-  }
-  return chunks;
-}
-
 /**
  * Send directly to a chat ID (not via ctx) — used from background poller.
  * Falls back to plain text if MarkdownV2 parsing fails. Chunks long messages.
@@ -476,40 +526,7 @@ startPolling().catch((e) => {
   process.exit(1);
 });
 
-function requireEnv(key: string): string {
-  const value = process.env[key];
-  if (!value) throw new Error(`Missing required environment variable: ${key}`);
-  return value;
-}
-
-/**
- * Send a message to Telegram safely. LLM output may contain Markdown that
- * doesn't parse cleanly (e.g. **bold** vs *bold*, unmatched backticks).
- * Try MarkdownV2 first (with escaping), fall back to plain text on error.
- * Chunks messages that exceed Telegram's 4096-character limit.
- */
-async function safeSend(ctx: BotContext, text: string): Promise<void> {
-  // Convert common Markdown patterns to MarkdownV2 and escape special chars
-  const toMdV2 = (s: string): string =>
-    s
-      // Escape all MarkdownV2 reserved chars except those we use for formatting
-      .replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
-      // Convert **bold** → *bold* (MarkdownV2 uses single * for bold)
-      .replace(/\\\*\\\*(.*?)\\\*\\\*/g, '*$1*')
-      // Convert *italic* that are real italic (single *) back
-      .replace(/(?<!\\\*)\\\*((?!\\\*).*?)\\\*/g, '_$1_');
-
-  for (const chunk of chunkText(text)) {
-    try {
-      await ctx.reply(toMdV2(chunk), { parse_mode: 'MarkdownV2' });
-    } catch {
-      // Fall back to plain text — strip any remaining markdown symbols
-      const plain = chunk.replace(/[*_`[\]]/g, '');
-      try {
-        await ctx.reply(plain);
-      } catch (err) {
-        console.error('[telegram] Failed to send message:', err);
-      }
-    }
-  }
-}
+})().catch((e) => {
+  console.error('[telegram] Fatal startup error:', e);
+  process.exit(1);
+});

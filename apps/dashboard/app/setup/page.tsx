@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bot, Building2, CheckCircle2, Cloud, Edit2, Loader2,
-  Plus, Send, Server, Smartphone, Star, Trash2,
+  Plus, Send, Server, Smartphone, Star, Trash2, KeyRound,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -18,10 +18,17 @@ type LLMConfigRecord = {
   baseUrl?: string; isDefault: boolean; credentialId?: string;
 };
 
+type NotifStatus = {
+  activeChannel: string | null;
+  telegram?: { configured: boolean; botToken: string | null; chatId: string | null; botName?: string };
+  teams?: { configured: boolean; webhookUrl: string | null };
+  whatsapp?: { configured: boolean; twilioSid: string | null; fromNumber: string | null };
+};
+
 const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
   { value: 'openai',       label: 'OpenAI',       color: 'bg-emerald-600', Icon: Bot,    defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
   { value: 'anthropic',    label: 'Anthropic',    color: 'bg-violet-600',  Icon: Bot,    defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true,  needsBaseUrl: false },
-  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600',    Icon: Cloud,  defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600',  Icon: Cloud,  defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
   { value: 'ollama',       label: 'Ollama',       color: 'bg-orange-600',  Icon: Server, defaultModel: 'llama3',                    needsApiKey: false, needsBaseUrl: true  },
 ];
 
@@ -39,6 +46,7 @@ const CHANNELS: { value: NotifChannel; label: string; Icon: React.ElementType }[
 ];
 
 const EMPTY_LLM = { name: '', provider: 'openai' as LLMProvider, model: 'gpt-4o', apiKey: '', baseUrl: '' };
+const EMPTY_NOTIF = { botToken: '', chatId: '', webhookUrl: '', twilioSid: '', twilioAuth: '', fromNumber: '', toNumber: '' };
 
 type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 
@@ -63,12 +71,12 @@ export default function ConfigPage() {
   const [showAddLLM, setShowAddLLM] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_LLM);
-  const [editForm, setEditForm] = useState<Partial<typeof EMPTY_LLM>>({});
+  const [editForm, setEditForm] = useState<Partial<typeof EMPTY_LLM & { newApiKey?: string }>>({});
   const [llmTestStates, setLlmTestStates] = useState<Record<string, TestState>>({});
   const [llmTestMsgs, setLlmTestMsgs] = useState<Record<string, string>>({});
 
   const [notifChannel, setNotifChannel] = useState<NotifChannel>('telegram');
-  const [notifFields, setNotifFields] = useState({ botToken: '', chatId: '', webhookUrl: '', twilioSid: '', twilioAuth: '', fromNumber: '', toNumber: '' });
+  const [notifFields, setNotifFields] = useState(EMPTY_NOTIF);
   const [notifTestState, setNotifTestState] = useState<TestState>('idle');
 
   const { data: rawConfigs, isLoading } = useQuery({
@@ -77,6 +85,21 @@ export default function ConfigPage() {
   });
   const configs: LLMConfigRecord[] = Array.isArray(rawConfigs) ? rawConfigs : (rawConfigs as { data?: LLMConfigRecord[] })?.data ?? [];
 
+  const { data: notifStatus } = useQuery<NotifStatus>({
+    queryKey: ['notif-status'],
+    queryFn: async () => {
+      const res = await api.get<{ data?: NotifStatus }>('/setup/notifications');
+      return (res as { data?: NotifStatus }).data ?? { activeChannel: null };
+    },
+  });
+
+  // Set active channel tab based on what's configured
+  useEffect(() => {
+    if (notifStatus?.activeChannel && CHANNELS.some(c => c.value === notifStatus.activeChannel)) {
+      setNotifChannel(notifStatus.activeChannel as NotifChannel);
+    }
+  }, [notifStatus]);
+
   const addMutation = useMutation({
     mutationFn: (data: typeof form) => api.post('/llm-configs', { ...data, isDefault: configs.length === 0 }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-configs'] }); setShowAddLLM(false); setForm(EMPTY_LLM); toast({ title: 'LLM config added' }); },
@@ -84,8 +107,8 @@ export default function ConfigPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<typeof EMPTY_LLM> }) =>
-      api.patch(`/llm-configs/${id}`, data),
+    mutationFn: ({ id, data }: { id: string; data: Partial<typeof EMPTY_LLM & { newApiKey?: string }> }) =>
+      api.patch(`/llm-configs/${id}`, { ...data, ...(data.newApiKey ? { apiKey: data.newApiKey } : {}) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['llm-configs'] }); setEditingId(null); toast({ title: 'Config updated' }); },
     onError: (e: Error) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
@@ -130,11 +153,12 @@ export default function ConfigPage() {
 
   async function saveNotif() {
     let payload: Record<string, string> = { channel: notifChannel };
-    if (notifChannel === 'telegram') payload = { ...payload, botToken: notifFields.botToken, chatId: notifFields.chatId };
-    else if (notifChannel === 'teams') payload = { ...payload, webhookUrl: notifFields.webhookUrl };
-    else payload = { ...payload, twilioSid: notifFields.twilioSid, twilioAuth: notifFields.twilioAuth, fromNumber: notifFields.fromNumber, toNumber: notifFields.toNumber };
+    if (notifChannel === 'telegram') payload = { ...payload, TELEGRAM_BOT_TOKEN: notifFields.botToken, TELEGRAM_APPROVAL_CHAT_ID: notifFields.chatId };
+    else if (notifChannel === 'teams') payload = { ...payload, TEAMS_WEBHOOK_URL: notifFields.webhookUrl };
+    else payload = { ...payload, TWILIO_ACCOUNT_SID: notifFields.twilioSid, TWILIO_AUTH_TOKEN: notifFields.twilioAuth, TWILIO_WHATSAPP_FROM: notifFields.fromNumber, WHATSAPP_APPROVAL_TO: notifFields.toNumber };
     try {
       await api.post('/setup/notifications', payload);
+      qc.invalidateQueries({ queryKey: ['notif-status'] });
       toast({ title: 'Notification channel saved' });
     } catch (e) {
       toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' });
@@ -173,7 +197,6 @@ export default function ConfigPage() {
         {showAddLLM && (
           <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-5 space-y-4">
             <p className="text-xs font-semibold text-[rgb(var(--text-secondary))] uppercase tracking-wider">New Provider</p>
-            {/* Provider buttons */}
             <div className="grid grid-cols-4 gap-2">
               {PROVIDERS.map(p => (
                 <button
@@ -268,6 +291,9 @@ export default function ConfigPage() {
                           {cfg.isDefault && (
                             <span className="rounded-full bg-[rgba(130,100,200,0.1)] border border-[rgba(130,100,200,0.18)] px-2 py-0.5 text-[10px] font-semibold text-[rgb(var(--text-secondary))]">Default</span>
                           )}
+                          {cfg.credentialId && (
+                            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">Key set</span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', PROVIDER_BADGE[cfg.provider])}>
@@ -283,12 +309,12 @@ export default function ConfigPage() {
                         Test
                       </button>
                       {!cfg.isDefault && (
-                        <button onClick={() => defaultMutation.mutate(cfg.id)} className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all">
+                        <button onClick={() => defaultMutation.mutate(cfg.id)} title="Set as default" className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all">
                           <Star className="h-3 w-3" />
                         </button>
                       )}
                       <button
-                        onClick={() => { setEditingId(editingId === cfg.id ? null : cfg.id); setEditForm({ name: cfg.name, model: cfg.model }); }}
+                        onClick={() => { setEditingId(editingId === cfg.id ? null : cfg.id); setEditForm({ name: cfg.name, model: cfg.model, baseUrl: cfg.baseUrl, newApiKey: '' }); }}
                         className="rounded-lg border border-[rgb(var(--border))] px-2.5 py-1 text-[10px] font-medium text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.18)] hover:text-[rgb(var(--text-primary))] transition-all"
                       >
                         <Edit2 className="h-3 w-3" />
@@ -304,34 +330,51 @@ export default function ConfigPage() {
                   </div>
                   {/* Inline edit */}
                   {editingId === cfg.id && (
-                    <div className="px-4 py-3 bg-[rgb(var(--bg-muted))] border-t border-[rgb(var(--border))] flex gap-3 items-end">
-                      <div className="space-y-1 flex-1">
-                        <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Name</label>
-                        <input
-                          value={editForm.name ?? ''}
-                          onChange={e => setEditForm(v => ({ ...v, name: e.target.value }))}
-                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
-                        />
-                      </div>
-                      <div className="space-y-1 flex-1">
-                        <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Model</label>
-                        <input
-                          value={editForm.model ?? ''}
-                          onChange={e => setEditForm(v => ({ ...v, model: e.target.value }))}
-                          className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
-                        />
-                      </div>
-                      {(cfg.provider === 'ollama') && (
+                    <div className="px-4 py-3 bg-[rgb(var(--bg-muted))] border-t border-[rgb(var(--border))] space-y-3">
+                      <div className="flex gap-3 items-end">
                         <div className="space-y-1 flex-1">
-                          <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Base URL</label>
+                          <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Name</label>
                           <input
-                            value={editForm.baseUrl ?? cfg.baseUrl ?? ''}
-                            onChange={e => setEditForm(v => ({ ...v, baseUrl: e.target.value }))}
+                            value={editForm.name ?? ''}
+                            onChange={e => setEditForm(v => ({ ...v, name: e.target.value }))}
                             className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                           />
                         </div>
+                        <div className="space-y-1 flex-1">
+                          <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Model</label>
+                          <input
+                            value={editForm.model ?? ''}
+                            onChange={e => setEditForm(v => ({ ...v, model: e.target.value }))}
+                            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                          />
+                        </div>
+                        {cfg.provider === 'ollama' && (
+                          <div className="space-y-1 flex-1">
+                            <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Base URL</label>
+                            <input
+                              value={editForm.baseUrl ?? cfg.baseUrl ?? ''}
+                              onChange={e => setEditForm(v => ({ ...v, baseUrl: e.target.value }))}
+                              className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {cfg.provider !== 'ollama' && (
+                        <div className="space-y-1">
+                          <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">
+                            <KeyRound className="h-3 w-3" />
+                            Rotate API Key <span className="text-[rgb(var(--text-muted))] normal-case font-normal">(leave blank to keep existing)</span>
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="sk-… (new key)"
+                            value={editForm.newApiKey ?? ''}
+                            onChange={e => setEditForm(v => ({ ...v, newApiKey: e.target.value }))}
+                            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-1.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                          />
+                        </div>
                       )}
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 justify-end">
                         <button onClick={() => setEditingId(null)} className="rounded-lg border border-[rgb(var(--border))] px-3 py-1.5 text-xs text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] transition-colors">Cancel</button>
                         <button
                           onClick={() => updateMutation.mutate({ id: cfg.id, data: editForm })}
@@ -353,59 +396,112 @@ export default function ConfigPage() {
       {/* ─── Notification Channels ─────────────────────────────────── */}
       <section className="space-y-4">
         <div>
-          <h2 className="text-sm font-semibold text-[rgb(var(--text-primary))]">Notification Channel</h2>
+          <h2 className="text-sm font-semibold text-[rgb(var(--text-primary))]">Notification Channels</h2>
           <p className="text-xs text-[rgb(var(--text-muted))] mt-0.5">Used to send approval requests and alerts.</p>
         </div>
+
+        {/* Currently configured channel summary */}
+        {notifStatus && (
+          <div className="flex flex-wrap gap-2">
+            {CHANNELS.map(ch => {
+              const chData = notifStatus[ch.value as keyof NotifStatus] as { configured?: boolean; botName?: string; webhookUrl?: string | null; fromNumber?: string | null } | undefined;
+              const isActive = notifStatus.activeChannel === ch.value;
+              const isConfigured = !!chData?.configured;
+              if (!isConfigured) return null;
+              return (
+                <div key={ch.value} className={cn(
+                  'flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs',
+                  isActive
+                    ? 'border-emerald-500/25 bg-emerald-500/8 text-emerald-300'
+                    : 'border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-secondary))]',
+                )}>
+                  <ch.Icon className="h-3.5 w-3.5" />
+                  <span className="font-medium">{ch.label}</span>
+                  {ch.value === 'telegram' && (chData as { botName?: string })?.botName && (
+                    <span className="text-[rgb(var(--text-muted))]">{(chData as { botName?: string }).botName}</span>
+                  )}
+                  {ch.value === 'teams' && (chData as { webhookUrl?: string | null })?.webhookUrl && (
+                    <span className="text-[rgb(var(--text-muted))] font-mono text-[10px]">{String((chData as { webhookUrl?: string | null }).webhookUrl).slice(0, 30)}…</span>
+                  )}
+                  {ch.value === 'whatsapp' && (chData as { fromNumber?: string | null })?.fromNumber && (
+                    <span className="text-[rgb(var(--text-muted))]">{String((chData as { fromNumber?: string | null }).fromNumber)}</span>
+                  )}
+                  {isActive && <CheckCircle2 className="h-3 w-3 ml-1" />}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-5 space-y-4">
           {/* Channel selector */}
           <div className="flex gap-2">
-            {CHANNELS.map(ch => (
-              <button
-                key={ch.value}
-                onClick={() => { setNotifChannel(ch.value); setNotifTestState('idle'); }}
-                className={cn(
-                  'flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-all',
-                  notifChannel === ch.value
-                    ? 'border-[rgba(130,100,200,0.25)] bg-[rgba(130,100,200,0.06)] text-[rgb(var(--text-primary))]'
-                    : 'border-[rgb(var(--border))] text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] hover:border-[rgb(var(--border-subtle))]',
-                )}
-              >
-                <ch.Icon className="h-3.5 w-3.5" />
-                {ch.label}
-              </button>
-            ))}
+            {CHANNELS.map(ch => {
+              const isConfigured = !!(notifStatus?.[ch.value as keyof NotifStatus] as { configured?: boolean } | undefined)?.configured;
+              return (
+                <button
+                  key={ch.value}
+                  onClick={() => { setNotifChannel(ch.value); setNotifTestState('idle'); setNotifFields(EMPTY_NOTIF); }}
+                  className={cn(
+                    'flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium transition-all',
+                    notifChannel === ch.value
+                      ? 'border-[rgba(130,100,200,0.25)] bg-[rgba(130,100,200,0.06)] text-[rgb(var(--text-primary))]'
+                      : 'border-[rgb(var(--border))] text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] hover:border-[rgb(var(--border-subtle))]',
+                  )}
+                >
+                  <ch.Icon className="h-3.5 w-3.5" />
+                  {ch.label}
+                  {isConfigured && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
+                </button>
+              );
+            })}
           </div>
 
           {/* Channel fields */}
           {notifChannel === 'telegram' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Bot Token</label>
-                <input
-                  type="password"
-                  placeholder="123456:ABC-..."
-                  value={notifFields.botToken}
-                  onChange={e => setNotifFields(v => ({ ...v, botToken: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Chat ID</label>
-                <input
-                  placeholder="e.g. 6878129583"
-                  value={notifFields.chatId}
-                  onChange={e => setNotifFields(v => ({ ...v, chatId: e.target.value }))}
-                  className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
-                />
+            <div className="space-y-3">
+              {notifStatus?.telegram?.botName && (
+                <div className="flex items-center gap-2 rounded-lg bg-[rgb(var(--bg-muted))] border border-[rgb(var(--border))] px-3 py-2">
+                  <Send className="h-3.5 w-3.5 text-[rgb(var(--text-muted))]" />
+                  <span className="text-xs text-[rgb(var(--text-secondary))]">Connected as</span>
+                  <span className="text-xs font-semibold text-[rgb(var(--text-primary))]">{notifStatus.telegram.botName}</span>
+                  {notifStatus.telegram.chatId && (
+                    <span className="ml-auto text-xs text-[rgb(var(--text-muted))]">Chat: {notifStatus.telegram.chatId}</span>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">
+                    Bot Token {notifStatus?.telegram?.configured && <span className="text-emerald-400 normal-case font-normal">(set — leave blank to keep)</span>}
+                  </label>
+                  <input
+                    type="password"
+                    placeholder={notifStatus?.telegram?.configured ? '••••••' : '123456:ABC-...'}
+                    value={notifFields.botToken}
+                    onChange={e => setNotifFields(v => ({ ...v, botToken: e.target.value }))}
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Chat ID</label>
+                  <input
+                    placeholder={notifStatus?.telegram?.chatId ?? 'e.g. 6878129583'}
+                    value={notifFields.chatId}
+                    onChange={e => setNotifFields(v => ({ ...v, chatId: e.target.value }))}
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                  />
+                </div>
               </div>
             </div>
           )}
           {notifChannel === 'teams' && (
             <div className="space-y-1">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Incoming Webhook URL</label>
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">
+                Incoming Webhook URL {notifStatus?.teams?.configured && <span className="text-emerald-400 normal-case font-normal">(set — paste new URL to replace)</span>}
+              </label>
               <input
-                placeholder="https://outlook.office.com/webhook/..."
+                placeholder={notifStatus?.teams?.webhookUrl ?? 'https://outlook.office.com/webhook/...'}
                 value={notifFields.webhookUrl}
                 onChange={e => setNotifFields(v => ({ ...v, webhookUrl: e.target.value }))}
                 className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
@@ -416,11 +512,15 @@ export default function ConfigPage() {
             <div className="grid grid-cols-2 gap-3">
               {(['twilioSid', 'twilioAuth', 'fromNumber', 'toNumber'] as const).map((key) => {
                 const labels: Record<string, string> = { twilioSid: 'Account SID', twilioAuth: 'Auth Token', fromNumber: 'From Number', toNumber: 'To Number' };
+                const isSet = key === 'twilioSid' && notifStatus?.whatsapp?.twilioSid;
                 return (
                   <div key={key} className="space-y-1">
-                    <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">{labels[key]}</label>
+                    <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">
+                      {labels[key]}{isSet ? <span className="text-emerald-400 normal-case font-normal ml-1">(set)</span> : ''}
+                    </label>
                     <input
                       type={key === 'twilioAuth' || key === 'twilioSid' ? 'password' : 'text'}
+                      placeholder={key === 'fromNumber' && notifStatus?.whatsapp?.fromNumber ? String(notifStatus.whatsapp.fromNumber) : undefined}
                       value={notifFields[key]}
                       onChange={e => setNotifFields(v => ({ ...v, [key]: e.target.value }))}
                       className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"

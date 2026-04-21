@@ -11,7 +11,11 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
     if (!parse.success) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, parse.error.message));
 
     try {
-      const factory = new PersonaFactory(prisma);
+      const factory = new PersonaFactory(
+        prisma,
+        process.env['LLM_PROVIDER'] ?? 'openai',
+        process.env['LLM_MODEL'] ?? 'gpt-4o',
+      );
       const persona = await factory.generate({
         goal: parse.data.goal,
         ...(parse.data.domain !== undefined ? { domain: parse.data.domain } : {}),

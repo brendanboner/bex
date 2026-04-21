@@ -77,8 +77,14 @@ export default function SkillExchangePage() {
 
   const publishMutation = useMutation({
     mutationFn: (id: string) => api.post(`/skills/${id}/publish`),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['skills'] }); toast({ title: 'Skill published to registry' }); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['skills'] }); toast({ title: 'Skill approved' }); },
     onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const pushToRegistryMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/skills/${id}/publish-to-registry`),
+    onSuccess: () => { toast({ title: 'Skill pushed to registry' }); },
+    onError: (e) => toast({ title: 'Push failed', description: (e as Error).message, variant: 'destructive' }),
   });
 
   const pullMutation = useMutation({
@@ -233,13 +239,18 @@ export default function SkillExchangePage() {
                         disabled={publishMutation.isPending}
                         className="flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-[rgba(137,129,229,0.10)] px-2.5 py-1 text-[10px] font-medium text-violet-300 hover:bg-[rgba(137,129,229,0.15)] transition-colors disabled:opacity-40"
                       >
-                        <Upload className="h-3 w-3" /> Publish
+                        <Upload className="h-3 w-3" /> Approve
                       </button>
                     )}
                     {s.status === 'PUBLISHED' && (
-                        <span className="flex items-center gap-1 text-[10px] text-emerald-400">
-                          <CheckCircle className="h-3 w-3" /> In registry
-                        </span>
+                        <button
+                          onClick={() => pushToRegistryMutation.mutate(s.id)}
+                          disabled={pushToRegistryMutation.isPending}
+                          className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-[rgba(16,185,129,0.08)] px-2.5 py-1 text-[10px] font-medium text-emerald-400 hover:bg-[rgba(16,185,129,0.15)] transition-colors disabled:opacity-40"
+                          title="Push to central registry"
+                        >
+                          <Cloud className="h-3 w-3" /> Share
+                        </button>
                       )}
                     </div>
                   </div>

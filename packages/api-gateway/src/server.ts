@@ -10,6 +10,7 @@ import { CredentialVaultService, loadSystemSecrets } from '@bclaw/credential-vau
 import { SshExecutorService } from '@bclaw/ssh-executor';
 
 import { adminRoutes } from './routes/admin.js';
+import { provisionDefaults } from './provision.js';
 import { knowledgeRoutes } from './routes/knowledge.js';
 
 import { agentRoutes } from './routes/agents.js';
@@ -18,6 +19,7 @@ import { credentialRoutes } from './routes/credentials.js';
 import { requestRoutes } from './routes/requests.js';
 import { skillRoutes } from './routes/skills.js';
 import { targetRoutes } from './routes/targets.js';
+import { endpointRoutes } from './routes/endpoints.js';
 import { registryRoutes } from './routes/registry.js';
 import { coordinatorRoutes } from './routes/coordinator.js';
 import { toolRoutes } from './routes/tools.js';
@@ -45,6 +47,9 @@ async function buildApp() {
   await loadSystemSecrets(prisma);
   const vault = new CredentialVaultService(prisma);
   const sshExecutor = new SshExecutorService(prisma, vault);
+
+  // Idempotent — creates default agents + personas if missing
+  await provisionDefaults(prisma, vault);
 
   // ─── Plugins ──────────────────────────────────────────────────────────────
   await app.register(helmet);
@@ -99,6 +104,7 @@ async function buildApp() {
   await requestRoutes(app, prisma);
   await skillRoutes(app, prisma);
   await targetRoutes(app, prisma, sshExecutor);
+  await endpointRoutes(app, prisma, vault);
   await registryRoutes(app, prisma);
   await coordinatorRoutes(app, prisma);
   await toolRoutes(app, prisma);
