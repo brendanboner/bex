@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Globe,
   Key,
   LayoutDashboard,
   LogOut,
@@ -35,6 +36,7 @@ const navSections = [
     items: [
       { href: '/skills',         label: 'Skill Exchange',  icon: Brain },
       { href: '/personas',       label: 'Personas',        icon: UserPlus },
+      { href: '/domains',        label: 'Domain Intel',    icon: Globe },
     ],
   },
   {

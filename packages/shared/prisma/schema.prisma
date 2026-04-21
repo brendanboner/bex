@@ -648,3 +648,28 @@ model LLMConfig {
 
   @@index([isDefault])
 }
+
+// ─── Domain Knowledge Index ───────────────────────────────────────────────────
+// Per-domain structured intelligence: doc references, entity relationships,
+// and analysis playbooks. Populated automatically during skill builds and
+// editable via the dashboard.
+
+model DomainKnowledge {
+  // Domain key — matches Skill.domain prefix (e.g. "extremecloudiq", "networking.extreme-xco")
+  domain      String   @id
+
+  // Catalogued documentation references discovered during skill builds.
+  // Array of { url, title, type, description, discoveredAt }
+  // type: "api_guide" | "cli" | "troubleshooting" | "release_notes" | "user_guide" | "other"
+  docIndex    Json     @default("[]")
+
+  // Explicit entity relationship graph.
+  // { entities: { EntityName: { idField, links: { RelatedEntity: "foreignKeyField" } } }, computations: { name: "description" } }
+  entityGraph Json     @default("{}")
+
+  // Named analysis playbooks triggered by keyword matching against user queries.
+  // Array of { name, description, triggerPatterns: string[], steps: Step[] }
+  playbooks   Json     @default("[]")
+
+  updatedAt   DateTime @updatedAt
+}

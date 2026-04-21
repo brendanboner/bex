@@ -566,12 +566,17 @@ export class OrchestratorService {
       // Load agent workspace docs (instructions, context, memory) from KnowledgeStore
       const workspaceDocs = await loadWorkspaceDocs(agent.id);
 
+      // Load domain intelligence: entity graphs + matching playbooks
+      const domainIntelParts = await this.loadDomainIntelligence(linkedSkills, ctx.input);
+
       const systemParts = [
         charterPrompt,
         personaPrompt,
         enrichedSkillPrompt,
+        domainIntelParts,
         workspaceDocs,
       ].filter(Boolean);
+
 
       const systemPrompt = systemParts.join('\n\n');
       const messages: CoreMessage[] = [{ role: 'user', content: ctx.input }];
@@ -619,6 +624,58 @@ export class OrchestratorService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Loads domain knowledge (entity graphs + playbooks) for the active skill domains
+   * and returns a formatted system prompt section. Playbooks are filtered to those
+   * whose triggerPatterns have ≥2 words matching the user's query.
+   */
+  private async loadDomainIntelligence(
+    skills: Array<{ domain: string }>,
+    userInput: string,
+  ): Promise<string> {
+    if (skills.length === 0) return '';
+
+    const topDomains = [...new Set(skills.map((s) => s.domain.split('.')[0]!))];
+    const records = await this.prisma.domainKnowledge.findMany({
+      where: { domain: { in: topDomains } },
+    });
+
+    if (records.length === 0) return '';
+
+    const queryWords = new Set(
+      userInput.toLowerCase().match(/\b\w{3,}\b/g) ?? [],
+    );
+
+    const parts: string[] = [];
+
+    for (const rec of records) {
+      const entityGraph = rec.entityGraph as Record<string, unknown> | null;
+      const playbooks = rec.playbooks as Array<Record<string, unknown>> | null;
+
+      // Always inject entity graph if non-empty (tiny, high-value context)
+      if (entityGraph && Object.keys(entityGraph).length > 0) {
+        parts.push(`## Entity Relationships (${rec.domain})\n${JSON.stringify(entityGraph, null, 2)}`);
+      }
+
+      // Inject playbooks where ≥2 trigger words appear in the query
+      if (Array.isArray(playbooks)) {
+        for (const pb of playbooks) {
+          const triggers = (pb['triggerPatterns'] as string[] | undefined) ?? [];
+          const matchCount = triggers.reduce((n, phrase) => {
+            const phraseWords = phrase.toLowerCase().match(/\b\w{3,}\b/g) ?? [];
+            return n + phraseWords.filter((w) => queryWords.has(w)).length;
+          }, 0);
+
+          if (matchCount >= 2) {
+            parts.push(`## Analysis Playbook: ${pb['name']}\n${JSON.stringify(pb, null, 2)}`);
+          }
+        }
+      }
+    }
+
+    return parts.join('\n\n');
   }
 }
 

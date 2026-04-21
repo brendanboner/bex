@@ -155,3 +155,115 @@ export async function parseUrl(url: string): Promise<ParsedKnowledge> {
   const text = await res.text();
   return { type: 'url', content: text.slice(0, 50_000), title: url };
 }
+
+// ─── Document reference types ─────────────────────────────────────────────────
+
+export type DocRefType = 'api_guide' | 'cli' | 'troubleshooting' | 'release_notes' | 'user_guide' | 'other';
+
+export type DocRef = {
+  url: string;
+  title: string;
+  type: DocRefType;
+  description: string;
+  discoveredAt: string;
+};
+
+const DOC_TYPE_PATTERNS: Array<[DocRefType, RegExp]> = [
+  ['cli',            /\b(cli|command.?line|cmd)\b/i],
+  ['troubleshooting', /\b(troubleshoot|diagnos|debug|error|fix|issue)\b/i],
+  ['release_notes',  /\b(release.?note|changelog|what.s.new|version)\b/i],
+  ['api_guide',      /\b(api|rest|swagger|openapi|endpoint)\b/i],
+  ['user_guide',     /\b(user.?guide|administration|admin|getting.?started|quickstart)\b/i],
+];
+
+function classifyDocUrl(url: string, title: string): DocRefType {
+  const text = `${url} ${title}`.toLowerCase();
+  for (const [type, pattern] of DOC_TYPE_PATTERNS) {
+    if (pattern.test(text)) return type;
+  }
+  return 'other';
+}
+
+/**
+ * Fetches a documentation page and discovers all linked documentation references
+ * on the same host. Returns a deduplicated, categorised list of DocRefs.
+ * Used to populate DomainKnowledge.docIndex when building a skill.
+ */
+export async function discoverLinkedDocs(sourceUrl: string): Promise<DocRef[]> {
+  try {
+    const { fetch } = await import('undici');
+    const base = new URL(sourceUrl);
+    const res = await fetch(sourceUrl, { headers: { 'User-Agent': 'BEX-SkillBuilder/1.0' } });
+    if (!res.ok) return [];
+    const html = await res.text();
+
+    // Extract all <a href="..."> links
+    const hrefPattern = /href="([^"]+)"/gi;
+    const titlePattern = /href="[^"]+">([^<]{3,80})</gi;
+    const seen = new Set<string>();
+    const refs: DocRef[] = [];
+
+    // Match href + immediately following anchor text together
+    const anchorPattern = /<a\s[^>]*href="([^"]+)"[^>]*>([^<]{2,80})<\/a>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = anchorPattern.exec(html)) !== null) {
+      const rawUrl = match[1]!.trim();
+      const linkText = match[2]!.replace(/\s+/g, ' ').trim();
+
+      // Skip anchors, mailto, javascript
+      if (!rawUrl || rawUrl.startsWith('#') || rawUrl.startsWith('mailto:') || rawUrl.startsWith('javascript:')) continue;
+
+      let resolved: URL;
+      try {
+        resolved = new URL(rawUrl, base);
+      } catch {
+        continue;
+      }
+
+      // Only same host
+      if (resolved.hostname !== base.hostname) continue;
+      // Skip source URL itself
+      if (resolved.href === base.href) continue;
+      // Skip image/asset URLs
+      if (/\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|ttf)(\?|$)/i.test(resolved.pathname)) continue;
+
+      const canonical = resolved.href.split('#')[0]!;
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+
+      const type = classifyDocUrl(canonical, linkText);
+      refs.push({
+        url: canonical,
+        title: linkText,
+        type,
+        description: `Discovered from ${sourceUrl}`,
+        discoveredAt: new Date().toISOString(),
+      });
+    }
+
+    // If anchor regex missed some (malformed HTML), fall back to bare href extraction
+    if (refs.length === 0) {
+      let m: RegExpExecArray | null;
+      while ((m = hrefPattern.exec(html)) !== null) {
+        const rawUrl = m[1]!.trim();
+        if (!rawUrl || rawUrl.startsWith('#') || rawUrl.startsWith('mailto:')) continue;
+        try {
+          const resolved = new URL(rawUrl, base);
+          if (resolved.hostname !== base.hostname) continue;
+          const canonical = resolved.href.split('#')[0]!;
+          if (seen.has(canonical)) continue;
+          seen.add(canonical);
+          refs.push({ url: canonical, title: canonical, type: classifyDocUrl(canonical, ''), description: '', discoveredAt: new Date().toISOString() });
+        } catch { /* skip */ }
+      }
+      void titlePattern; // suppress unused warning
+    }
+
+    // Deduplicate keeping the highest-confidence entry per URL
+    return refs.slice(0, 100); // cap at 100 refs
+  } catch {
+    return [];
+  }
+}
+

@@ -5,8 +5,8 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import type { LlmProvider, SkillDiscoveryResult } from '@bclaw/shared';
 import { CreateSkillSchema } from '@bclaw/shared';
 
-import { parseMarkdown, parseOpenApi, parsePdf } from './knowledge-parser.js';
-import type { ParsedKnowledge } from './knowledge-parser.js';
+import { parseMarkdown, parseOpenApi, parsePdf, discoverLinkedDocs } from './knowledge-parser.js';
+import type { ParsedKnowledge, DocRef } from './knowledge-parser.js';
 import { buildModel } from './model.js';
 
 const BUILDER_SYSTEM_PROMPT = `You are a skill architect for an enterprise agentic platform.
@@ -46,6 +46,78 @@ For each tool that depends on the output of another:
 
 Format as a short numbered list. Do not include general advice, only concrete data-flow instructions.
 Start with: "## Tool Chain Instructions"`;
+
+const PLAYBOOK_SYSTEM_PROMPT = `You are a workflow analyst for an enterprise agentic platform.
+Given a list of tools in a domain skill, generate 1-3 analysis playbooks that an agent could perform.
+
+A playbook is a named multi-step workflow that combines multiple tool calls to answer a complex query.
+Good playbooks answer questions that require: entity resolution, cross-tool joins, data aggregation, or inference.
+
+For each playbook output EXACTLY this JSON structure:
+{
+  "name": "kebab-case-name",
+  "description": "one sentence: what question does this answer",
+  "triggerPatterns": ["2-4 short keyword phrases that would trigger this", ...],
+  "steps": [
+    { "step": 1, "tool": "tool_name", "purpose": "what we're getting", "extractField": "field.path to extract for next step" },
+    { "step": 2, "tool": "tool_name", "params": { "param": "{step1.extractedField}" }, "purpose": "what we're getting", "extractField": "..." },
+    ...
+    { "step": N, "compute": "describe any inference/calculation needed (e.g. group by first 3 IP octets → /24)", "output": "describe the final table/result format" }
+  ]
+}
+
+Only generate playbooks where 2+ tools must be chained. Skip single-tool queries.
+Return an array of 1-3 playbook objects. Return valid JSON only, no markdown fences.`;
+
+/** Generate playbooks from the built tool definitions */
+async function generatePlaybooks(
+  domain: string,
+  tools: unknown[],
+  capabilities: string[],
+  provider: LlmProvider,
+): Promise<Array<Record<string, unknown>>> {
+  try {
+    const toolSummary = (tools as Array<Record<string, unknown>>)
+      .slice(0, 30) // don't overwhelm context
+      .map((t) => `- ${t['name']}: ${t['description'] ?? ''}`)
+      .join('\n');
+
+    const model = buildModel(provider);
+    const { text } = await generateText({
+      model,
+      system: PLAYBOOK_SYSTEM_PROMPT,
+      prompt: `Domain: ${domain}\nCapabilities: ${capabilities.slice(0, 20).join(', ')}\n\nTools:\n${toolSummary}\n\nGenerate playbooks as a JSON array.`,
+      maxTokens: 1200,
+    });
+
+    const cleaned = text.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    const parsed = JSON.parse(cleaned);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
+}
+
+/** Merge incoming doc refs into existing, deduplicating by URL */
+function mergeDocRefs(existing: DocRef[], incoming: DocRef[]): DocRef[] {
+  const map = new Map(existing.map((d) => [d.url, d]));
+  for (const ref of incoming) {
+    if (!map.has(ref.url)) map.set(ref.url, ref);
+  }
+  return [...map.values()];
+}
+
+/** Merge incoming playbooks into existing, deduplicating by name */
+function mergePlaybooks(
+  existing: Array<Record<string, unknown>>,
+  incoming: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const map = new Map(existing.map((p) => [p['name'], p]));
+  for (const p of incoming) {
+    map.set(p['name'], p); // incoming wins on conflict
+  }
+  return [...map.values()];
+}
 
 /** Generate explicit chain documentation from the built tool definitions */
 async function generateChainDocs(
@@ -234,6 +306,66 @@ export class SkillBuilderService {
       });
     }
 
+    // ── Domain Intelligence Layer: discover linked docs + generate playbooks ──
+    void this.updateDomainKnowledge(
+      request.domain,
+      request.sources,
+      object.skill.tools as unknown[],
+      object.skill.capabilities,
+      llmProvider,
+    ).catch(() => { /* non-fatal — skill was saved */ });
+
     return { skillId: skill.id, skill: object.skill };
+  }
+
+  /**
+   * Discovers linked documentation from source URLs and generates analysis
+   * playbooks for this domain. Runs after skill creation (fire-and-forget safe).
+   */
+  private async updateDomainKnowledge(
+    domain: string,
+    sources: BuildSkillSource[],
+    tools: unknown[],
+    capabilities: string[],
+    provider: LlmProvider,
+  ): Promise<void> {
+    const topDomain = domain.split('.')[0]!;
+
+    // 1. Discover linked docs from all URL-based sources
+    const allRefs: DocRef[] = [];
+    for (const source of sources) {
+      if (source.url) {
+        const refs = await discoverLinkedDocs(source.url);
+        allRefs.push(...refs);
+      }
+    }
+
+    // 2. Generate analysis playbooks (3rd LLM pass)
+    const newPlaybooks = await generatePlaybooks(domain, tools, capabilities, provider);
+
+    // 3. Upsert into DomainKnowledge (merge with existing)
+    const existing = await this.prisma.domainKnowledge.findUnique({
+      where: { domain: topDomain },
+    });
+
+    const existingDocIndex = (existing?.docIndex as DocRef[] | null) ?? [];
+    const existingPlaybooks = (existing?.playbooks as Array<Record<string, unknown>> | null) ?? [];
+
+    const mergedDocIndex = mergeDocRefs(existingDocIndex, allRefs);
+    const mergedPlaybooks = mergePlaybooks(existingPlaybooks, newPlaybooks);
+
+    await this.prisma.domainKnowledge.upsert({
+      where: { domain: topDomain },
+      create: {
+        domain: topDomain,
+        docIndex: mergedDocIndex as Prisma.InputJsonValue,
+        entityGraph: {},
+        playbooks: mergedPlaybooks as Prisma.InputJsonValue,
+      },
+      update: {
+        docIndex: mergedDocIndex as Prisma.InputJsonValue,
+        playbooks: mergedPlaybooks as Prisma.InputJsonValue,
+      },
+    });
   }
 }

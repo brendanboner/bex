@@ -358,4 +358,66 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
       return reply.send(ok({ published: true, skillId: request.params.id }));
     },
   );
+
+  // ── Domain Knowledge routes ───────────────────────────────────────────────
+  // GET /domains — list all domains with knowledge records
+  app.get('/domains', async (_request, reply) => {
+    const records = await prisma.domainKnowledge.findMany({ orderBy: { domain: 'asc' } });
+    return reply.send(ok(records));
+  });
+
+  // GET /domains/:domain/knowledge — get or auto-create for a domain
+  app.get<{ Params: { domain: string } }>('/domains/:domain/knowledge', async (request, reply) => {
+    const { domain } = request.params;
+    const record = await prisma.domainKnowledge.upsert({
+      where: { domain },
+      create: { domain },
+      update: {},
+    });
+    return reply.send(ok(record));
+  });
+
+  // PUT /domains/:domain/knowledge — upsert domain knowledge (full replace of any provided field)
+  app.put<{ Params: { domain: string }; Body: unknown }>('/domains/:domain/knowledge', async (request, reply) => {
+    const { domain } = request.params;
+    const body = request.body as { docIndex?: unknown; entityGraph?: unknown; playbooks?: unknown };
+    const record = await prisma.domainKnowledge.upsert({
+      where: { domain },
+      create: {
+        domain,
+        ...(body.docIndex !== undefined && { docIndex: body.docIndex as never }),
+        ...(body.entityGraph !== undefined && { entityGraph: body.entityGraph as never }),
+        ...(body.playbooks !== undefined && { playbooks: body.playbooks as never }),
+      },
+      update: {
+        ...(body.docIndex !== undefined && { docIndex: body.docIndex as never }),
+        ...(body.entityGraph !== undefined && { entityGraph: body.entityGraph as never }),
+        ...(body.playbooks !== undefined && { playbooks: body.playbooks as never }),
+      },
+    });
+    return reply.send(ok(record));
+  });
+
+  // PATCH /domains/:domain/knowledge/playbooks — merge-append playbooks (dedup by name)
+  app.patch<{ Params: { domain: string }; Body: unknown }>('/domains/:domain/knowledge/playbooks', async (request, reply) => {
+    const { domain } = request.params;
+    const incoming = (request.body as { playbooks?: unknown[] }).playbooks ?? [];
+    const record = await prisma.domainKnowledge.upsert({
+      where: { domain },
+      create: { domain, playbooks: incoming as never },
+      update: {},
+    });
+    const existing = (record.playbooks as Array<{ name: string }>) ?? [];
+    const merged = [...existing];
+    for (const p of incoming as Array<{ name: string }>) {
+      const idx = merged.findIndex((e) => e.name === p.name);
+      if (idx >= 0) merged[idx] = p;
+      else merged.push(p);
+    }
+    const updated = await prisma.domainKnowledge.update({
+      where: { domain },
+      data: { playbooks: merged as never },
+    });
+    return reply.send(ok(updated));
+  });
 }
