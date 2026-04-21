@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { initCommand } from '../commands/init.js';
 import { startCommand } from '../commands/start.js';
 import { stopCommand } from '../commands/stop.js';
+import { restartCommand } from '../commands/restart.js';
 import { statusCommand } from '../commands/status.js';
 import { logsCommand } from '../commands/logs.js';
 import { monitorCommand } from '../commands/monitor.js';
@@ -33,6 +34,11 @@ program
   .command('stop')
   .description('Stop all platform services')
   .action(stopCommand);
+
+program
+  .command('restart')
+  .description('Restart all platform services')
+  .action(restartCommand);
 
 program
   .command('status')

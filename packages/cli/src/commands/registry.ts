@@ -50,85 +50,70 @@ function setEnvVar(key: string, value: string): void {
   }
 }
 
-function getApiUrl(env: Record<string, string>): string {
-  return env['API_GATEWAY_URL'] ?? process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+function getRegistryUrl(env: Record<string, string>): string {
+  return env['SKILL_REGISTRY_URL'] ?? process.env['SKILL_REGISTRY_URL'] ?? '';
 }
 
-function getAdminToken(env: Record<string, string>): string {
-  return env['ADMIN_TOKEN'] ?? process.env['ADMIN_TOKEN'] ?? 'dev-admin-secret';
+function getRegistryToken(env: Record<string, string>): string {
+  return env['SKILL_REGISTRY_TOKEN'] ?? process.env['SKILL_REGISTRY_TOKEN'] ?? '';
 }
 
 function headers(token: string): Record<string, string> {
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+  return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
 async function showRegistry(): Promise<void> {
   const env = loadEnv();
-  const apiUrl = getApiUrl(env);
-  const token = getAdminToken(env);
-  const { fetch } = await import('undici');
-
-  try {
-    const res = await fetch(`${apiUrl}/registry/config`, { headers: headers(token) });
-    const json = (await res.json()) as { data?: { url: string; isDefault: boolean } };
-    const cfg = json.data;
-    const isDefault = cfg?.isDefault ? chalk.dim(' (default)') : '';
-    console.log(`\nRegistry URL: ${chalk.cyan(cfg?.url ?? 'not configured')}${isDefault}\n`);
-  } catch {
-    console.error(chalk.red('Could not connect to API gateway. Is BEX running?'));
+  const url = env['SKILL_REGISTRY_URL'] ?? process.env['SKILL_REGISTRY_URL'] ?? '';
+  if (url) {
+    console.log(`\nRegistry URL: ${chalk.cyan(url)}\n`);
+  } else {
+    console.log(chalk.yellow('\nRegistry URL: not configured') + chalk.dim(' (set SKILL_REGISTRY_URL in .env)\n'));
   }
 }
 
 async function setRegistry(url: string, opts: { token?: string }): Promise<void> {
-  const env = loadEnv();
-  const apiUrl = getApiUrl(env);
-  const adminToken = getAdminToken(env);
-  const { fetch } = await import('undici');
-
-  // Update the .env file
   setEnvVar('SKILL_REGISTRY_URL', url);
   if (opts.token) setEnvVar('SKILL_REGISTRY_TOKEN', opts.token);
-
-  // Also tell the running API gateway
-  try {
-    const body: Record<string, string> = { url };
-    if (opts.token) body.authToken = opts.token;
-    await fetch(`${apiUrl}/registry/config`, {
-      method: 'PUT',
-      headers: headers(adminToken),
-      body: JSON.stringify(body),
-    });
-  } catch {
-    // Non-fatal: .env already updated
-  }
-
   console.log(chalk.green(`\nRegistry URL set to: ${url}`));
-  console.log(chalk.dim('Restart services to apply: bex stop && bex start'));
+  console.log(chalk.dim('Restart services to apply: bex restart'));
 }
 
 async function testRegistry(): Promise<void> {
   const env = loadEnv();
-  const apiUrl = getApiUrl(env);
-  const token = getAdminToken(env);
+  const registryUrl = env['SKILL_REGISTRY_URL'] ?? process.env['SKILL_REGISTRY_URL'] ?? '';
+  const token = env['SKILL_REGISTRY_TOKEN'] ?? process.env['SKILL_REGISTRY_TOKEN'] ?? '';
   const { fetch } = await import('undici');
 
   console.log(chalk.dim('\nTesting registry connectivity...'));
 
-  try {
-    const res = await fetch(`${apiUrl}/registry/config/test`, {
-      method: 'POST',
-      headers: headers(token),
-    });
-    const json = (await res.json()) as { data?: { connected: boolean; url: string; skillCount?: number; error?: string } };
-    const result = json.data;
+  if (!registryUrl) {
+    console.log(chalk.yellow('\nNo registry URL configured. Set SKILL_REGISTRY_URL in .env\n'));
+    return;
+  }
 
-    if (result?.connected) {
-      console.log(chalk.green(`\nConnected to registry: ${result.url}`));
-      console.log(`Skills available: ${result.skillCount ?? 0}\n`);
+  try {
+    const hdrs = headers(token);
+    // Try /health first, fall back to listing skills
+    let connected = false;
+    let skillCount = 0;
+
+    const healthRes = await fetch(`${registryUrl}/health`, { headers: hdrs }).catch(() => null);
+    if (healthRes?.ok) {
+      connected = true;
+      // Also fetch skill count
+      const listRes = await fetch(`${registryUrl}/registry/skills`, { headers: hdrs }).catch(() => null);
+      if (listRes?.ok) {
+        const data = await listRes.json() as { data?: unknown[] };
+        skillCount = data.data?.length ?? 0;
+      }
+    }
+
+    if (connected) {
+      console.log(chalk.green(`\nConnected to registry: ${registryUrl}`));
+      console.log(`Skills available: ${skillCount}${skillCount === 0 ? chalk.dim('  — run: bex skill push --all') : ''}\n`);
     } else {
-      console.log(chalk.red(`\nCould not connect to registry: ${result?.url}`));
-      if (result?.error) console.log(chalk.dim(`Error: ${result.error}`));
-      console.log('');
+      console.log(chalk.red(`\nCould not connect to registry: ${registryUrl}\n`));
     }
   } catch (err) {
     console.error(chalk.red(`Connection failed: ${err instanceof Error ? err.message : String(err)}`));
