@@ -102,29 +102,33 @@ export async function skillListCommand(): Promise<void> {
 export async function skillPushCommand(domain: string | undefined, opts: { all?: boolean }): Promise<void> {
   const { fetch } = await import('undici');
   const env = loadEnv();
-  const registryUrl = await getRegistryUrl(env);
-  const token = await getRegistryToken(env);
+  const apiUrl = env['API_GATEWAY_URL'] ?? process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+  const apiToken = env['BEX_BOT_API_KEY'] ?? process.env['BEX_BOT_API_KEY'] ?? env['ADMIN_TOKEN'] ?? '';
   const prisma = await getPrisma(env);
 
-  let skills: Array<{ domain: string; name: string; version: string; description: string | null; capabilities: string[]; systemPrompt: string | null; tools: unknown }>;
+  // Resolve skill IDs — push goes through the API gateway's publish-to-registry
+  // endpoint so domain knowledge (entity graph + playbooks) is bundled in the manifest.
+  let skills: Array<{ id: string; domain: string; version: string }>;
 
   if (opts.all) {
-    skills = await prisma.skill.findMany({ select: { domain: true, name: true, version: true, description: true, capabilities: true, systemPrompt: true, tools: true } }) as typeof skills;
+    skills = await prisma.skill.findMany({ select: { id: true, domain: true, version: true } });
   } else if (domain) {
-    const s = await prisma.skill.findFirst({ where: { domain }, select: { domain: true, name: true, version: true, description: true, capabilities: true, systemPrompt: true, tools: true } });
+    const s = await prisma.skill.findFirst({ where: { domain }, select: { id: true, domain: true, version: true } });
     if (!s) { console.error(`Skill not found in DB: ${domain}`); process.exit(1); }
-    skills = [s as typeof skills[0]];
+    skills = [s];
   } else {
     console.error('Specify a domain or use --all');
     process.exit(1);
   }
 
+  await prisma.$disconnect();
+
   let ok = 0, fail = 0;
   for (const skill of skills) {
-    const res = await fetch(`${registryUrl}/registry/publish`, {
+    const res = await fetch(`${apiUrl}/skills/${skill.id}/publish-to-registry`, {
       method: 'POST',
-      headers: headers(token),
-      body: JSON.stringify(skill),
+      headers: headers(apiToken),
+      body: '{}',
     });
     if (res.ok) {
       console.log(`  ✅ Pushed: ${skill.domain}@${skill.version}`);
@@ -136,7 +140,6 @@ export async function skillPushCommand(domain: string | undefined, opts: { all?:
     }
   }
   console.log(`\nPushed ${ok}/${skills.length} skill(s)${fail > 0 ? `, ${fail} failed` : ''}.`);
-  await prisma.$disconnect();
 }
 
 // ── pull ───────────────────────────────────────────────────────────────────
