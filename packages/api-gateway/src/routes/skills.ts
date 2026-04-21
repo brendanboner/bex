@@ -306,8 +306,8 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
       // Mark local skill as PUBLISHED
       await prisma.skill.update({ where: { id: request.params.id }, data: { status: 'PUBLISHED' } });
 
-      // Push to standalone registry if configured
-      if (remoteRegistry.isConfigured) {
+      // Push to standalone registry if configured and write-enabled
+      if (remoteRegistry.isWriteEnabled) {
         try {
           const tools = (skill.tools as unknown[]) ?? [];
           const checksum = computeSkillChecksum(tools, skill.systemPrompt ?? undefined);

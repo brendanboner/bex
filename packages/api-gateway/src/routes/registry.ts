@@ -373,15 +373,18 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
   // GET /registry/config — get the current registry URL config
   app.get('/registry/config', async (_request, reply) => {
     const url = process.env['SKILL_REGISTRY_URL'] ?? '';
-    return reply.send(ok({ url, configured: url.length > 0 }));
+    const token = process.env['SKILL_REGISTRY_TOKEN'] ?? '';
+    return reply.send(ok({ url, configured: url.length > 0, writeEnabled: url.length > 0 && token.length > 0 }));
   });
 
   // PUT /registry/config — update the registry URL (writes to process env for the session)
   app.put<{ Body: { url?: string; authToken?: string } }>('/registry/config', async (request, reply) => {
-    const { url } = request.body ?? {};
+    const { url, authToken } = request.body ?? {};
     if (!url) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'url is required'));
     process.env['SKILL_REGISTRY_URL'] = url;
-    return reply.send(ok({ url }));
+    if (authToken !== undefined) process.env['SKILL_REGISTRY_TOKEN'] = authToken;
+    const writeEnabled = url.length > 0 && (process.env['SKILL_REGISTRY_TOKEN'] ?? '').length > 0;
+    return reply.send(ok({ url, writeEnabled }));
   });
 
   // POST /registry/config/test — test connectivity to the configured registry

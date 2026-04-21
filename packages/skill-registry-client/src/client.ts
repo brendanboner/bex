@@ -42,10 +42,9 @@ export class SkillRegistryClient {
   private readonly authToken: string;
 
   constructor(options?: { registryUrl?: string; authToken?: string }) {
-    // Default to the central BEX registry; can be overridden via SKILL_REGISTRY_URL.
     const envUrl = process.env['SKILL_REGISTRY_URL'] ?? 'https://bexregistry.brendanbonner.com';
     this.baseUrl = (options?.registryUrl ?? envUrl).replace(/\/$/, '');
-    this.authToken = options?.authToken ?? process.env['SKILL_REGISTRY_TOKEN'] ?? 'bex-registry-dev';
+    this.authToken = options?.authToken ?? process.env['SKILL_REGISTRY_TOKEN'] ?? '';
   }
 
   /** True when a registry URL is available (default or explicitly configured). */
@@ -53,10 +52,17 @@ export class SkillRegistryClient {
     return this.baseUrl.length > 0;
   }
 
-  private headers(): Record<string, string> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`;
-    return headers;
+  /** True when a write token is configured — instance can push skills to the registry. */
+  get isWriteEnabled(): boolean {
+    return this.isConfigured && this.authToken.length > 0;
+  }
+
+  private readHeaders(): Record<string, string> {
+    return { 'Content-Type': 'application/json' };
+  }
+
+  private writeHeaders(): Record<string, string> {
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${this.authToken}` };
   }
 
   /**
@@ -68,7 +74,7 @@ export class SkillRegistryClient {
       ? `${this.baseUrl}/registry/skills?domain=${encodeURIComponent(domain)}`
       : `${this.baseUrl}/registry/skills`;
 
-    const res = await fetch(url, { headers: this.headers() });
+    const res = await fetch(url, { headers: this.readHeaders() });
     if (!res.ok) throw new Error(`Registry list failed: ${res.status} ${res.statusText}`);
 
     const body = (await res.json()) as RegistryListResponse;
@@ -77,15 +83,19 @@ export class SkillRegistryClient {
 
   /**
    * Publishes a skill manifest to the remote registry.
+   * Requires a write token (SKILL_REGISTRY_TOKEN) — throws if not configured.
    */
   async publish(manifest: SkillManifest): Promise<{ url: string }> {
     if (!this.isConfigured) {
       throw new Error('SKILL_REGISTRY_URL is not configured. Cannot publish to registry.');
     }
+    if (!this.isWriteEnabled) {
+      throw new Error('SKILL_REGISTRY_TOKEN is not configured. Registry is read-only — set a token to enable publishing.');
+    }
 
     const res = await fetch(`${this.baseUrl}/registry/publish`, {
       method: 'POST',
-      headers: this.headers(),
+      headers: this.writeHeaders(),
       body: JSON.stringify(manifest),
     });
 
@@ -108,7 +118,7 @@ export class SkillRegistryClient {
 
     const res = await fetch(
       `${this.baseUrl}/registry/skills/${encodeURIComponent(domain)}/${encodeURIComponent(version)}`,
-      { headers: this.headers() },
+      { headers: this.readHeaders() },
     );
 
     if (!res.ok) throw new Error(`Registry fetch failed: ${res.status} ${res.statusText}`);

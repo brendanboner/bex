@@ -86,6 +86,12 @@ export function buildRouter(): Router {
     res.json({ ok: true, service: 'bex-skill-registry' });
   });
 
+  // GET /registry/info — public, returns auth model so clients know if writes are allowed
+  router.get('/registry/info', (_req, res) => {
+    const authRequired = Boolean(process.env['REGISTRY_AUTH_TOKEN']);
+    res.json(ok({ authRequired, version: '1.0.0' }));
+  });
+
   // GET /registry/skills
   router.get('/registry/skills', (req, res) => {
     const domain = typeof req.query['domain'] === 'string' ? req.query['domain'] : undefined;
