@@ -81,16 +81,17 @@ export async function initCommand(): Promise<void> {
 
   const root = findProjectRoot();
 
-  // Helper: show a masked hint for secrets that are already set
+  // Helper: appends a dim hint showing the current value (or "set" for secrets)
   const hasKey = (key: string) => !!prev[key];
-  const masked = (key: string) => prev[key] ? chalk.dim(`(keep existing — press Enter to skip)`) : '';
+  const hint = (key: string) => prev[key] ? chalk.dim(` [current: ${prev[key]}]`) : '';
+  const hintSecret = (key: string) => prev[key] ? chalk.dim(` [currently set — Enter to keep]`) : '';
 
   // ── Step 1: LLM ─────────────────────────────────────────────────────────
   console.log(chalk.bold('Step 1 of 5 — LLM Provider\n'));
 
   const prevProvider = prev['LLM_PROVIDER'] as string | undefined;
   const llmProvider = await select({
-    message: 'LLM provider:',
+    message: `LLM provider:${hint('LLM_PROVIDER')}`,
     choices: [
       { name: `OpenAI (GPT-4o)${prevProvider === 'openai' ? ' ✓' : ''}`, value: 'openai' },
       { name: `Anthropic (Claude)${prevProvider === 'anthropic' ? ' ✓' : ''}`, value: 'anthropic' },
@@ -105,7 +106,7 @@ export async function initCommand(): Promise<void> {
 
   if (llmProvider === 'ollama') {
     ollamaBaseUrl = await input({
-      message: 'Ollama base URL:',
+      message: `Ollama base URL:${hint('OLLAMA_BASE_URL')}`,
       default: prev['OLLAMA_BASE_URL'] || 'http://localhost:11434',
     });
     console.log(chalk.dim('  Make sure Ollama is running and the model is pulled (e.g. ollama pull llama3.2)'));
@@ -114,8 +115,7 @@ export async function initCommand(): Promise<void> {
       : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
       : 'AZURE_OPENAI_API_KEY';
     if (hasKey(apiKeyVar)) {
-      console.log(chalk.dim(`  ${apiKeyVar} is already set. ${masked(apiKeyVar)}`));
-      const change = await confirm({ message: `Change ${llmProvider} API key?`, default: false });
+      const change = await confirm({ message: `${llmProvider} API key${hintSecret(apiKeyVar)} — change it?`, default: false });
       if (change) {
         llmApiKey = await password({
           message: `${llmProvider} API key:`,
@@ -136,7 +136,7 @@ export async function initCommand(): Promise<void> {
 
   const modelChoices = (LLM_MODELS[llmProvider] ?? ['gpt-4o']).map((m) => ({ name: m, value: m }));
   const llmModel = await select({
-    message: 'Default model:',
+    message: `Default model:${hint('LLM_MODEL')}`,
     choices: modelChoices,
     default: prev['LLM_MODEL'] ?? modelChoices[0]?.value,
   });
@@ -146,7 +146,7 @@ export async function initCommand(): Promise<void> {
 
   const prevChannel = prev['BEX_CHANNEL'];
   const channel = await select({
-    message: 'Primary interface channel:',
+    message: `Primary interface channel:${hint('BEX_CHANNEL')}`,
     choices: [
       { name: `Web Dashboard only (add channels later)${prevChannel === 'dashboard' ? ' ✓' : ''}`, value: 'dashboard' },
       { name: `Telegram Bot${prevChannel === 'telegram' ? ' ✓' : ''}`, value: 'telegram' },
@@ -159,8 +159,7 @@ export async function initCommand(): Promise<void> {
   const channelEnv: Record<string, string> = {};
   if (channel === 'telegram') {
     if (hasKey('TELEGRAM_BOT_TOKEN')) {
-      console.log(chalk.dim(`  TELEGRAM_BOT_TOKEN is already set. ${masked('TELEGRAM_BOT_TOKEN')}`));
-      const change = await confirm({ message: 'Change Telegram Bot Token?', default: false });
+      const change = await confirm({ message: `Telegram Bot Token${hintSecret('TELEGRAM_BOT_TOKEN')} — change it?`, default: false });
       channelEnv['TELEGRAM_BOT_TOKEN'] = change
         ? await password({ message: 'Telegram Bot Token:' })
         : prev['TELEGRAM_BOT_TOKEN'] ?? '';
@@ -168,26 +167,29 @@ export async function initCommand(): Promise<void> {
       channelEnv['TELEGRAM_BOT_TOKEN'] = await password({ message: 'Telegram Bot Token:' });
     }
     channelEnv['TELEGRAM_APPROVAL_CHAT_ID'] = await input({
-      message: 'Approval Chat ID (your Telegram user ID):',
+      message: `Approval Chat ID (your Telegram user ID):${hint('TELEGRAM_APPROVAL_CHAT_ID')}`,
       default: prev['TELEGRAM_APPROVAL_CHAT_ID'] ?? '',
     });
   } else if (channel === 'teams') {
     channelEnv['TEAMS_WEBHOOK_URL'] = await input({
-      message: 'Teams Incoming Webhook URL:',
+      message: `Teams Incoming Webhook URL:${hint('TEAMS_WEBHOOK_URL')}`,
       default: prev['TEAMS_WEBHOOK_URL'] ?? '',
     });
   } else if (channel === 'whatsapp') {
-    channelEnv['TWILIO_ACCOUNT_SID'] = await input({ message: 'Twilio Account SID:', default: prev['TWILIO_ACCOUNT_SID'] ?? '' });
+    channelEnv['TWILIO_ACCOUNT_SID'] = await input({
+      message: `Twilio Account SID:${hint('TWILIO_ACCOUNT_SID')}`,
+      default: prev['TWILIO_ACCOUNT_SID'] ?? '',
+    });
     if (hasKey('TWILIO_AUTH_TOKEN')) {
-      const change = await confirm({ message: 'Change Twilio Auth Token?', default: false });
+      const change = await confirm({ message: `Twilio Auth Token${hintSecret('TWILIO_AUTH_TOKEN')} — change it?`, default: false });
       channelEnv['TWILIO_AUTH_TOKEN'] = change
         ? await password({ message: 'Twilio Auth Token:' })
         : prev['TWILIO_AUTH_TOKEN'] ?? '';
     } else {
       channelEnv['TWILIO_AUTH_TOKEN'] = await password({ message: 'Twilio Auth Token:' });
     }
-    channelEnv['TWILIO_WHATSAPP_FROM'] = await input({ message: 'WhatsApp From (e.g. whatsapp:+14155238886):', default: prev['TWILIO_WHATSAPP_FROM'] ?? '' });
-    channelEnv['WHATSAPP_APPROVAL_TO'] = await input({ message: 'Approval destination number:', default: prev['WHATSAPP_APPROVAL_TO'] ?? '' });
+    channelEnv['TWILIO_WHATSAPP_FROM'] = await input({ message: `WhatsApp From:${hint('TWILIO_WHATSAPP_FROM')}`, default: prev['TWILIO_WHATSAPP_FROM'] ?? '' });
+    channelEnv['WHATSAPP_APPROVAL_TO'] = await input({ message: `Approval destination number:${hint('WHATSAPP_APPROVAL_TO')}`, default: prev['WHATSAPP_APPROVAL_TO'] ?? '' });
   }
 
   // ── Step 3: Domain integrations (XIQ / XCO) ──────────────────────────────
@@ -200,12 +202,12 @@ export async function initCommand(): Promise<void> {
   if (setupXiq) {
     console.log(chalk.dim('  XIQ credentials are used to query your wireless network via the XIQ cloud API.\n'));
     domainEnv['XCIQ_USERNAME'] = await input({
-      message: 'XIQ username (email):',
+      message: `XIQ username (email):${hint('XCIQ_USERNAME')}`,
       default: prev['XCIQ_USERNAME'] ?? '',
       validate: (v: string) => v.includes('@') || 'Enter a valid email',
     });
     if (hasKey('XCIQ_PASSWORD')) {
-      const change = await confirm({ message: 'Change XIQ password?', default: false });
+      const change = await confirm({ message: `XIQ password${hintSecret('XCIQ_PASSWORD')} — change it?`, default: false });
       domainEnv['XCIQ_PASSWORD'] = change ? await password({ message: 'XIQ password:' }) : prev['XCIQ_PASSWORD'] ?? '';
     } else {
       domainEnv['XCIQ_PASSWORD'] = await password({ message: 'XIQ password:' });
@@ -216,13 +218,13 @@ export async function initCommand(): Promise<void> {
   if (setupXco) {
     console.log(chalk.dim('  XCO is your on-premises fabric orchestrator. Provide the management IP/hostname.\n'));
     domainEnv['XCO_HOST'] = await input({
-      message: 'XCO host (IP or hostname, e.g. 10.1.1.1):',
+      message: `XCO host (IP or hostname):${hint('XCO_HOST')}`,
       default: prev['XCO_HOST'] ?? '',
       validate: (v: string) => v.trim().length > 0 || 'Required',
     });
-    domainEnv['XCO_USERNAME'] = await input({ message: 'XCO admin username:', default: prev['XCO_USERNAME'] ?? '' });
+    domainEnv['XCO_USERNAME'] = await input({ message: `XCO admin username:${hint('XCO_USERNAME')}`, default: prev['XCO_USERNAME'] ?? '' });
     if (hasKey('XCO_PASSWORD')) {
-      const change = await confirm({ message: 'Change XCO password?', default: false });
+      const change = await confirm({ message: `XCO password${hintSecret('XCO_PASSWORD')} — change it?`, default: false });
       domainEnv['XCO_PASSWORD'] = change ? await password({ message: 'XCO admin password:' }) : prev['XCO_PASSWORD'] ?? '';
     } else {
       domainEnv['XCO_PASSWORD'] = await password({ message: 'XCO admin password:' });
@@ -233,13 +235,13 @@ export async function initCommand(): Promise<void> {
   console.log('\n' + chalk.bold('Step 4 of 5 — Admin Account\n'));
 
   const adminEmail = await input({
-    message: 'Admin email:',
+    message: `Admin email:${hint('BEX_ADMIN_EMAIL')}`,
     default: prev['BEX_ADMIN_EMAIL'] ?? '',
     validate: (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) || 'Enter a valid email address',
   });
 
   const adminPassword = await password({
-    message: hasKey('BEX_ADMIN_PASSWORD') ? 'Admin password (Enter to keep existing):' : 'Admin password (min 8 chars):',
+    message: `Admin password:${hintSecret('BEX_ADMIN_PASSWORD')}`,
     validate: (v: string) => (v.length === 0 && hasKey('BEX_ADMIN_PASSWORD')) || v.length >= 8 || 'Password must be at least 8 characters',
   });
   const resolvedAdminPassword = adminPassword || (prev['BEX_ADMIN_PASSWORD'] ?? '');
@@ -257,7 +259,7 @@ export async function initCommand(): Promise<void> {
   console.log('\n' + chalk.bold('Step 5 of 5 — Generating configuration\n'));
 
   const skillRegistryToken = await input({
-    message: 'Skill registry auth token (leave blank if registry is open):',
+    message: `Skill registry auth token (leave blank if open):${hint('SKILL_REGISTRY_TOKEN')}`,
     default: prev['SKILL_REGISTRY_TOKEN'] ?? '',
   });
 
