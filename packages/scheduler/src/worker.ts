@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { loadSystemSecrets } from '@bclaw/credential-vault';
 
 import { createAgentWorker } from './queue.js';
 import { runCronLoop } from './cron.js';
@@ -30,6 +31,7 @@ async function cronTick(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await loadSystemSecrets(prisma);
   await resetOrphanedRequests();
 
   // Start the BullMQ worker

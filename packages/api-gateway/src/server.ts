@@ -6,7 +6,7 @@ import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import { PrismaClient } from '@prisma/client';
 
-import { CredentialVaultService } from '@bclaw/credential-vault';
+import { CredentialVaultService, loadSystemSecrets } from '@bclaw/credential-vault';
 import { SshExecutorService } from '@bclaw/ssh-executor';
 
 import { adminRoutes } from './routes/admin.js';
@@ -42,6 +42,7 @@ async function buildApp() {
   });
 
   const prisma = new PrismaClient();
+  await loadSystemSecrets(prisma);
   const vault = new CredentialVaultService(prisma);
   const sshExecutor = new SshExecutorService(prisma, vault);
 

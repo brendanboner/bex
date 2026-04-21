@@ -281,9 +281,9 @@ export async function initCommand(): Promise<void> {
     REDIS_URL: `redis://:${redisPassword}@localhost:6379`,
     REDIS_PASSWORD: redisPassword,
     JWT_SECRET: jwtSecret,
-    VAULT_ENCRYPTION_KEY: vaultKey,
     CREDENTIAL_VAULT_KEY: vaultKey,
     LLM_PROVIDER: llmProvider,
+    // LLM API keys written temporarily so services can start; moved to vault below
     OPENAI_API_KEY: llmProvider === 'openai' ? llmApiKey : (prev['OPENAI_API_KEY'] ?? ''),
     ANTHROPIC_API_KEY: llmProvider === 'anthropic' ? llmApiKey : (prev['ANTHROPIC_API_KEY'] ?? ''),
     AZURE_OPENAI_API_KEY: llmProvider === 'azure' ? llmApiKey : (prev['AZURE_OPENAI_API_KEY'] ?? ''),
@@ -380,13 +380,14 @@ export async function initCommand(): Promise<void> {
 
   // ── Bootstrap admin account ───────────────────────────────────────────────
   const setupSpinner = ora('Creating admin account…').start();
+  let adminToken = '';
   try {
     const { default: fetch } = await import('node-fetch');
     const res = await fetch('http://localhost:4000/admin/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, channel,
+        adminEmail, adminPassword: resolvedAdminPassword, llmProvider, llmApiKey, llmModel, channel,
         ...(ollamaBaseUrl && { ollamaBaseUrl }),
       }),
     });
@@ -395,7 +396,7 @@ export async function initCommand(): Promise<void> {
       setupSpinner.info('Platform already configured — admin account exists');
     } else if (json.ok) {
       setupSpinner.succeed('Admin account created');
-      if (json.data?.adminToken) writeEnv({ BEX_ADMIN_TOKEN: json.data.adminToken });
+      adminToken = json.data?.adminToken ?? '';
     } else {
       const errMsg = json.error && typeof json.error === 'object' && 'message' in json.error
         ? String((json.error as { message: unknown }).message)
@@ -407,24 +408,95 @@ export async function initCommand(): Promise<void> {
     setupSpinner.warn(`Could not call setup API: ${message}`);
   }
 
+  // ── Store sensitive credentials in vault, remove from .env ───────────────
+  if (adminToken) {
+    const vaultSpinner = ora('Moving secrets to credential vault…').start();
+    try {
+      const { default: fetch } = await import('node-fetch');
+      const authHeader = { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' };
+
+      async function storeSystemCred(name: string, value: Record<string, string>): Promise<void> {
+        await fetch('http://localhost:4000/credentials', {
+          method: 'POST',
+          headers: authHeader,
+          body: JSON.stringify({ name, scope: 'SYSTEM', credentialType: 'API_TOKEN', value }),
+        });
+      }
+
+      const llmKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
+        : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
+        : 'AZURE_OPENAI_API_KEY';
+      const currentLlmKey = envVars[llmKeyVar];
+      if (currentLlmKey) {
+        await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, { [llmKeyVar.toLowerCase()]: currentLlmKey });
+      }
+      if (channelEnv['TELEGRAM_BOT_TOKEN']) {
+        await storeSystemCred('system.telegram_bot_token', { telegram_bot_token: channelEnv['TELEGRAM_BOT_TOKEN'] });
+      }
+      if (domainEnv['XCIQ_USERNAME']) {
+        await storeSystemCred('system.xciq_credentials', {
+          xciq_username: domainEnv['XCIQ_USERNAME'] ?? '',
+          xciq_password: domainEnv['XCIQ_PASSWORD'] ?? '',
+        });
+      }
+      if (domainEnv['XCO_HOST']) {
+        await storeSystemCred('system.xco_credentials', {
+          xco_host: domainEnv['XCO_HOST'] ?? '',
+          xco_username: domainEnv['XCO_USERNAME'] ?? '',
+          xco_password: domainEnv['XCO_PASSWORD'] ?? '',
+        });
+      }
+      if (channelEnv['TWILIO_ACCOUNT_SID']) {
+        await storeSystemCred('system.twilio_credentials', {
+          twilio_account_sid: channelEnv['TWILIO_ACCOUNT_SID'] ?? '',
+          twilio_auth_token: channelEnv['TWILIO_AUTH_TOKEN'] ?? '',
+          twilio_whatsapp_from: channelEnv['TWILIO_WHATSAPP_FROM'] ?? '',
+          whatsapp_approval_to: channelEnv['WHATSAPP_APPROVAL_TO'] ?? '',
+        });
+      }
+
+      // Strip sensitive keys from .env — vault is now the source of truth
+      const keysToRemove = [
+        'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'AZURE_OPENAI_API_KEY',
+        'TELEGRAM_BOT_TOKEN', 'XCIQ_USERNAME', 'XCIQ_PASSWORD',
+        'XCO_HOST', 'XCO_USERNAME', 'XCO_PASSWORD',
+        'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM', 'WHATSAPP_APPROVAL_TO',
+        'BEX_ADMIN_PASSWORD',
+      ];
+      const cleanedVars = Object.fromEntries(
+        Object.entries(envVars).filter(([k]) => !keysToRemove.includes(k)),
+      );
+      writeEnv(cleanedVars);
+
+      vaultSpinner.succeed('Secrets stored in vault — removed from .env');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      vaultSpinner.warn(`Could not store in vault (${message}) — secrets remain in .env`);
+    }
+  }
+
   await waitForService('http://localhost:3000', 'Dashboard', 60_000);
 
   // ── Pull domain skills from registry (fast path) ──────────────────────────
   const { default: fetch } = await import('node-fetch');
 
-  // Get a live JWT by logging in with the admin credentials we just created
+  // Log in to get a JWT for registry operations
   let registryAuthHeader: Record<string, string> = {};
-  try {
-    const loginRes = await fetch('http://localhost:4000/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: adminEmail, password: adminPassword }),
-    });
-    const loginJson = (await loginRes.json()) as { ok: boolean; data?: { token?: string } };
-    if (loginJson.ok && loginJson.data?.token) {
-      registryAuthHeader = { Authorization: `Bearer ${loginJson.data.token}` };
-    }
-  } catch { /* proceed without auth — install will fail gracefully */ }
+  if (adminToken) {
+    registryAuthHeader = { Authorization: `Bearer ${adminToken}` };
+  } else {
+    try {
+      const loginRes = await fetch('http://localhost:4000/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail, password: resolvedAdminPassword }),
+      });
+      const loginJson = (await loginRes.json()) as { ok: boolean; data?: { token?: string } };
+      if (loginJson.ok && loginJson.data?.token) {
+        registryAuthHeader = { Authorization: `Bearer ${loginJson.data.token}` };
+      }
+    } catch { /* proceed without auth */ }
+  }
 
   async function pullSkillFromRegistry(
     label: string,
