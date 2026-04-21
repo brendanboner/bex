@@ -65,7 +65,17 @@ async function postJobActions(
 
   if (!request?.output || request.status !== 'COMPLETED') return;
 
+  // Agents signal "nothing to report this run" with [NO_CHANGE] at the start of output.
+  // Skip memory append and Telegram notification to avoid alert fatigue.
+  const isNoChange = request.output.trimStart().startsWith('[NO_CHANGE]');
+  if (isNoChange) {
+    console.info(`[scheduler] Agent signalled NO_CHANGE for job "${jobName}" — skipping memory append and notification`);
+    return;
+  }
+
   // ── Update agent memory (knowledge store) ────────────────────────────────
+  // Only append to memory when the agent has something meaningful to report.
+  // Agents should manage their own device/state lists via write_memory directly.
   try {
     const domain = `agent/${agentId}`;
     const existing = await knowledgeStore.read(domain, 'memory').catch(() => null);
@@ -75,8 +85,8 @@ async function postJobActions(
       ? `${existing.content}\n\n${entry}`
       : entry;
 
-    // Keep memory from growing unbounded — keep last ~5000 chars
-    const trimmed = newContent.length > 5000 ? newContent.slice(-5000) : newContent;
+    // Keep memory from growing unbounded — keep last ~8000 chars
+    const trimmed = newContent.length > 8000 ? newContent.slice(-8000) : newContent;
     await knowledgeStore.write(domain, 'memory', trimmed);
     console.info(`[scheduler] Updated memory for agent ${agentId}`);
   } catch (err) {
