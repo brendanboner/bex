@@ -139,7 +139,7 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
 bot.command('start', async (ctx) => {
   trackChatId(ctx.chat.id);
   await ctx.reply(
-    '👋 *Welcome to Forge!*\n\n' +
+    '👋 *Welcome to BEX!*\n\n' +
     'Send me any message and I\'ll route it to your AI agent.\n\n' +
     '*Commands:*\n' +
     '/status — check your last request\n' +
@@ -154,7 +154,7 @@ bot.command('start', async (ctx) => {
 bot.command('help', async (ctx) => {
   trackChatId(ctx.chat.id);
   await ctx.reply(
-    '🤖 *Forge Bot Commands*\n\n' +
+    '🤖 *BEX Bot Commands*\n\n' +
     '*/start* — welcome & command list\n' +
     '*/status* — check your last request status\n' +
     '*/agents* — list available agents\n' +
