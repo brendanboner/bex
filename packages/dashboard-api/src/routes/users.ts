@@ -5,7 +5,7 @@ import { ok, err, ErrorCodes } from '@bclaw/shared';
 
 export async function userRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   // System users only
-  app.get('/admin/users', { onRequest: [app.requireSystemUser] }, async (_request, reply) => {
+  app.get('/admin/users', async (_request, reply) => {
     const users = await prisma.user.findMany({
       select: { id: true, externalId: true, displayName: true, email: true, isSystemUser: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
@@ -15,7 +15,6 @@ export async function userRoutes(app: FastifyInstance, prisma: PrismaClient): Pr
 
   app.patch<{ Params: { id: string }; Body: unknown }>(
     '/admin/users/:id',
-    { onRequest: [app.requireSystemUser] },
     async (request, reply) => {
       const body = request.body as { isSystemUser?: boolean; displayName?: string };
       const user = await prisma.user.update({

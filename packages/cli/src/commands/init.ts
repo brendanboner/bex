@@ -679,14 +679,17 @@ Be concise and technical in your responses.`,
         conductBoundaries: ['delete:*', 'fabric:reset', 'switch:remove'],
       });
     } else {
-      // Registry doesn't have XCO skills — build locally using SkillBuilderService (LLM-driven)
+      // Registry doesn't have XCO skills — build locally using the seed script
       console.log('');
-      const buildSp = ora('Building ExtremeCloud Orchestrator skills via LLM (this may take ~90s)…').start();
+      const buildSp = ora('Building ExtremeCloud Orchestrator skills (this may take ~60s)…').start();
+      const xcoHost = domainEnv['XCO_HOST'] ?? '';
+      const xcoUser = domainEnv['XCO_USERNAME'] ?? 'extreme';
+      const xcoPwd  = domainEnv['XCO_PASSWORD'] ?? '';
       const buildResult = spawnSync(
-        'node', ['scripts/setup-xco.js'],
+        'npx', ['tsx', 'scripts/seed-xco-full.ts'],
         {
           cwd: root,
-          env: subprocEnvBase,
+          env: { ...subprocEnvBase, XCO_HOST: xcoHost, XCO_USERNAME: xcoUser, XCO_PASSWORD: xcoPwd },
           stdio: ['ignore', 'pipe', 'pipe'],
           encoding: 'utf-8',
           timeout: 240_000,
@@ -696,7 +699,7 @@ Be concise and technical in your responses.`,
         buildSp.succeed('ExtremeCloud Orchestrator skills built and agents created');
         xcoReady = true;
       } else {
-        buildSp.warn('Could not build XCO skills automatically — run manually: node scripts/setup-xco.js');
+        buildSp.warn('Could not build XCO skills automatically — run manually: npx tsx scripts/seed-xco-full.ts');
         if (buildResult.stderr) console.error(chalk.dim(buildResult.stderr.slice(0, 500)));
       }
     }
@@ -735,7 +738,7 @@ Be concise and technical in your responses.`,
   if (setupXiq && xiqReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud IQ agent + skills ready             ') + V('║'));
   if (setupXco && xcoReady) console.log(V('  ║') + chalk.green('  ✓ ExtremeCloud Orchestrator agent ready            ') + V('║'));
   if (setupXiq && !xiqReady) console.log(V('  ║') + chalk.yellow('  ⚠ XIQ: run npx tsx scripts/seed-xciq-full.ts      ') + V('║'));
-  if (setupXco && !xcoReady) console.log(V('  ║') + chalk.yellow('  ⚠ XCO: run node scripts/setup-xco.js              ') + V('║'));
+  if (setupXco && !xcoReady) console.log(V('  ║') + chalk.yellow('  ⚠ XCO: run npx tsx scripts/seed-xco-full.ts       ') + V('║'));
   if (!setupXiq) console.log(V('  ║') + D('  XIQ: re-run bex init or add creds via dashboard    ') + V('║'));
   if (!setupXco) console.log(V('  ║') + D('  XCO: re-run bex init or add creds via dashboard    ') + V('║'));
   console.log(V('  ╠══════════════════════════════════════════════════════╣'));

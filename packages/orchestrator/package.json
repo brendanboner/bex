@@ -2,7 +2,7 @@
   "name": "@bclaw/orchestrator",
   "version": "0.1.0",
   "private": true,
-  "description": "Core agent execution engine \u2014 LLM routing, tool execution, credential proxying",
+  "description": "Core agent execution engine — LLM routing, tool execution, credential proxying",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,19 +22,22 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
-    "@bclaw/credential-vault": "*",
-    "@bclaw/skill-engine": "*",
-    "@bclaw/permission-gateway": "*",
-    "@ai-sdk/openai": "^0.0.62",
     "@ai-sdk/anthropic": "^0.0.48",
     "@ai-sdk/azure": "^0.0.28",
-    "@prisma/client": "^5.17.0",
-    "ai": "^3.4.7",
-    "zod": "^3.23.8",
+    "@ai-sdk/openai": "^0.0.62",
+    "@bclaw/credential-vault": "*",
+    "@bclaw/permission-gateway": "*",
+    "@bclaw/shared": "*",
+    "@bclaw/skill-engine": "*",
     "@bclaw/ssh-executor": "*",
+    "@prisma/client": "^5.17.0",
+    "@types/jsonwebtoken": "^9.0.6",
+    "ai": "^3.4.7",
     "bullmq": "^5.12.12",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^3.23.8",
+    "@bclaw/skill-registry-client": "*"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

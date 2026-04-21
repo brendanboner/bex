@@ -30,7 +30,7 @@ export class SkillRegistryService {
   } | null> {
     const skills = await this.prisma.skill.findMany({
       where: { status: 'PUBLISHED' },
-      select: { id: true, name: true, domain: true, description: true, capabilities: true, tools: true, systemPrompt: true },
+      select: { id: true, name: true, domain: true, description: true, capabilities: true, tools: true, systemPrompt: true, requiredCredentialType: true },
     });
 
     if (skills.length === 0) return null;
@@ -55,12 +55,18 @@ export class SkillRegistryService {
         if (descText.includes(word)) score += 0.5;
       }
 
+      // Prefer skills that don't require credentials — no config friction for the user
+      if (!skill.requiredCredentialType) score += 0.5;
+
       return { skill, score };
     });
 
     const best = scored.sort((a, b) => b.score - a.score)[0];
     // Return null if no meaningful match (score threshold prevents random matches)
-    return best && best.score >= 1 ? best.skill : null;
+    if (!best || best.score < 1) return null;
+    // Strip internal scoring field from returned object
+    const { requiredCredentialType: _cred, ...skillData } = best.skill;
+    return skillData;
   }
 
   async findByDomain(domain: string): Promise<{

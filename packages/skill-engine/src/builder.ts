@@ -1,4 +1,4 @@
-import { generateObject } from 'ai';
+import { generateObject, generateText } from 'ai';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';
 
@@ -27,7 +27,60 @@ Include both read (GET) and write (POST/PUT/DELETE) operations.
 For each tool, generate complete JSON Schema parameters with descriptions.
 Tool names must be snake_case (e.g. get_devices, create_vlan, get_fabric_topology, ssh_exec).
 Every parameter must include a "type" and "description" field.
-Do not omit any endpoints present in the documentation.`;
+Do not omit any endpoints present in the documentation.
+
+IMPORTANT — parameter accuracy:
+When the knowledge source includes real parameter schemas (marked with "param ... [required]" or "body fields:"),
+you MUST use those EXACT field names and types in your tool definitions. Do not invent or rename parameters.
+When the source includes "response fields:", document exactly how to extract values from that response
+in the tool description — e.g. "returns results[0].latitude".`;
+
+const CHAIN_DOC_SYSTEM_PROMPT = `You are a tool-chain documentation expert.
+Given a list of tools in a skill, write a concise system prompt section that tells
+an LLM agent exactly how to chain tool calls together correctly.
+
+For each tool that depends on the output of another:
+- Name the source tool and the exact field path to extract (e.g. results[0].latitude)
+- Name the destination tool and the exact parameter name to use
+- Be concrete and specific — the agent will follow these instructions literally
+
+Format as a short numbered list. Do not include general advice, only concrete data-flow instructions.
+Start with: "## Tool Chain Instructions"`;
+
+/** Generate explicit chain documentation from the built tool definitions */
+async function generateChainDocs(
+  tools: unknown[],
+  provider: LlmProvider,
+): Promise<string> {
+  try {
+    const toolSummary = (tools as Array<Record<string, unknown>>)
+      .map((t) => {
+        const params = t['parameters'] as Record<string, unknown> | undefined;
+        const props = (params?.['properties'] as Record<string, unknown>) ?? {};
+        const required = (params?.['required'] as string[]) ?? [];
+        const paramList = Object.entries(props)
+          .map(([k, v]) => {
+            const pv = v as Record<string, unknown>;
+            const req = required.includes(k) ? '[required]' : '[optional]';
+            return `${k}: ${pv['type'] ?? 'any'} ${req} — ${pv['description'] ?? ''}`;
+          })
+          .join(', ');
+        return `Tool: ${t['name']}\nDescription: ${t['description']}\nEndpoint: ${t['endpoint'] ?? 'n/a'}\nParams: ${paramList}`;
+      })
+      .join('\n\n');
+
+    const model = buildModel(provider);
+    const { text } = await generateText({
+      model,
+      system: CHAIN_DOC_SYSTEM_PROMPT,
+      prompt: `Generate chain documentation for these tools:\n\n${toolSummary}`,
+      maxTokens: 800,
+    });
+    return text.trim();
+  } catch {
+    return '';
+  }
+}
 
 export type BuildSkillSource = {
   type: 'openapi_url' | 'pdf_url' | 'markdown_url' | 'raw_markdown';
@@ -134,6 +187,16 @@ export class SkillBuilderService {
       }),
     });
 
+    // Generate explicit chain documentation so agents know exactly how to pipe
+    // one tool's output fields into the next tool's required inputs.
+    const chainDocs = await generateChainDocs(
+      object.skill.tools as unknown[],
+      llmProvider,
+    );
+    const systemPrompt = [object.skill.systemPrompt, chainDocs]
+      .filter(Boolean)
+      .join('\n\n') || null;
+
     const skill = await (async () => {
       // If a skill with this domain+version already exists, bump version
       let version = object.skill.version;
@@ -153,7 +216,7 @@ export class SkillBuilderService {
           status: 'DRAFT',
           capabilities: object.skill.capabilities,
           tools: object.skill.tools as Prisma.InputJsonValue,
-          systemPrompt: object.skill.systemPrompt ?? null,
+          systemPrompt,
         },
         select: { id: true },
       });

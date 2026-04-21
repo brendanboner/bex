@@ -42,22 +42,31 @@ export async function runCronLoop(): Promise<void> {
 
   for (const job of jobs) {
     // Create an AgentRequest record first
-    const request = await prisma.agentRequest.create({
-      data: {
-        agentId: job.agentId,
-        userId: systemUserId,
-        status: 'QUEUED',
-        input: job.input,
-        channel: 'api',
-      },
-      select: { id: true },
-    });
+    let request: { id: string };
+    try {
+      request = await prisma.agentRequest.create({
+        data: {
+          agentId: job.agentId,
+          userId: systemUserId,
+          status: 'QUEUED',
+          input: job.input,
+          channel: 'scheduler',
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      console.warn(`[cron] Skipping job "${job.name}" — agentId ${job.agentId} may no longer exist:`, (err as Error).message);
+      // Disable the orphaned job so it doesn't keep failing
+      await prisma.scheduledJob.update({ where: { id: job.id }, data: { enabled: false } });
+      continue;
+    }
 
     const jobData: AgentJobData = {
       requestId: request.id,
       agentId: job.agentId,
       userId: systemUserId,
       input: job.input,
+      jobName: job.name,
       channel: 'scheduler',
     };
 

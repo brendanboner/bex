@@ -1,0 +1,1 @@
+The Cloud IQ Network is a cloud-based network management system that allows for monitoring and managing network devices. It provides real-time data on connected devices, including their MAC addresses, device names, access points, and SSIDs. The network is used by various devices, including computers, smartphones, and IoT devices.

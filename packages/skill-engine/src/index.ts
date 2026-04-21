@@ -11,3 +11,4 @@ export { ToolRegistry } from './tool-registry.js';
 export type { ToolDefinition } from './tool-registry.js';
 export { buildSkillsFromOpenApi } from './openapi-skill-builder.js';
 export type { GeneratedSkill, GeneratedTool, BuildSkillsOptions } from './openapi-skill-builder.js';
+export { SkillProberService } from './prober.js';

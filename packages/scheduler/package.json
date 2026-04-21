@@ -23,6 +23,7 @@
   "dependencies": {
     "@bclaw/shared": "*",
     "@bclaw/orchestrator": "*",
+    "@bclaw/knowledge-store": "*",
     "@prisma/client": "^5.17.0",
     "bullmq": "^5.12.12",
     "cron-parser": "^4.9.0",

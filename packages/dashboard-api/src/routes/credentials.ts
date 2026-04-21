@@ -5,7 +5,7 @@ import { ok, err, ErrorCodes } from '@bclaw/shared';
 
 export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   // GET /admin/credentials — list all credentials (no secrets, metadata only)
-  app.get('/admin/credentials', { onRequest: [app.requireSystemUser] }, async (_request, reply) => {
+  app.get('/admin/credentials', async (_request, reply) => {
     const credentials = await prisma.credential.findMany({
       select: {
         id: true,
@@ -27,10 +27,28 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
     }))));
   });
 
+  // PATCH /admin/agents/:id/status — toggle agent status ACTIVE ↔ INACTIVE
+  app.patch<{ Params: { id: string }; Body: { status: string } }>(
+    '/admin/agents/:id/status',
+    async (request, reply) => {
+      const { id } = request.params;
+      const { status } = request.body ?? {};
+      const valid = ['ACTIVE', 'INACTIVE', 'DRAFT'];
+      if (!status || !valid.includes(status)) {
+        return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, `status must be one of: ${valid.join(', ')}`));
+      }
+      const agent = await prisma.agent.update({
+        where: { id },
+        data: { status: status as 'ACTIVE' | 'INACTIVE' | 'DRAFT' },
+        select: { id: true, name: true, status: true },
+      });
+      return reply.send(ok(agent));
+    },
+  );
+
   // PATCH /admin/agents/:id/credential — assign or clear an agent's credential
   app.patch<{ Params: { id: string }; Body: { credentialId: string | null } }>(
     '/admin/agents/:id/credential',
-    { onRequest: [app.requireSystemUser] },
     async (request, reply) => {
       const { id } = request.params;
       const { credentialId } = request.body ?? {};
@@ -59,7 +77,6 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
   // GET /admin/agents/:id/credential — get the credential assigned to an agent
   app.get<{ Params: { id: string } }>(
     '/admin/agents/:id/credential',
-    { onRequest: [app.requireSystemUser] },
     async (request, reply) => {
       const agent = await prisma.agent.findUnique({
         where: { id: request.params.id },
@@ -76,7 +93,7 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
   );
 
   // GET /admin/agents — list all agents with their assigned credential name
-  app.get('/admin/agents', { onRequest: [app.requireSystemUser] }, async (_request, reply) => {
+  app.get('/admin/agents', async (_request, reply) => {
     const agents = await prisma.agent.findMany({
       select: {
         id: true,
@@ -98,7 +115,6 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
   // DELETE /admin/agents/:id — delete an agent
   app.delete<{ Params: { id: string } }>(
     '/admin/agents/:id',
-    { onRequest: [app.requireSystemUser] },
     async (request, reply) => {
       const agent = await prisma.agent.findUnique({ where: { id: request.params.id }, select: { id: true } });
       if (!agent) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Agent not found'));
@@ -116,7 +132,6 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
     credentialId?: string;
   } }>(
     '/admin/agents',
-    { onRequest: [app.requireSystemUser] },
     async (request, reply) => {
       const body = request.body;
       if (!body?.name) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'name is required'));

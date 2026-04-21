@@ -1,4 +1,5 @@
 import type { PrismaClient, Agent, ScheduledJob } from '@prisma/client';
+import { KnowledgeStore } from '@bclaw/knowledge-store';
 
 export interface SpawnResult {
   agent: Agent;
@@ -12,7 +13,11 @@ function inferPosture(permissions: string[]): 'SUPERVISED' | 'AUTONOMOUS' {
 }
 
 export class PersonaSpawner {
-  constructor(private prisma: PrismaClient) {}
+  private knowledgeStore: KnowledgeStore;
+
+  constructor(private prisma: PrismaClient) {
+    this.knowledgeStore = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+  }
 
   async spawnAgent(
     personaId: string,
@@ -23,19 +28,60 @@ export class PersonaSpawner {
     const persona = await this.prisma.persona.findUnique({ where: { id: personaId } });
     if (!persona) throw new Error(`Persona not found: ${personaId}`);
 
-    // 2. Find matching published skills by domain prefix.
-    //    A persona lists domain prefixes like "extremecloudiq" and we match any skill
-    //    whose domain starts with one of those prefixes (e.g. extremecloudiq.devices).
-    const skills =
-      persona.requiredSkills.length > 0
-        ? await this.prisma.$queryRaw<{ id: string }[]>`
-            SELECT id FROM "Skill"
-            WHERE status = 'PUBLISHED'
-              AND EXISTS (
-                SELECT 1 FROM unnest(${persona.requiredSkills}::text[]) AS prefix
-                WHERE domain LIKE prefix || '%'
-              )`
-        : [];
+    // 1b. If an agent was already spawned from this persona, return it (no duplicates).
+    const existingAgent = await this.prisma.agent.findFirst({
+      where: { personaId: persona.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existingAgent) {
+      const existingJob = await this.prisma.scheduledJob.findFirst({
+        where: { agentId: existingAgent.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      console.info(`[persona-spawner] Persona ${personaId} already has agent ${existingAgent.id} — reusing`);
+      return { agent: existingAgent, scheduledJob: existingJob };
+    }
+    // 2. Find matching published skills.
+    //    Two-pass strategy:
+    //    Pass 1 — exact domain prefix: "weather" matches "weather.forecast", "weather.open-meteo"
+    //    Pass 2 — keyword overlap: tokenise each requiredSkill and each skill's domain/name;
+    //             if any token appears in the domain or name, it's a match.
+    //    This handles LLM-generated names like "meteorology.forecasting" → matches "weather.*" via "forecast" token.
+    let skills: { id: string }[] = [];
+    if (persona.requiredSkills.length > 0) {
+      // Pass 1: exact prefix match
+      skills = await this.prisma.$queryRaw<{ id: string }[]>`
+          SELECT id FROM "Skill"
+          WHERE status = 'PUBLISHED'
+            AND EXISTS (
+              SELECT 1 FROM unnest(${persona.requiredSkills}::text[]) AS prefix
+              WHERE domain LIKE prefix || '%'
+            )`;
+
+      if (skills.length === 0) {
+        // Pass 2: keyword-based fuzzy match — extract tokens from each requiredSkill
+        const allPublished = await this.prisma.skill.findMany({
+          where: { status: 'PUBLISHED' },
+          select: { id: true, domain: true, name: true, capabilities: true },
+        });
+        const stopWords = new Set(['and', 'or', 'the', 'a', 'an', 'of', 'for', 'to', 'in', 'with', 'by', 'from']);
+        const skillTokens = persona.requiredSkills.flatMap((s: string) =>
+          s.toLowerCase().split(/[\W_]+/).filter((t: string) => t.length > 2 && !stopWords.has(t)),
+        );
+        for (const pub of allPublished) {
+          const domainTokens = pub.domain.toLowerCase().split(/[\W_]+/);
+          const nameTokens = pub.name.toLowerCase().split(/\s+/);
+          const capTokens = pub.capabilities.flatMap((c: string) => c.toLowerCase().split(/\s+/));
+          const allTokens = new Set([...domainTokens, ...nameTokens, ...capTokens]);
+          const hasMatch = skillTokens.some((st: string) =>
+            [...allTokens].some(dt => dt.includes(st) || st.includes(dt)),
+          );
+          if (hasMatch && !skills.find(s => s.id === pub.id)) {
+            skills.push({ id: pub.id });
+          }
+        }
+      }
+    }
 
     // 3. Create Agent — store the system prompt in the persona JSON blob
     const agent = await this.prisma.agent.create({
@@ -47,6 +93,7 @@ export class PersonaSpawner {
         permissions: persona.suggestedPermissions,
         personaId: persona.id,
         ownerId,
+        status: 'ACTIVE',
       },
     });
 
@@ -77,6 +124,9 @@ export class PersonaSpawner {
       data: { charterId: charter.id },
     });
 
+    // Copy workspace docs from persona to new agent (if they were created during generate)
+    await this.copyWorkspaceDocs(persona.id, agent.id);
+
     // 6. If persona has a schedule, create ScheduledJob
     let scheduledJob: ScheduledJob | null = null;
     if (persona.schedule != null) {
@@ -92,5 +142,18 @@ export class PersonaSpawner {
     }
 
     return { agent, scheduledJob };
+  }
+
+  /** Copy workspace docs (instructions/context/memory) from persona domain to agent domain. */
+  private async copyWorkspaceDocs(personaId: string, agentId: string): Promise<void> {
+    const topics = ['instructions', 'context', 'memory'];
+    await Promise.all(
+      topics.map(async (topic) => {
+        const entry = await this.knowledgeStore.read(`agent/${personaId}`, topic).catch(() => null);
+        if (entry?.content) {
+          await this.knowledgeStore.write(`agent/${agentId}`, topic, entry.content);
+        }
+      }),
+    );
   }
 }

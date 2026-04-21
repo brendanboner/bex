@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Zap, Clock, BookOpen, ChevronRight, Save } from 'lucide-react';
+import { Plus, Trash2, Zap, Clock, BookOpen, ChevronRight, Save, Brain } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatDate, truncate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 
 type Persona = {
@@ -23,6 +24,8 @@ type Persona = {
   systemPrompt: string;
   schedule?: string;
   createdAt: string;
+  // API joins the spawned agent if present
+  spawnedAgent?: { id: string; name: string; status: string } | null;
 };
 
 type GeneratedPersona = {
@@ -34,6 +37,11 @@ type GeneratedPersona = {
   requiredSkills: string[];
   suggestedPermissions: string[];
   schedule?: string;
+  workspaceDocs?: {
+    instructions: string;
+    context: string;
+    memory: string;
+  };
 };
 
 type SpawnResult = {
@@ -71,19 +79,30 @@ export default function PersonasPage() {
   const [spawnPersonaId, setSpawnPersonaId] = useState<string | null>(null);
   const [agentName, setAgentName] = useState('');
 
+  const [autoSpawn, setAutoSpawn] = useState(true);
+
   // Workspace doc editing
   const [workspacePersonaId, setWorkspacePersonaId] = useState<string | null>(null);
   const [activeTopic, setActiveTopic] = useState<string>('instructions');
   const [docContent, setDocContent] = useState('');
   const [docDirty, setDocDirty] = useState(false);
 
+  // Memory viewer
+  const [viewingMemoryFor, setViewingMemoryFor] = useState<string | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState<string>('');
+
   const { data: personas = [], isLoading, error } = useQuery({
     queryKey: ['personas'],
     queryFn: () => api.get<Persona[]>('/personas'),
   });
 
+  const { data: skills = [] } = useQuery({
+    queryKey: ['skills'],
+    queryFn: () => api.get<{ domain: string; status: string }[]>('/skills'),
+  });
+
   const generateMutation = useMutation({
-    mutationFn: (data: { goal: string; domain?: string; schedule?: string }) =>
+    mutationFn: (data: { goal: string; domain?: string; schedule?: string; existingSkills?: string[] }) =>
       api.post<GeneratedPersona>('/personas/generate', data),
     onSuccess: (data) => { setGenerated(data); setSpawnResult(null); },
     onError: (e) => toast({ title: 'Generation failed', description: (e as Error).message, variant: 'destructive' }),
@@ -94,7 +113,13 @@ export default function PersonasPage() {
       api.post<Persona>('/personas', persona),
     onSuccess: (saved) => {
       void qc.invalidateQueries({ queryKey: ['personas'] });
-      spawnMutation.mutate({ id: saved.id, data: {} });
+      if (autoSpawn) {
+        spawnMutation.mutate({ id: saved.id, data: {} });
+      } else {
+        toast({ title: 'Persona saved', description: 'Spawn an agent from it any time using the ▶ button.' });
+        setGenerated(null);
+        setShowGenerate(false);
+      }
     },
     onError: (e) => toast({ title: 'Save failed', description: (e as Error).message, variant: 'destructive' }),
   });
@@ -138,17 +163,36 @@ export default function PersonasPage() {
     onError: (e) => toast({ title: 'Save failed', description: (e as Error).message, variant: 'destructive' }),
   });
 
+  const { data: personaMemory } = useQuery({
+    queryKey: ['persona-memory', viewingMemoryFor],
+    queryFn: () => api.get<{ agentName: string; memory: string | null; updatedAt: string | null }>(`/personas/${viewingMemoryFor}/memory`),
+    enabled: !!viewingMemoryFor,
+  });
+
+  const savePersonaMemoryMutation = useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string }) =>
+      api.put(`/personas/${id}/memory`, { content }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['persona-memory', viewingMemoryFor] });
+      toast({ title: 'Memory saved' });
+    },
+    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  });
+
   function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
-    const payload: { goal: string; domain?: string; schedule?: string } = { goal };
+    const publishedDomains = skills.filter(s => s.status === 'PUBLISHED').map(s => s.domain);
+    const payload: { goal: string; domain?: string; schedule?: string; existingSkills?: string[] } = { goal };
     if (domain) payload.domain = domain;
     if (scheduleInput) payload.schedule = scheduleInput;
+    if (publishedDomains.length > 0) payload.existingSkills = publishedDomains;
     generateMutation.mutate(payload);
   }
 
   function handleSaveAndSpawn() {
     if (!generated) return;
-    saveMutation.mutate(generated);
+    void qc.invalidateQueries({ queryKey: ['personas'] });
+    spawnMutation.mutate({ id: generated.id, data: {} });
   }
 
   function handleSpawn(e: React.FormEvent) {
@@ -216,6 +260,7 @@ export default function PersonasPage() {
                   </div>
                   <div className="space-y-1">
                     <Label>Schedule <span className="text-muted-foreground font-normal">(optional — LLM infers if not set)</span></Label>
+                    <p className="text-xs text-muted-foreground">If set, spawning creates a scheduled job that runs the agent automatically on this cron schedule.</p>
                     <div className="flex gap-2">
                       <select
                         onChange={(e) => { if (e.target.value) setScheduleInput(e.target.value); }}
@@ -285,7 +330,7 @@ export default function PersonasPage() {
                       )}
                       {generated.schedule && (
                         <span className="text-xs rounded-full border border-[rgba(245,158,11,0.25)] bg-[rgba(245,158,11,0.07)] px-2.5 py-0.5 text-[rgb(var(--text-secondary))] flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {generated.schedule}
+                          <Clock className="h-3 w-3" /> {generated.schedule} (runs automatically)
                         </span>
                       )}
                     </div>
@@ -314,6 +359,20 @@ export default function PersonasPage() {
                       </div>
                     </div>
                   </div>
+                  {generated.workspaceDocs && (
+                    <div className="border-t border-[rgb(var(--border))] pt-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-[rgb(var(--text-muted))]">Soul Documents</p>
+                      <p className="text-xs text-[rgb(var(--text-muted))]">These are ready to edit in the workspace after spawning.</p>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {(['instructions', 'context', 'memory'] as const).map((doc) => (
+                          <details key={doc} className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-base))] p-2">
+                            <summary className="cursor-pointer text-xs font-medium text-[rgb(var(--text-secondary))] capitalize">{doc}</summary>
+                            <pre className="mt-1 text-[10px] text-[rgb(var(--text-muted))] whitespace-pre-wrap font-mono leading-relaxed max-h-28 overflow-auto">{generated.workspaceDocs![doc]}</pre>
+                          </details>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <details className="border-t border-[rgb(var(--border))] pt-3">
                     <summary className="cursor-pointer text-xs font-medium text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))]">
                       System prompt preview
@@ -323,10 +382,26 @@ export default function PersonasPage() {
                     </pre>
                   </details>
                 </div>
+                <p className="text-xs text-[rgb(var(--text-muted))]">
+                  Spawning creates an Agent from this blueprint{generated.schedule ? ` and a scheduled job (${generated.schedule})` : ''}. You can edit workspace docs and skills after spawning.
+                </p>
+                <div className="flex items-center gap-3 mb-1">
+                  <label className="flex items-center gap-2 text-xs text-[rgb(var(--text-secondary))] cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoSpawn}
+                      onChange={(e) => setAutoSpawn(e.target.checked)}
+                      className="rounded"
+                    />
+                    Auto-spawn agent after saving
+                  </label>
+                </div>
                 <div className="flex gap-2">
                   <Button onClick={handleSaveAndSpawn} disabled={saveMutation.isPending || spawnMutation.isPending}>
                     <Zap className="h-4 w-4 mr-2" />
-                    {saveMutation.isPending || spawnMutation.isPending ? 'Spawning…' : 'Save & Spawn Agent'}
+                    {saveMutation.isPending || spawnMutation.isPending
+                      ? (autoSpawn ? 'Spawning…' : 'Saving…')
+                      : (autoSpawn ? 'Save & Spawn Agent' : 'Save Persona')}
                   </Button>
                   <Button variant="outline" onClick={() => setGenerated(null)}>Back</Button>
                   <Button variant="ghost" onClick={() => { setShowGenerate(false); setGenerated(null); }}>Cancel</Button>
@@ -440,10 +515,18 @@ export default function PersonasPage() {
             <TableBody>
               {isLoading && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>}
               {personas.map((p) => (
-                <TableRow key={p.id}>
+                <React.Fragment key={p.id}>
+                <TableRow>
                   <TableCell>
                     <div className="font-medium">{p.name}</div>
                     {p.domain && <div className="text-xs text-muted-foreground">{p.domain}</div>}
+                    {p.spawnedAgent && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.spawnedAgent.status === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-500/15 text-slate-400'}`}>
+                          {p.spawnedAgent.status === 'ACTIVE' ? '● ' : '○ '}{p.spawnedAgent.name}
+                        </span>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground max-w-xs">{truncate(p.goal, 80)}</TableCell>
                   <TableCell>
@@ -454,22 +537,92 @@ export default function PersonasPage() {
                       }
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm font-mono text-muted-foreground">{p.schedule ?? '—'}</TableCell>
+                  <TableCell className="text-sm font-mono text-muted-foreground">
+                    {p.schedule ? (
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-amber-400" />
+                        {p.schedule}
+                      </span>
+                    ) : '—'}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{formatDate(p.createdAt)}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" onClick={() => openSpawn(p)} className="text-xs">
-                        <Zap className="h-3 w-3 mr-1" /> Spawn
-                      </Button>
+                      {p.spawnedAgent ? (
+                        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled title="Already spawned">
+                          <Zap className="h-3 w-3 mr-1 text-emerald-400" /> Spawned
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => openSpawn(p)} className="text-xs">
+                          <Zap className="h-3 w-3 mr-1" /> Spawn
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" onClick={() => openWorkspace(p.id)} title="Workspace docs">
                         <BookOpen className="h-4 w-4" />
                       </Button>
+                      {p.spawnedAgent && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={viewingMemoryFor === p.id ? 'text-purple-400' : 'text-muted-foreground hover:text-purple-400'}
+                          title="View persona memory"
+                          onClick={() => {
+                            if (viewingMemoryFor === p.id) {
+                              setViewingMemoryFor(null);
+                            } else {
+                              setViewingMemoryFor(p.id);
+                              setMemoryDraft('');
+                            }
+                          }}
+                        >
+                          <Brain className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteMutation.mutate(p.id)} title="Delete">
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </TableCell>
                 </TableRow>
+                {viewingMemoryFor === p.id && (
+                  <TableRow key={`${p.id}-memory`} className="bg-muted/30">
+                    <TableCell colSpan={6}>
+                      <div className="py-3 space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Brain className="h-4 w-4 text-purple-400" />
+                          <span className="text-sm font-medium">Memory — {p.name}</span>
+                          {personaMemory?.agentName && (
+                            <span className="text-xs text-muted-foreground">via agent: {personaMemory.agentName}</span>
+                          )}
+                          {personaMemory?.updatedAt && (
+                            <span className="text-xs text-muted-foreground">· last updated {formatDate(personaMemory.updatedAt)}</span>
+                          )}
+                        </div>
+                        {personaMemory?.memory === null && (
+                          <p className="text-xs text-muted-foreground italic">No memory yet. The agent writes memory during scheduled runs when it observes something worth remembering.</p>
+                        )}
+                        <Textarea
+                          className="font-mono text-xs min-h-[160px] bg-background"
+                          value={memoryDraft || personaMemory?.memory || ''}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMemoryDraft(e.target.value)}
+                          placeholder="Memory will appear here after the agent runs..."
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs"
+                            disabled={savePersonaMemoryMutation.isPending}
+                            onClick={() => savePersonaMemoryMutation.mutate({ id: p.id, content: memoryDraft || personaMemory?.memory || '' })}
+                          >
+                            Save Memory
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setViewingMemoryFor(null)}>Close</Button>
+                        </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+                </React.Fragment>
               ))}
               {!isLoading && personas.length === 0 && !error && (
                 <TableRow>

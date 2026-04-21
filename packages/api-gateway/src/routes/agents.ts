@@ -19,16 +19,20 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
   // GET /agents
   app.get('/agents', async (_request, reply) => {
     const agents = await prisma.agent.findMany({
-      select: { id: true, name: true, description: true, status: true, llmProvider: true, llmModel: true, createdAt: true, charter: { select: { posture: true } } },
-      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, description: true, status: true, isDefault: true, llmProvider: true, llmModel: true, createdAt: true, charter: { select: { posture: true } } },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     });
     return reply.send(ok(agents));
   });
 
   // GET /agents/:id
   app.get<{ Params: { id: string } }>('/agents/:id', async (request, reply) => {
-    const agent = await prisma.agent.findUnique({
-      where: { id: request.params.id },
+    // 'default' is a special alias for the system default agent
+    const where = request.params.id === 'default'
+      ? { isDefault: true }
+      : { id: request.params.id };
+    const agent = await prisma.agent.findFirst({
+      where,
       include: { agentSkills: { include: { skill: { select: { id: true, name: true, domain: true, version: true } } } } },
     });
     if (!agent) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Agent not found'));
@@ -114,8 +118,19 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
   // DELETE /agents/:id
   app.delete<{ Params: { id: string } }>('/agents/:id', async (request, reply) => {
+    const agent = await prisma.agent.findUnique({ where: { id: request.params.id }, select: { isDefault: true } });
+    if (agent?.isDefault) return reply.status(409).send(err(ErrorCodes.VALIDATION_ERROR, 'Cannot delete the default agent'));
     await prisma.agent.delete({ where: { id: request.params.id } });
     return reply.status(204).send();
+  });
+
+  // POST /agents/:id/set-default — make this agent the system default (un-defaults any other)
+  app.post<{ Params: { id: string } }>('/agents/:id/set-default', async (request, reply) => {
+    await prisma.$transaction([
+      prisma.agent.updateMany({ where: { isDefault: true }, data: { isDefault: false } }),
+      prisma.agent.update({ where: { id: request.params.id }, data: { isDefault: true } }),
+    ]);
+    return reply.send(ok({ defaultAgentId: request.params.id }));
   });
 
   // ─── Workspace Docs (OpenClaw-style soul/memory documents) ─────────────────

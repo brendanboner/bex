@@ -161,11 +161,16 @@ model Agent {
 
   requests    AgentRequest[]
 
+  // System default — exactly one agent can have this set. It handles requests when no
+  // specific agent is selected, and gets all published skills automatically linked.
+  isDefault   Boolean     @default(false)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([ownerId])
   @@index([status])
+  @@index([isDefault])
 }
 
 // ─── Agent Charter ────────────────────────────────────────────────────────────

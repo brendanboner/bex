@@ -18,6 +18,35 @@ async function main(): Promise<void> {
 
   console.info('Seeded system user:', systemUser.id);
 
+  // Default "Forge Assistant" agent — handles general requests, uses all published skills
+  const defaultAgent = await prisma.agent.upsert({
+    where: { id: 'default-agent' },
+    update: {
+      name: 'Forge Assistant',
+      description: 'The system default agent. Handles general requests and automatically uses all available published skills.',
+      status: 'ACTIVE',
+      isDefault: true,
+    },
+    create: {
+      id: 'default-agent',
+      name: 'Forge Assistant',
+      description: 'The system default agent. Handles general requests and automatically uses all available published skills.',
+      status: 'ACTIVE',
+      isDefault: true,
+      llmProvider: 'openai',
+      llmModel: 'gpt-4o',
+      ownerId: systemUser.id,
+      persona: {
+        name: 'Forge Assistant',
+        tone: 'helpful and concise',
+        role: 'General-purpose AI assistant with access to all skills on this Forge instance.',
+      },
+      permissions: ['read:all', 'schedule:jobs'],
+    },
+  });
+
+  console.info('Seeded default agent:', defaultAgent.id);
+
   // Example endpoint (Extreme Networks XCO)
   const xcoEndpoint = await prisma.endpoint.upsert({
     where: { name: 'extreme-xco-primary' },

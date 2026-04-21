@@ -40,39 +40,74 @@ async function readKnowledgeDocsForDomain(skillDomain: string): Promise<SkillMan
 export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const client = new SkillRegistryClient();
 
-  // GET /registry/skills — list skills (local registry + remote if configured)
+  // GET /registry/skills — list skills available in the registry (SkillRegistryEntry + remote)
+  // Each entry includes isInstalledLocally and isInSync flags.
+  // This does NOT include local published skills that haven't been pushed to the registry.
   app.get('/registry/skills', async (request, reply) => {
     const query = (request.query as Record<string, string>)['domain'];
 
-    // Always serve locally published skills (this instance acts as registry)
-    const localEntries = await prisma.skillRegistryEntry.findMany({
+    // 1. Local registry entries (skills that have been pushed from or pulled to this instance)
+    const registryEntries = await prisma.skillRegistryEntry.findMany({
       where: query ? { domain: { contains: query } } : {},
       select: { domain: true, version: true, name: true, description: true, publishedAt: true },
       orderBy: { publishedAt: 'desc' },
     });
 
-    // Optionally supplement with remote registry if configured
-    let remoteSkills: unknown[] = [];
+    // 2. Fetch from remote registry if configured
+    let remoteSkills: import('@bclaw/skill-registry-client').RemoteSkill[] = [];
     if (client.isConfigured) {
       try {
         remoteSkills = await client.list(query);
       } catch {
-        // Non-fatal: serve local skills even if remote is unavailable
         app.log.warn('Remote registry unavailable');
       }
     }
 
-    // Merge local + remote, deduplicating by domain+version (local wins)
-    const seen = new Set(localEntries.map(e => `${e.domain}:${e.version}`));
-    const merged = [
-      ...localEntries,
-      ...remoteSkills.filter((s: unknown) => {
-        const r = s as { domain: string; version: string };
-        return !seen.has(`${r.domain}:${r.version}`);
-      }),
-    ];
+    // 3. Locally installed skills (to check isInstalledLocally / isInSync)
+    const localSkills = await prisma.skill.findMany({
+      where: { status: 'PUBLISHED' },
+      select: { domain: true, version: true },
+    });
+    const localMap = new Map<string, string>(); // domain → version
+    for (const s of localSkills) localMap.set(s.domain, s.version);
 
-    return reply.send(ok(merged));
+    // Build unified registry view: remote first, then local-only registry entries
+    const remoteKeys = new Set(remoteSkills.map(s => `${s.domain}:${s.version}`));
+
+    const remoteEntries = remoteSkills.map(s => {
+      const localVersion = localMap.get(s.domain);
+      return {
+        domain: s.domain,
+        version: s.version,
+        name: s.name,
+        description: s.description,
+        publishedAt: s.publishedAt,
+        isInstalledLocally: localMap.has(s.domain),
+        localVersion: localVersion ?? null,
+        isInSync: localVersion === s.version,
+        source: 'remote' as const,
+      };
+    });
+
+    // Local registry entries not covered by remote (pushed from this instance but remote may be down)
+    const localOnlyEntries = registryEntries
+      .filter(e => !remoteKeys.has(`${e.domain}:${e.version}`))
+      .map(e => {
+        const localVersion = localMap.get(e.domain);
+        return {
+          domain: e.domain,
+          version: e.version,
+          name: e.name,
+          description: e.description ?? undefined,
+          publishedAt: e.publishedAt.toISOString(),
+          isInstalledLocally: localMap.has(e.domain),
+          localVersion: localVersion ?? null,
+          isInSync: localVersion === e.version,
+          source: 'local-registry' as const,
+        };
+      });
+
+    return reply.send(ok([...remoteEntries, ...localOnlyEntries]));
   });
 
   // GET /registry/skills/:domain/:version — fetch from local registry first, then remote

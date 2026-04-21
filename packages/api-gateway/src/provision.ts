@@ -214,6 +214,16 @@ async function provisionDefaultLLMConfig(prisma: PrismaClient, vault: Credential
   console.info(`[provision] Created default LLM config: ${provider}/${model}`);
 }
 
+async function publishSkillsByDomainPrefix(prisma: PrismaClient, prefix: string): Promise<void> {
+  const updated = await prisma.skill.updateMany({
+    where: { domain: { startsWith: prefix }, status: 'DRAFT' },
+    data: { status: 'PUBLISHED' },
+  });
+  if (updated.count > 0) {
+    console.info(`[provision] Auto-published ${updated.count} skill(s) with domain prefix '${prefix}'`);
+  }
+}
+
 export async function provisionDefaults(prisma: PrismaClient, vault: CredentialVaultService): Promise<void> {
   try {
     await provisionDefaultLLMConfig(prisma, vault);
@@ -230,18 +240,193 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     if (xiqEnabled) {
       const ok = await provisionXiqAgent(prisma);
       if (ok) anyProvisioned = true;
+      // Auto-publish XIQ skills so they appear in the skill exchange
+      await publishSkillsByDomainPrefix(prisma, 'extremecloudiq.');
     }
 
     if (xcoEnabled) {
       const ok = await provisionXcoAgent(prisma);
       if (ok) anyProvisioned = true;
+      // Auto-publish XCO skills so they appear in the skill exchange
+      await publishSkillsByDomainPrefix(prisma, 'networking.extreme-xco.');
     }
 
     if (anyProvisioned || (xiqEnabled || xcoEnabled)) {
       await provisionNetOpsPersona(prisma);
     }
+
+    await provisionSystemOpsSkill(prisma);
+    await assignSystemOpsSkillToMonitorAgents(prisma);
+    await provisionApSsidMonitorJob(prisma);
   } catch (e) {
     // Provisioning failures must never block startup
     console.error('[provision] Error during default provisioning:', (e as Error).message);
   }
+}
+
+async function provisionSystemOpsSkill(prisma: PrismaClient): Promise<void> {
+  const existing = await prisma.skill.findFirst({
+    where: { domain: 'system.operations' },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  console.info('[provision] Creating system.operations skill…');
+
+  const tools = [
+    {
+      name: 'list_scheduled_jobs',
+      description: 'List all scheduled jobs, their names, enabled status, cron schedule, and last run time. Use this to see what monitoring jobs exist.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/scheduled-jobs', method: 'GET' },
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'get_scheduled_job',
+      description: 'Get details of a specific scheduled job by ID.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/scheduled-jobs/{id}', method: 'GET' },
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Scheduled job ID' } },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'enable_scheduled_job',
+      description: 'Enable (start) a scheduled job by its ID so it runs on its cron schedule.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/scheduled-jobs/{id}', method: 'PATCH' },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Scheduled job ID' },
+          enabled: { type: 'boolean', description: 'Set to true to enable', enum: [true] },
+        },
+        required: ['id', 'enabled'],
+      },
+    },
+    {
+      name: 'disable_scheduled_job',
+      description: 'Disable (stop/pause) a scheduled job by its ID. The job will not run until re-enabled.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/scheduled-jobs/{id}', method: 'PATCH' },
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Scheduled job ID' },
+          enabled: { type: 'boolean', description: 'Set to false to disable', enum: [false] },
+        },
+        required: ['id', 'enabled'],
+      },
+    },
+    {
+      name: 'trigger_scheduled_job',
+      description: 'Immediately trigger a scheduled job to run now, regardless of its cron schedule.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/scheduled-jobs/{id}/run-now', method: 'POST' },
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'Scheduled job ID' } },
+        required: ['id'],
+      },
+    },
+    {
+      name: 'list_agents',
+      description: 'List all agents in the system with their status, skills, and schedule information.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/agents', method: 'GET' },
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'list_personas',
+      description: 'List all personas (agent blueprints/identities) in the system.',
+      handlerType: 'bex_api_call',
+      config: { urlPath: '/personas', method: 'GET' },
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    },
+  ];
+
+  await prisma.skill.create({
+    data: {
+      name: 'System Operations',
+      domain: 'system.operations',
+      version: '1.0.0',
+      description: 'Control BEX system internals — list, enable, disable, and trigger scheduled jobs; list agents and personas.',
+      capabilities: ['list-jobs', 'enable-job', 'disable-job', 'trigger-job', 'list-agents', 'list-personas'],
+      tools: tools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+      systemPrompt:
+        'You have tools to manage the BEX agentic system. When the user asks to start/stop a schedule or monitor, ' +
+        'first list_scheduled_jobs to find the right job ID, then enable or disable it. ' +
+        'When triggering jobs, confirm success with the returned requestId. ' +
+        'Be concise — show job name, status, and schedule in your response.',
+      status: 'PUBLISHED',
+    },
+  });
+
+  console.info('[provision] system.operations skill created');
+}
+
+async function assignSystemOpsSkillToMonitorAgents(prisma: PrismaClient): Promise<void> {
+  const sysOps = await prisma.skill.findFirst({
+    where: { domain: 'system.operations' },
+    select: { id: true },
+  });
+  if (!sysOps) return;
+
+  // Find all monitoring agents and assign system ops skill
+  const monitorAgents = await prisma.agent.findMany({
+    where: {
+      OR: [
+        { name: { contains: 'Monitor' } },
+        { name: { contains: 'Operator' } },
+      ],
+    },
+    select: { id: true, name: true },
+  });
+
+  for (const agent of monitorAgents) {
+    const existing = await prisma.agentSkill.findUnique({
+      where: { agentId_skillId: { agentId: agent.id, skillId: sysOps.id } },
+    });
+    if (!existing) {
+      await prisma.agentSkill.create({ data: { agentId: agent.id, skillId: sysOps.id } });
+      console.info(`[provision] Assigned system.operations to ${agent.name}`);
+    }
+  }
+}
+
+async function provisionApSsidMonitorJob(prisma: PrismaClient): Promise<void> {
+  // Check if AP/SSID monitor job already exists
+  const existing = await prisma.scheduledJob.findFirst({
+    where: { name: { contains: 'AP/SSID Client Monitor' } },
+    select: { id: true },
+  });
+  if (existing) return;
+
+  // Find the XIQ Monitor agent
+  const agent = await prisma.agent.findFirst({
+    where: { name: { in: ['ExtremeCloud IQ Monitor', 'ExtremeCloud IQ'] } },
+    select: { id: true, name: true },
+  });
+  if (!agent) {
+    console.info('[provision] No XIQ agent found — skipping AP/SSID monitor job');
+    return;
+  }
+
+  await prisma.scheduledJob.create({
+    data: {
+      name: 'AP/SSID Client Monitor (15 min)',
+      description: 'Counts clients per Access Point and SSID every 15 minutes.',
+      agentId: agent.id,
+      cronExpr: '*/15 * * * *',
+      input:
+        'Count clients on each Access Point and SSID. ' +
+        'For each AP, list: AP Name | SSID | Client Count | Device Types summary. ' +
+        'Be concise. If there are 0 clients, say so briefly.',
+      enabled: true,
+    },
+  });
+
+  console.info(`[provision] Created AP/SSID Client Monitor (15 min) job for ${agent.name}`);
 }

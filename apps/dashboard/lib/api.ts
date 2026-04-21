@@ -25,14 +25,18 @@ async function apiFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const token = getToken();
+  const hasBody = options.body !== undefined && options.body !== null;
   const res = await fetch(`${base}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
+
+  // 204 No Content — treat as success with no data
+  if (res.status === 204) return undefined as unknown as T;
 
   const json = (await res.json()) as ApiResponse<T>;
 
@@ -40,7 +44,6 @@ async function apiFetch<T>(
     const msg = json.error.message ?? 'API error';
     // Redirect to login on auth failure
     if (res.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('bex_token');
       localStorage.removeItem('bex_token');
       document.cookie = 'bex_token=; path=/; max-age=0';
       window.location.href = '/login';

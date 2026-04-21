@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Minus, Network, Plus, ShieldCheck, Terminal, Trash2, Wifi, WifiOff } from 'lucide-react';
+import { CheckCircle2, Minus, Network, Pencil, Plus, ShieldCheck, Trash2, WifiOff } from 'lucide-react';
 import { adminApi, api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,15 +27,32 @@ type Endpoint = {
 
 type Credential = { id: string; name: string };
 
+const EMPTY_FORM = {
+  name: '', description: '', baseUrl: '', tags: '', aliases: '', notes: '',
+  hostname: '', sshPort: '22', credentialId: '',
+};
+
+function buildBody(form: typeof EMPTY_FORM, sshEnabled: boolean) {
+  return {
+    name: form.name,
+    description: form.description || undefined,
+    baseUrl: form.baseUrl || undefined,
+    tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+    aliases: form.aliases.split(',').map((t) => t.trim()).filter(Boolean),
+    notes: form.notes || undefined,
+    sshEnabled,
+    hostname: sshEnabled && form.hostname ? form.hostname : undefined,
+    sshPort: parseInt(form.sshPort || '22', 10),
+    credentialId: sshEnabled && form.credentialId ? form.credentialId : undefined,
+  };
+}
+
 export default function EndpointsPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [sshEnabled, setSshEnabled] = useState(false);
-
-  const [form, setForm] = useState({
-    name: '', description: '', baseUrl: '', tags: '', aliases: '', notes: '',
-    hostname: '', sshPort: '22', credentialId: '',
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const { data: endpoints = [], isLoading } = useQuery({
     queryKey: ['endpoints'],
@@ -47,26 +64,54 @@ export default function EndpointsPage() {
     queryFn: () => api.get<Credential[]>('/credentials'),
   });
 
+  function openCreate() {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setSshEnabled(false);
+    setShowForm(true);
+  }
+
+  function openEdit(ep: Endpoint) {
+    setEditingId(ep.id);
+    setForm({
+      name: ep.name,
+      description: ep.description ?? '',
+      baseUrl: ep.baseUrl ?? '',
+      tags: ep.tags.join(', '),
+      aliases: ep.aliases.join(', '),
+      notes: '',
+      hostname: ep.hostname ?? '',
+      sshPort: String(ep.sshPort),
+      credentialId: ep.credentialId ?? '',
+    });
+    setSshEnabled(ep.sshEnabled);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setSshEnabled(false);
+  }
+
   const createMutation = useMutation({
-    mutationFn: () =>
-      adminApi.post<Endpoint>('/admin/endpoints', {
-        name: form.name,
-        ...(form.description ? { description: form.description } : {}),
-        ...(form.baseUrl ? { baseUrl: form.baseUrl } : {}),
-        tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
-        aliases: form.aliases.split(',').map((t) => t.trim()).filter(Boolean),
-        ...(form.notes ? { notes: form.notes } : {}),
-        sshEnabled,
-        ...(sshEnabled && form.hostname ? { hostname: form.hostname } : {}),
-        sshPort: parseInt(form.sshPort || '22', 10),
-        ...(sshEnabled && form.credentialId ? { credentialId: form.credentialId } : {}),
-      }),
+    mutationFn: () => adminApi.post<Endpoint>('/admin/endpoints', buildBody(form, sshEnabled)),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['endpoints'] });
-      setShowForm(false);
-      setForm({ name: '', description: '', baseUrl: '', tags: '', aliases: '', notes: '', hostname: '', sshPort: '22', credentialId: '' });
-      setSshEnabled(false);
+      closeForm();
       toast({ title: 'Endpoint registered' });
+    },
+    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () => adminApi.patch<Endpoint>(`/admin/endpoints/${editingId}`, buildBody(form, sshEnabled)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['endpoints'] });
+      closeForm();
+      toast({ title: 'Endpoint updated' });
     },
     onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
   });
@@ -79,7 +124,7 @@ export default function EndpointsPage() {
 
   const verifySshMutation = useMutation({
     mutationFn: (id: string) => api.post<{ success: boolean; message: string }>(`/endpoints/${id}/verify-ssh`),
-    onSuccess: (data, id) => {
+    onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: ['endpoints'] });
       toast({
         title: data.success ? 'SSH verified' : 'SSH failed',
@@ -90,6 +135,8 @@ export default function EndpointsPage() {
     onError: (e) => toast({ title: 'SSH error', description: (e as Error).message, variant: 'destructive' }),
   });
 
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -97,14 +144,16 @@ export default function EndpointsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Endpoints</h1>
           <p className="text-muted-foreground">API systems and SSH hosts available to agents</p>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
+        <Button onClick={openCreate}>
           <Plus className="h-4 w-4 mr-2" /> Register Endpoint
         </Button>
       </div>
 
       {showForm && (
         <Card>
-          <CardHeader><CardTitle>Register Endpoint</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>{editingId ? 'Edit Endpoint' : 'Register Endpoint'}</CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
@@ -177,10 +226,13 @@ export default function EndpointsPage() {
               )}
 
               <div className="sm:col-span-2 flex gap-2">
-                <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending || !form.name}>
-                  {createMutation.isPending ? 'Saving…' : 'Register'}
+                <Button
+                  onClick={() => editingId ? updateMutation.mutate() : createMutation.mutate()}
+                  disabled={isSaving || !form.name}
+                >
+                  {isSaving ? 'Saving…' : editingId ? 'Save Changes' : 'Register'}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={closeForm}>Cancel</Button>
               </div>
             </div>
           </CardContent>
@@ -196,26 +248,26 @@ export default function EndpointsPage() {
                 <TableHead>Base URL</TableHead>
                 <TableHead>SSH</TableHead>
                 <TableHead>Tags</TableHead>
-                <TableHead className="w-20" />
+                <TableHead className="w-28" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>}
-              {endpoints.map((e) => (
-                <TableRow key={e.id}>
+              {endpoints.map((ep) => (
+                <TableRow key={ep.id} className={editingId === ep.id ? 'bg-violet-500/5' : ''}>
                   <TableCell>
                     <div className="font-medium font-mono text-sm flex items-center gap-1.5">
                       <Network className="h-3.5 w-3.5 text-muted-foreground" />
-                      {e.name}
+                      {ep.name}
                     </div>
-                    {e.description && <div className="text-xs text-muted-foreground mt-0.5">{e.description}</div>}
+                    {ep.description && <div className="text-xs text-muted-foreground mt-0.5">{ep.description}</div>}
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground font-mono">{e.baseUrl ?? <Minus className="h-3 w-3 opacity-30" />}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground font-mono">{ep.baseUrl ?? <Minus className="h-3 w-3 opacity-30" />}</TableCell>
                   <TableCell>
-                    {e.sshEnabled ? (
+                    {ep.sshEnabled ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-[rgb(var(--text-secondary))]">{e.hostname}:{e.sshPort}</span>
-                        {e.sshVerified
+                        <span className="text-xs font-mono text-[rgb(var(--text-secondary))]">{ep.hostname}:{ep.sshPort}</span>
+                        {ep.sshVerified
                           ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                           : <WifiOff className="h-3.5 w-3.5 text-amber-400" />}
                       </div>
@@ -225,25 +277,38 @@ export default function EndpointsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {e.tags.map((t) => (
+                      {ep.tags.map((t) => (
                         <span key={t} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs">{t}</span>
                       ))}
                     </div>
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      {e.sshEnabled && (
+                      {ep.sshEnabled && (
                         <Button
                           variant="ghost"
                           size="icon"
                           title="Verify SSH"
                           disabled={verifySshMutation.isPending}
-                          onClick={() => verifySshMutation.mutate(e.id)}
+                          onClick={() => verifySshMutation.mutate(ep.id)}
                         >
                           <ShieldCheck className="h-4 w-4 text-violet-400" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteMutation.mutate(e.id)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Edit"
+                        onClick={() => openEdit(ep)}
+                      >
+                        <Pencil className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive"
+                        onClick={() => deleteMutation.mutate(ep.id)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -260,3 +325,4 @@ export default function EndpointsPage() {
     </div>
   );
 }
+

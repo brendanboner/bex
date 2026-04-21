@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Key, Link2, Unlink } from 'lucide-react';
+import { Plus, Trash2, Key, Link2, Unlink, Power, PowerOff, Star, Brain } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 
 type Credential = {
@@ -28,6 +29,7 @@ type Agent = {
   name: string;
   description?: string;
   status: string;
+  isDefault: boolean;
   llmProvider: string;
   llmModel: string;
   credentialId?: string | null;
@@ -56,6 +58,8 @@ export default function AgentsPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [assigningCredFor, setAssigningCredFor] = useState<string | null>(null);
+  const [viewingMemoryFor, setViewingMemoryFor] = useState<string | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState<string>('');
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: ['agents'],
@@ -90,6 +94,38 @@ export default function AgentsPage() {
       void qc.invalidateQueries({ queryKey: ['agents'] });
       setAssigningCredFor(null);
       toast({ title: agent.credential ? `Credential "${agent.credential.name}" assigned` : 'Credential removed' });
+    },
+    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ agentId, status }: { agentId: string; status: string }) =>
+      adminApi.patch<{ id: string; name: string; status: string }>(`/admin/agents/${agentId}/status`, { status }),
+    onSuccess: (agent) => {
+      void qc.invalidateQueries({ queryKey: ['agents'] });
+      toast({ title: `Agent ${agent.status === 'ACTIVE' ? 'activated' : 'deactivated'}` });
+    },
+    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const setDefaultMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/agents/${id}/set-default`),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['agents'] }); toast({ title: 'Default agent updated' }); },
+    onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const { data: agentMemory } = useQuery({
+    queryKey: ['agent-memory', viewingMemoryFor],
+    queryFn: () => api.get<{ memory: string | null; updatedAt: string | null }>(`/agents/${viewingMemoryFor}/workspace/memory`),
+    enabled: !!viewingMemoryFor,
+  });
+
+  const saveMemoryMutation = useMutation({
+    mutationFn: ({ agentId, content }: { agentId: string; content: string }) =>
+      api.put(`/agents/${agentId}/workspace/memory`, { content }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['agent-memory', viewingMemoryFor] });
+      toast({ title: 'Memory saved' });
     },
     onError: (e) => toast({ title: 'Error', description: (e as Error).message, variant: 'destructive' }),
   });
@@ -169,10 +205,17 @@ export default function AgentsPage() {
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
               )}
               {agents.map((a) => (
-                <>
-                  <TableRow key={a.id}>
+                <React.Fragment key={a.id}>
+                  <TableRow>
                     <TableCell>
-                      <div className="font-medium">{a.name}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        {a.name}
+                        {a.isDefault && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                            <Star className="h-2.5 w-2.5" /> Default
+                          </span>
+                        )}
+                      </div>
                       {a.description && <div className="text-xs text-muted-foreground">{a.description}</div>}
                     </TableCell>
                     <TableCell className="text-sm">{a.llmProvider} / {a.llmModel}</TableCell>
@@ -214,20 +257,65 @@ export default function AgentsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLOURS[a.status] ?? ''}`}>
-                        {a.status}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLOURS[a.status] ?? ''}`}>
+                          {a.status === 'ACTIVE' ? 'Active' : a.status === 'INACTIVE' ? 'Inactive' : 'Draft'}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-6 w-6 ${a.status === 'ACTIVE' ? 'text-emerald-400 hover:text-amber-400' : 'text-muted-foreground hover:text-emerald-400'}`}
+                          title={a.status === 'ACTIVE' ? 'Deactivate agent' : 'Activate agent'}
+                          disabled={toggleStatusMutation.isPending}
+                          onClick={() => toggleStatusMutation.mutate({
+                            agentId: a.id,
+                            status: a.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                          })}
+                        >
+                          {a.status === 'ACTIVE' ? <PowerOff className="h-3 w-3" /> : <Power className="h-3 w-3" />}
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">{formatDate(a.createdAt)}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => deleteMutation.mutate(a.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-6 w-6 ${viewingMemoryFor === a.id ? 'text-purple-400' : 'text-muted-foreground hover:text-purple-400'}`}
+                          title="View / edit agent memory"
+                          onClick={() => {
+                            if (viewingMemoryFor === a.id) {
+                              setViewingMemoryFor(null);
+                            } else {
+                              setViewingMemoryFor(a.id);
+                              setMemoryDraft('');
+                            }
+                          }}
+                        >
+                          <Brain className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-6 w-6 ${a.isDefault ? 'text-amber-400' : 'text-muted-foreground hover:text-amber-400'}`}
+                          title={a.isDefault ? 'System default agent' : 'Make default agent'}
+                          disabled={a.isDefault || setDefaultMutation.isPending}
+                          onClick={() => !a.isDefault && setDefaultMutation.mutate(a.id)}
+                        >
+                          <Star className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive"
+                          title={a.isDefault ? 'Cannot delete the default agent' : 'Delete agent'}
+                          disabled={a.isDefault}
+                          onClick={() => deleteMutation.mutate(a.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                   {assigningCredFor === a.id && (
@@ -258,7 +346,42 @@ export default function AgentsPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                  {viewingMemoryFor === a.id && (
+                    <TableRow key={`${a.id}-memory`} className="bg-muted/30">
+                      <TableCell colSpan={6}>
+                        <div className="py-3 space-y-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Brain className="h-4 w-4 text-purple-400" />
+                            <span className="text-sm font-medium">Agent Memory — {a.name}</span>
+                            {agentMemory?.updatedAt && (
+                              <span className="text-xs text-muted-foreground">last updated {formatDate(agentMemory.updatedAt)}</span>
+                            )}
+                          </div>
+                          {agentMemory?.memory === null && (
+                            <p className="text-xs text-muted-foreground italic">No memory stored yet. The agent writes memory during runs when it learns something worth remembering.</p>
+                          )}
+                          <Textarea
+                            className="font-mono text-xs min-h-[160px] bg-background"
+                            value={memoryDraft || agentMemory?.memory || ''}
+                            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMemoryDraft(e.target.value)}
+                            placeholder="Memory content will appear here after the agent runs..."
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs"
+                              disabled={saveMemoryMutation.isPending}
+                              onClick={() => saveMemoryMutation.mutate({ agentId: a.id, content: memoryDraft || agentMemory?.memory || '' })}
+                            >
+                              Save Memory
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setViewingMemoryFor(null)}>Close</Button>
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
               ))}
               {!isLoading && agents.length === 0 && (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No agents yet</TableCell></TableRow>

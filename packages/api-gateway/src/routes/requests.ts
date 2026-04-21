@@ -24,10 +24,18 @@ export async function requestRoutes(
     const userId = await resolveUserId(prisma, externalId);
     if (!userId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
 
+    // Resolve 'default' alias to the system default agent
+    let agentId = parsed.data.agentId;
+    if (agentId === 'default') {
+      const defaultAgent = await prisma.agent.findFirst({ where: { isDefault: true }, select: { id: true } });
+      if (!defaultAgent) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No default agent configured'));
+      agentId = defaultAgent.id;
+    }
+
     // Create request record
     const agentRequest = await prisma.agentRequest.create({
       data: {
-        agentId: parsed.data.agentId,
+        agentId,
         userId,
         status: 'QUEUED',
         input: parsed.data.input,
@@ -39,7 +47,7 @@ export async function requestRoutes(
     // Enqueue for async execution
     await queue.add(agentRequest.id, {
       requestId: agentRequest.id,
-      agentId: parsed.data.agentId,
+      agentId,
       userId,
       input: parsed.data.input,
       channel: parsed.data.channel,

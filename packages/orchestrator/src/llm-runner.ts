@@ -4,6 +4,7 @@ import { createAzure } from '@ai-sdk/azure';
 import type { CoreMessage, CoreTool, LanguageModel } from 'ai';
 import { generateText } from 'ai';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 
 import type { LlmProvider, SkillTool, ToolCallResult } from '@bclaw/shared';
 import type { CredentialVaultService } from '@bclaw/credential-vault';
@@ -149,21 +150,27 @@ export function buildTools(
   for (const rawTool of skillTools) {
     const skillTool = rawTool as ExtendedSkillTool;
 
+    const paramDef = skillTool.parameters as {
+      properties?: Record<string, { type: string; description?: string }>;
+      required?: string[];
+    };
+    const required = new Set(paramDef.required ?? []);
+
     const paramSchema = z.object(
       Object.fromEntries(
-        Object.entries(
-          (skillTool.parameters as { properties?: Record<string, { type: string; description?: string }> })
-            .properties ?? {},
-        ).map(([key, val]) => [
-          key,
-          val.type === 'string'
-            ? z.string().describe(val.description ?? key).optional()
-            : val.type === 'number'
-            ? z.number().describe(val.description ?? key).optional()
-            : val.type === 'boolean'
-            ? z.boolean().describe(val.description ?? key).optional()
-            : z.unknown().optional(),
-        ]),
+        Object.entries(paramDef.properties ?? {}).map(([key, val]) => {
+          const base =
+            val.type === 'string'
+              ? z.string().describe(val.description ?? key)
+              : val.type === 'number'
+              ? z.number().describe(val.description ?? key)
+              : val.type === 'integer'
+              ? z.number().int().describe(val.description ?? key)
+              : val.type === 'boolean'
+              ? z.boolean().describe(val.description ?? key)
+              : z.unknown();
+          return [key, required.has(key) ? base : base.optional()];
+        }),
       ),
     );
 
@@ -278,6 +285,7 @@ export function buildTools(
         // All endpoints use HTTPS with a self-signed cert (rejectUnauthorized: false).
         // The LLM never sees credentials — only the resolved Bearer token is used.
         if (handlerType === 'xco_http_call') {
+          console.info(`[xco_http_call] execute() called for tool: ${skillTool.name}`);
           const effectiveCredId = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
           if (!effectiveCredId) return { error: 'xco_http_call requires a credential. Configure an xco-admin credential in the dashboard.' };
 
@@ -296,6 +304,7 @@ export function buildTools(
             try { const u = new URL(url); return `${u.protocol}//${u.host}/v1/auth/token/access-token`; } catch { return ''; }
           })();
           const authUrl = (config['authUrl'] as string | undefined) ?? defaultAuthUrl;
+          console.info(`[xco_http_call] Auth URL: ${authUrl}, API URL: ${url}`);
 
           // Use undici with TLS verification disabled (XCO uses self-signed cert)
           const { fetch: nodeFetch, Agent: UndiciAgent } = await import('undici');
@@ -408,6 +417,34 @@ export function buildTools(
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
           // Use per-tool credential (injected by orchestrator for domain-specific skills) or agent default
           const effectiveCredentialId = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
+
+          // If no credential is available, fall back to a public (unauthenticated) call.
+          // This handles skills whose tools have a plain endpoint but no required credentials.
+          if (!effectiveCredentialId && urlTemplate) {
+            const method = ((skillTool as Record<string, unknown>)['method'] as string ?? config['method'] as string ?? 'GET').toUpperCase();
+            let publicUrl = urlTemplate;
+            // Append all args as query params for GET requests
+            if (method === 'GET') {
+              const params = new URLSearchParams();
+              for (const [k, v] of Object.entries(args)) {
+                if (v != null && v !== '') params.set(k, String(v));
+              }
+              const qs = params.toString();
+              publicUrl = qs ? `${urlTemplate}?${qs}` : urlTemplate;
+            }
+            const pubReach = await checkReachable(publicUrl);
+            if (!pubReach.reachable) {
+              return { error: pubReach.error ?? 'Cannot reach endpoint', hint: 'Endpoint may be down or require VPN' };
+            }
+            const { fetch } = await import('undici');
+            const opts: Parameters<typeof fetch>[1] = { method, headers: { 'Accept': 'application/json' } };
+            if (method !== 'GET' && method !== 'HEAD') opts.body = JSON.stringify(args);
+            const resp = await fetch(publicUrl, opts);
+            const text = await resp.text();
+            if (!resp.ok) return { error: `HTTP ${resp.status}`, detail: text.slice(0, 500) };
+            try { return JSON.parse(text); } catch { return { result: text.slice(0, 2000) }; }
+          }
+
           if (!urlTemplate || !effectiveCredentialId) {
             return { result: 'schema-only', args, note: 'Tool has no endpoint or credential configured. Assign an endpoint and credential in the dashboard.' };
           }
@@ -431,6 +468,36 @@ export function buildTools(
             agentPermissions,
           );
           return result.body;
+        }
+
+        // ── bex_api_call: call the BEX api-gateway with a system-signed JWT ─
+        if (handlerType === 'bex_api_call') {
+          const apiBase = (process.env['BEX_API_URL'] ?? 'http://localhost:4000').replace(/\/$/, '');
+          const jwtSecret = process.env['JWT_SECRET'] ?? 'dev-secret';
+          const urlPath = (config['urlPath'] as string | undefined) ?? '/scheduled-jobs';
+          const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
+
+          // Replace {param} arg placeholders in path (e.g. /scheduled-jobs/{id})
+          const resolvedPath = urlPath.replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+          const url = `${apiBase}${resolvedPath}`;
+
+          // Short-lived system token — signed with the shared JWT_SECRET
+          const token = jwt.sign({ sub: 'system', isSystemUser: true }, jwtSecret, { expiresIn: 60 });
+          const headers: Record<string, string> = {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          };
+
+          const body = method === 'GET' ? undefined : JSON.stringify(args);
+          try {
+            const fetchOpts: RequestInit = { method, headers };
+            if (body !== undefined) fetchOpts.body = body;
+            const res = await fetch(url, fetchOpts);
+            const data = await res.json() as unknown;
+            return (data as { data?: unknown }).data ?? data;
+          } catch (e) {
+            return { error: `BEX API call failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
         }
 
         // ── fallback: schema-only (no handler) ───────────────────────────
@@ -467,10 +534,14 @@ export async function runLlm(options: RunLlmOptions): Promise<RunLlmResult> {
 
   const allToolCalls: ToolCallResult[] = [];
   for (const step of steps) {
-    const stepToolCalls = step.toolCalls as Array<{ toolCallId: string; toolName: string }>;
+    const stepToolCalls = step.toolCalls as Array<{ toolCallId: string; toolName: string; args?: unknown }>;
     const stepToolResults = step.toolResults as Array<{ toolCallId: string; result: unknown }> | undefined;
     for (const tc of stepToolCalls) {
+      console.info(`[llm-runner] Tool call: ${tc.toolName}`);
       const matchingResult = stepToolResults?.find((r) => r.toolCallId === tc.toolCallId);
+      if (matchingResult?.result && typeof matchingResult.result === 'object' && 'error' in (matchingResult.result as object)) {
+        console.info(`[llm-runner] Tool error: ${JSON.stringify(matchingResult.result)}`);
+      }
       allToolCalls.push({
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,

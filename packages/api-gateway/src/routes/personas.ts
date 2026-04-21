@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { PersonaFactory, PersonaSpawner } from '@bclaw/persona-factory';
 import { GeneratePersonaSchema, SpawnPersonaSchema } from '@bclaw/shared';
 import { ok, err, ErrorCodes } from '@bclaw/shared';
+import { KnowledgeStore } from '@bclaw/knowledge-store';
 
 export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   // POST /personas/generate — generate persona from goal via LLM
@@ -33,7 +34,20 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
     const { domain } = request.query as { domain?: string };
     const factory = new PersonaFactory(prisma);
     const personas = await factory.list(domain);
-    return reply.send(ok(personas));
+
+    // Join spawned agent for each persona so the UI can show agent status
+    const personasWithAgent = await Promise.all(
+      personas.map(async (p) => {
+        const agent = await prisma.agent.findFirst({
+          where: { personaId: p.id },
+          select: { id: true, name: true, status: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        return { ...p, spawnedAgent: agent ?? null };
+      }),
+    );
+
+    return reply.send(ok(personasWithAgent));
   });
 
   // GET /personas/:id
@@ -53,8 +67,14 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
 
     try {
       const spawner = new PersonaSpawner(prisma);
-      const userId = (request.user as { sub: string }).sub;
-      const { agent, scheduledJob } = await spawner.spawnAgent(id, parse.data.ownerId ?? userId, {
+      const externalId = (request.user as { sub: string }).sub;
+      // Resolve DB user from JWT externalId — same pattern as agents route.
+      const dbUser = await prisma.user.findUnique({ where: { externalId }, select: { id: true } });
+      const resolvedOwnerId = parse.data.ownerId ?? dbUser?.id;
+      if (!resolvedOwnerId) {
+        return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
+      }
+      const { agent, scheduledJob } = await spawner.spawnAgent(id, resolvedOwnerId, {
         ...(parse.data.name !== undefined ? { name: parse.data.name } : {}),
         ...(parse.data.llmProvider !== undefined ? { llmProvider: parse.data.llmProvider } : {}),
         ...(parse.data.llmModel !== undefined ? { llmModel: parse.data.llmModel } : {}),
@@ -76,5 +96,46 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
     } catch {
       return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Persona not found'));
     }
+  });
+
+  // GET /personas/:id/memory — read memory for a persona's spawned agent
+  app.get('/personas/:id/memory', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const agent = await prisma.agent.findFirst({
+      where: { personaId: id },
+      select: { id: true, name: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!agent) {
+      return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No spawned agent found for this persona'));
+    }
+    const store = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+    const entry = await store.read(`agent/${agent.id}`, 'memory').catch(() => null);
+    return reply.send(ok({
+      agentId: agent.id,
+      agentName: agent.name,
+      memory: entry?.content ?? null,
+      updatedAt: entry?.updatedAt ?? null,
+    }));
+  });
+
+  // PUT /personas/:id/memory — write/update memory for a persona's spawned agent
+  app.put('/personas/:id/memory', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { content?: string };
+    if (typeof body?.content !== 'string') {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'body.content is required'));
+    }
+    const agent = await prisma.agent.findFirst({
+      where: { personaId: id },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!agent) {
+      return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No spawned agent found for this persona'));
+    }
+    const store = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
+    await store.write(`agent/${agent.id}`, 'memory', body.content);
+    return reply.send(ok({ saved: true, agentId: agent.id }));
   });
 }

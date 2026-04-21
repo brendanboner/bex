@@ -58,7 +58,7 @@ export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): 
 
   app.get('/admin/requests/recent', async (_request, reply) => {
     const recent = await prisma.agentRequest.findMany({
-      take: 20,
+      take: 50,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -68,11 +68,54 @@ export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): 
         output: true,
         errorMsg: true,
         createdAt: true,
+        startedAt: true,
         completedAt: true,
         agent: { select: { id: true, name: true } },
         user: { select: { id: true, displayName: true } },
       },
     });
     return reply.send(ok(recent));
+  });
+
+  app.get<{ Params: { id: string } }>('/admin/requests/:id', async (request, reply) => {
+    const { id } = request.params;
+    const req = await prisma.agentRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        channel: true,
+        input: true,
+        output: true,
+        errorMsg: true,
+        turns: true,
+        toolCalls: true,
+        createdAt: true,
+        startedAt: true,
+        completedAt: true,
+        agent: { select: { id: true, name: true } },
+        user: { select: { id: true, displayName: true } },
+      },
+    });
+    if (!req) return reply.status(404).send({ ok: false, error: { code: 'NOT_FOUND', message: 'Request not found' } });
+
+    // Strip sensitive fields from tool call results (tokens, passwords, keys)
+    const SENSITIVE = /token|password|secret|key|auth|bearer|credential/i;
+    function sanitize(val: unknown): unknown {
+      if (Array.isArray(val)) return val.map(sanitize);
+      if (val && typeof val === 'object') {
+        return Object.fromEntries(
+          Object.entries(val as Record<string, unknown>).map(([k, v]) =>
+            SENSITIVE.test(k) ? [k, '[redacted]'] : [k, sanitize(v)],
+          ),
+        );
+      }
+      return val;
+    }
+
+    return reply.send(ok({
+      ...req,
+      toolCalls: sanitize(req.toolCalls),
+    }));
   });
 }

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "next build && cp -r .next/static .next/standalone/apps/dashboard/.next/static && (cp -r public .next/standalone/apps/dashboard/public 2>/dev/null || true)",
     "start": "next start -p 3000"
   },
   "dependencies": {

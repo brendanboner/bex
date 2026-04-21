@@ -2,16 +2,19 @@ import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
 import { CreateSkillSchema, ok, err, ErrorCodes } from '@bclaw/shared';
-import { SkillBuilderService, SkillRegistryService, SkillTestRunner } from '@bclaw/skill-engine';
+import { SkillBuilderService, SkillRegistryService, SkillTestRunner, SkillProberService } from '@bclaw/skill-engine';
 import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
 import { KnowledgeStore } from '@bclaw/knowledge-store';
+import { CredentialVaultService } from '@bclaw/credential-vault';
 import type { BuildSkillSource } from '@bclaw/skill-engine';
 
 export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const registry = new SkillRegistryService(prisma);
   const builder = new SkillBuilderService(prisma);
   const testRunner = new SkillTestRunner(prisma);
+  const prober = new SkillProberService(prisma);
   const remoteRegistry = new SkillRegistryClient();
+  const vault = new CredentialVaultService(prisma);
 
   // GET /skills
   app.get('/skills', async (_request, reply) => {
@@ -19,7 +22,24 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
       select: { id: true, name: true, domain: true, version: true, status: true, capabilities: true, requiredCredentialType: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
-    return reply.send(ok(skills));
+
+    // Attach registry sync status to each skill
+    const registryEntries = await prisma.skillRegistryEntry.findMany({
+      select: { domain: true, version: true },
+    });
+    const registryMap = new Map<string, string>(); // domain → version
+    for (const e of registryEntries) registryMap.set(e.domain, e.version);
+
+    const enriched = skills.map(s => {
+      const registryVersion = registryMap.get(s.domain);
+      return {
+        ...s,
+        isSyncedToRegistry: registryVersion === s.version,
+        registryVersion: registryVersion ?? null,
+      };
+    });
+
+    return reply.send(ok(enriched));
   });
 
   // GET /skills/tools?domain=<prefix> — list all skill tools grouped by domain
@@ -59,6 +79,107 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
     });
     if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
     return reply.send(ok(skill));
+  });
+
+  // DELETE /skills/:id — remove a skill; warns via linkedAgentCount so the UI can confirm
+  app.delete<{ Params: { id: string }; Querystring: { force?: string } }>('/skills/:id', async (request, reply) => {
+    const { id } = request.params;
+    const force = request.query.force === 'true';
+    const skill = await prisma.skill.findUnique({
+      where: { id },
+      select: { id: true, status: true, domain: true, version: true, _count: { select: { agentSkills: true } } },
+    });
+    if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
+
+    // If linked to agents, require force=true (caller confirmed)
+    if (skill._count.agentSkills > 0 && !force) {
+      return reply.status(409).send(ok({
+        requiresConfirm: true,
+        linkedAgentCount: skill._count.agentSkills,
+        message: `This skill is linked to ${skill._count.agentSkills} agent(s). Delete anyway?`,
+      }));
+    }
+
+    // Unlink from all agents before deleting
+    if (skill._count.agentSkills > 0) {
+      await prisma.agentSkill.deleteMany({ where: { skillId: id } });
+    }
+    await prisma.skillRegistryEntry.deleteMany({ where: { domain: skill.domain, version: skill.version } });
+    await prisma.skill.delete({ where: { id } });
+    return reply.send(ok({ deleted: true }));
+  });
+
+  // GET /skills/:id/credential — find the SYSTEM credential for this skill's required type
+  app.get<{ Params: { id: string } }>('/skills/:id/credential', async (request, reply) => {
+    const skill = await prisma.skill.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, domain: true, name: true, requiredCredentialType: true },
+    });
+    if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
+    if (!skill.requiredCredentialType) return reply.send(ok(null));
+
+    const keyword = skill.domain.split('.').flatMap((k: string) => k.split('-'))
+      .find((k: string) => !['networking', 'monitoring', 'cloud', 'extreme', 'extremecloudiq', 'operations', 'monitor'].includes(k));
+
+    const credential = await prisma.credential.findFirst({
+      where: {
+        scope: 'SYSTEM',
+        credentialType: skill.requiredCredentialType as never,
+        ...(keyword ? { name: { contains: keyword, mode: 'insensitive' as const } } : {}),
+      },
+      select: { id: true, name: true, credentialType: true, createdAt: true, updatedAt: true },
+    });
+    return reply.send(ok(credential));
+  });
+
+  // PUT /skills/:id/credential — upsert SYSTEM credential for this skill
+  app.put<{ Params: { id: string }; Body: unknown }>('/skills/:id/credential', async (request, reply) => {
+    const skill = await prisma.skill.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, domain: true, name: true, requiredCredentialType: true },
+    });
+    if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
+    if (!skill.requiredCredentialType) {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Skill does not require credentials'));
+    }
+
+    const body = request.body as Record<string, string>;
+    if (!body || typeof body !== 'object') {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Request body is required'));
+    }
+
+    // Determine credential name from skill domain keyword
+    const stopWords = new Set(['networking', 'monitoring', 'cloud', 'extreme', 'extremecloudiq', 'operations', 'monitor']);
+    const keyword = skill.domain.split('.').flatMap((k: string) => k.split('-'))
+      .find((k: string) => !stopWords.has(k)) ?? skill.domain.split('.')[0];
+    const credName = `${keyword} — ${skill.name}`;
+
+    // Check for existing matching credential
+    const existing = await prisma.credential.findFirst({
+      where: {
+        scope: 'SYSTEM',
+        credentialType: skill.requiredCredentialType as never,
+        name: { contains: keyword ?? '', mode: 'insensitive' as const },
+      },
+    });
+
+    const credType = skill.requiredCredentialType as 'API_TOKEN' | 'USERNAME_PASSWORD' | 'SSH_KEY' | 'OAUTH2_CLIENT' | 'USER_PREFERENCE';
+    let result: { id: string; name: string; credentialType: string };
+
+    if (existing) {
+      // Update encrypted value in-place — all agents referencing this credential pick up the change automatically
+      result = await vault.create(
+        { name: credName, scope: 'SYSTEM', credentialType: credType, value: body, allowedAgentPermissions: [] },
+      );
+      // Delete old one after creating new (vault.create always inserts)
+      await prisma.credential.delete({ where: { id: existing.id } });
+    } else {
+      result = await vault.create(
+        { name: credName, scope: 'SYSTEM', credentialType: credType, value: body, allowedAgentPermissions: [] },
+      );
+    }
+
+    return reply.send(ok(result));
   });
 
   // POST /skills — manually register a skill (system users only)
@@ -113,6 +234,11 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
       sources: body.sources as BuildSkillSource[],
     });
 
+    // Non-blocking probe: validate public tool endpoints and record chain notes
+    prober.probe(result.skillId).catch((e: unknown) =>
+      console.warn(`[prober] probe failed for ${result.skillId}:`, e),
+    );
+
     return reply.status(201).send(ok(result));
   });
 
@@ -126,10 +252,44 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
   });
 
   // POST /skills/:id/publish — publish a draft skill (system users only)
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Querystring: { force?: string } }>(
     '/skills/:id/publish',
     { onRequest: [app.requireSystemUser] },
     async (request, reply) => {
+      const force = request.query.force === 'true';
+      const skill = await prisma.skill.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, domain: true, version: true, status: true },
+      });
+      if (!skill) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Skill not found'));
+
+      // Check for an existing PUBLISHED skill with the same domain (different version)
+      const existing = await prisma.skill.findFirst({
+        where: { domain: skill.domain, status: 'PUBLISHED', id: { not: skill.id } },
+        select: { id: true, version: true, _count: { select: { agentSkills: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (existing && !force) {
+        // Return conflict info so UI can prompt user to confirm replacing
+        return reply.status(409).send(ok({
+          requiresConfirm: true,
+          existingVersion: existing.version,
+          existingId: existing.id,
+          linkedAgentCount: existing._count.agentSkills,
+          message: `A published version (v${existing.version}) of "${skill.domain}" already exists. Replace it?`,
+        }));
+      }
+
+      if (existing && force) {
+        // Deprecate the old version and re-link agents to the new skill
+        await prisma.agentSkill.updateMany({
+          where: { skillId: existing.id },
+          data: { skillId: skill.id },
+        });
+        await prisma.skill.update({ where: { id: existing.id }, data: { status: 'DEPRECATED' } });
+      }
+
       await registry.publish(request.params.id);
       return reply.send(ok({ published: true }));
     },

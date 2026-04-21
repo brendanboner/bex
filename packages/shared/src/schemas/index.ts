@@ -134,7 +134,8 @@ export const CreateCredentialSchema = z.object({
 // ─── Agent Request ────────────────────────────────────────────────────────────
 
 export const CreateAgentRequestSchema = z.object({
-  agentId: z.string().cuid(),
+  // 'default' is a special alias for the system default agent
+  agentId: z.union([z.string().cuid(), z.literal('default')]),
   input: z.string().min(1).max(32_000),
   channel: z.enum(['api', 'telegram', 'teams', 'dashboard', 'whatsapp', 'scheduler']).default('api'),
 });

@@ -12,6 +12,7 @@
   "dependencies": {
     "@bclaw/shared": "*",
     "@bclaw/skill-engine": "*",
+    "@bclaw/knowledge-store": "*",
     "@ai-sdk/openai": "^0.0.66",
     "@ai-sdk/anthropic": "^0.0.53",
     "ai": "^3.4.33",
