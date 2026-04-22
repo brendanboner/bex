@@ -24,15 +24,37 @@ export function statusColor(status: string): string {
   }
 }
 
-/** Resolve a value from nested data using a dot-path key (e.g. "summary.total"). */
+/** Resolve a value from nested data using a dot-path + bracket-index key.
+ *  Supports: "summary.total", "access_points[0].clients", "rows[2].name"
+ */
 export function resolveDataKey(data: Record<string, unknown> | unknown, key: string | undefined): unknown {
   if (!key || !data) return data;
   if (key === '_root') return data;
-  const parts = key.split('.');
+
+  // Tokenise the key into named segments and optional array indices.
+  // e.g. "access_points[0].clients" → ["access_points", 0, "clients"]
+  const tokens: (string | number)[] = [];
+  // Split on dots first, then parse bracket indices within each segment
+  for (const segment of key.split('.')) {
+    const bracketMatch = segment.match(/^([^\[]+)(?:\[(\d+)\])?$/);
+    if (bracketMatch) {
+      tokens.push(bracketMatch[1]!);
+      if (bracketMatch[2] !== undefined) tokens.push(Number(bracketMatch[2]));
+    } else {
+      tokens.push(segment);
+    }
+  }
+
   let cur: unknown = data;
-  for (const part of parts) {
-    if (cur == null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[part];
+  for (const token of tokens) {
+    if (cur == null) return undefined;
+    if (typeof token === 'number') {
+      if (!Array.isArray(cur)) return undefined;
+      cur = (cur as unknown[])[token];
+    } else {
+      if (typeof cur !== 'object' || Array.isArray(cur)) return undefined;
+      cur = (cur as Record<string, unknown>)[token];
+    }
   }
   return cur;
 }

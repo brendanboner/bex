@@ -5,7 +5,7 @@ import { Bot, Brain, Clock, Key, Network, Users, Zap, ArrowRight } from 'lucide-
 import Link from 'next/link';
 import { adminApi } from '@/lib/api';
 import { formatDate, STATUS_COLOURS, truncate } from '@/lib/utils';
-import { Spirograph } from '@/components/Spirograph';
+import { AgentOrbit } from '@/components/AgentOrbit';
 
 type Status = {
   counts: { agents: number; skills: number; credentials: number; requests: number; users: number; endpoints: number; scheduledJobs: number };
@@ -117,13 +117,13 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* Right column — spirograph hero */}
+      {/* Right column — agent orbit */}
       <div className="hidden xl:flex w-[480px] shrink-0 flex-col items-center justify-center gap-4">
-        <Spirograph size={420} />
+        <AgentOrbit size={420} />
         <div className="text-center space-y-1">
           <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Autonomous Agent Network</p>
           <p className="text-xs text-[rgb(var(--text-secondary))] max-w-xs">
-            Skills are built, shared and composed across agents in real time. Each node is an autonomous capability.
+            Each node is an active agent. It pulses when running a live query.
           </p>
         </div>
       </div>

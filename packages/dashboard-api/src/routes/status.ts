@@ -6,6 +6,32 @@ import IORedis from 'ioredis';
 import { ok } from '@bclaw/shared';
 
 export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
+
+  // GET /admin/agents/live — agents with current active-request status for orbit view
+  app.get('/admin/agents/live', async (_request, reply) => {
+    const agents = await prisma.agent.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true, status: true, description: true },
+      orderBy: { name: 'asc' },
+    });
+
+    // Find which agent IDs have RUNNING or QUEUED requests right now
+    const activeRequests = await prisma.agentRequest.findMany({
+      where: { status: { in: ['RUNNING', 'QUEUED'] } },
+      select: { agentId: true, status: true },
+    });
+    const activeAgentIds = new Set(activeRequests.map((r) => r.agentId));
+
+    return reply.send(ok(
+      agents.map((a) => ({
+        id: a.id,
+        name: a.name,
+        description: a.description,
+        active: activeAgentIds.has(a.id),
+      })),
+    ));
+  });
+
   app.get('/admin/status', async (_request, reply) => {
     // DB counts
     const [agents, skills, credentials, requests, users, endpoints, jobs] = await Promise.all([

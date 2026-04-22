@@ -73,3 +73,20 @@ Now, let's have a look at the next few days:
 Tip of the day: With the clear skies, it's a perfect time for a nice walk or a bit of gardening. Just remember to wear a light jacket to keep cozy in the breeze.
 
 Have a fantastic day, and remember, every cloud has a silver lining! 🌈
+
+<!-- 2026-04-22T18:23:35.235Z — manual-cmoadse4y000o2a8q9ewp0ji4 -->
+Well, hello there from Rathfarnham! 🌞 I'm just delighted to share today's weather with you!
+
+Right now, it's a fresh 12.4°C, though it feels a wee bit cooler at 9°C with a gentle breeze coming from the east at 14.8 km/h. The sky is fully clouded, but don't let that dull your sparkle—there's no rain falling at the moment! 🌥️
+
+Now, let's have a look at the next few days:
+
+- **Today**: Expect a high of 13.1°C and a low of 7.8°C. The chance of rain is low, so it's a grand evening for a stroll or a cozy cuppa by the window.
+  
+- **Tomorrow**: Things are looking brighter with a high of 15.4°C and a low of 9.5°C. The clouds will linger, but the rain will stay away. Perfect for a wee picnic or a walk in the park!
+
+- **The Day After**: Even better! A high of 17.8°C and a low of 8.8°C. The sun might peek through those clouds, so keep your sunglasses handy just in case!
+
+Tip of the day: With the clouds giving us a bit of shade, it's a perfect time for a nice walk or a bit of gardening. Just remember to wear a light jacket to keep cozy in the breeze.
+
+Have a fantastic day, and remember, every cloud has a silver lining! 🌈

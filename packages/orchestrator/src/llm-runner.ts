@@ -639,13 +639,15 @@ export function buildTools(
                 .map((ip) => ip.split('.').map(Number))
                 .filter((p) => p.length === 4 && p.every((o) => o >= 0 && o <= 255));
               if (parsed.length === 0) return null;
-              const [f] = parsed;
+              const f = parsed[0]!;
               if (parsed.every((p) => p[0] === f[0] && p[1] === f[1] && p[2] === f[2]))
                 return `${f[0]}.${f[1]}.${f[2]}.0/24`;
               if (parsed.every((p) => p[0] === f[0] && p[1] === f[1]))
                 return `${f[0]}.${f[1]}.0.0/16`;
               const sorted = [...parsed].sort((a, b) => a.join('.') < b.join('.') ? -1 : 1);
-              return `${sorted[0].join('.')} – ${sorted[sorted.length - 1].join('.')}`;
+              const first = sorted[0]!;
+              const last = sorted[sorted.length - 1]!;
+              return `${first.join('.')} – ${last.join('.')}`;
             };
 
             // Step 6: Correlate
@@ -691,6 +693,151 @@ export function buildTools(
             };
           } catch (e) {
             return { error: `Topology report failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── xiq_radio_quality_report: composite — login → list devices → radio info → grouped report ──
+        if (handlerType === 'xiq_radio_quality_report') {
+          if (!credentialId) return { error: 'xiq_radio_quality_report requires a credentialId' };
+
+          const loginUrl2 = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBase2 = 'https://api.extremecloudiq.com';
+
+          const reach2 = await checkReachable(loginUrl2);
+          if (!reach2.reachable) {
+            return { error: reach2.error ?? `Cannot reach ${loginUrl2}`, hint: 'Check VPN or network connectivity' };
+          }
+
+          const { fetch: fetch2 } = await import('undici');
+
+          const getToken2 = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await fetch2(loginUrl2, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const xiqGet2 = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown[]> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${apiBase2}${path}${qs ? '?' + qs : ''}`;
+            const resp = await fetch2(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_radio_quality_report] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const errText = await resp.text().catch(() => '');
+              console.warn(`[xiq_radio_quality_report] ${path} failed: ${resp.status} ${errText.slice(0, 200)}`);
+              return [];
+            }
+            const body = await resp.json() as { data?: unknown[] } | unknown[];
+            if (Array.isArray(body)) return body;
+            return (body as { data?: unknown[] }).data ?? [];
+          };
+
+          try {
+            const token = await getToken2();
+            if (!token) return { error: 'XIQ login failed' };
+
+            // Step 1: List all devices — extracts numeric IDs
+            const devices = await xiqGet2(token, '/devices', { page: 1, limit: 100 });
+            const deviceIds: number[] = [];
+            const deviceMap = new Map<number, { hostname: string; location: string; mac: string }>();
+            for (const d of devices as Array<Record<string, unknown>>) {
+              const id = d['id'] as number | undefined;
+              if (typeof id === 'number') {
+                deviceIds.push(id);
+                deviceMap.set(id, {
+                  hostname: String(d['hostname'] ?? d['name'] ?? ''),
+                  location: String(d['location_id'] ?? ''),
+                  mac: String(d['mac_address'] ?? ''),
+                });
+              }
+            }
+
+            if (deviceIds.length === 0) {
+              return { error: 'No devices found in XIQ account', devices_checked: 0 };
+            }
+
+            // Step 2: Radio information — pass numeric IDs in batches of 20
+            const radioResults: Array<Record<string, unknown>> = [];
+            const batchSize = 20;
+            for (let i = 0; i < deviceIds.length; i += batchSize) {
+              const batch = deviceIds.slice(i, i + batchSize);
+              const qs = batch.map((id) => `deviceIds=${id}`).join('&');
+              const url = `${apiBase2}/devices/radio-information?${qs}`;
+              const resp = await fetch2(url, {
+                headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+              });
+              console.info(`[xiq_radio_quality_report] GET /devices/radio-information → ${resp.status}`);
+              if (resp.ok) {
+                const body = await resp.json() as { data?: unknown[] } | unknown[];
+                const items = Array.isArray(body) ? body : ((body as { data?: unknown[] }).data ?? []);
+                radioResults.push(...(items as Array<Record<string, unknown>>));
+              }
+            }
+
+            // Step 3: Build structured report grouped by location
+            const locationMap = new Map<string, Array<{
+              hostname: string;
+              mac: string;
+              radios: Array<{ type: string; channel: number; tx_power: number; noise_floor: number; utilization?: number }>;
+            }>>();
+
+            for (const r of radioResults) {
+              const deviceId = r['device_id'] as number;
+              const device = deviceMap.get(deviceId) ?? { hostname: `Device ${deviceId}`, location: 'Unknown', mac: '' };
+              const location = device.location || 'Unknown';
+              const radioList = (r['radio_list'] as Array<Record<string, unknown>>) ?? [];
+
+              const radios = radioList.map((radio) => ({
+                type: String(radio['radio_type'] ?? radio['type'] ?? ''),
+                channel: Number(radio['channel'] ?? 0),
+                tx_power: Number(radio['tx_power'] ?? 0),
+                noise_floor: Number(radio['noise_floor'] ?? 0),
+                utilization: Number(radio['channel_utilization'] ?? 0),
+              }));
+
+              if (!locationMap.has(location)) locationMap.set(location, []);
+              locationMap.get(location)!.push({ hostname: device.hostname, mac: device.mac, radios });
+            }
+
+            const locations = Array.from(locationMap.entries()).map(([name, aps]) => ({ name, aps }));
+
+            return {
+              summary: {
+                total_devices: deviceIds.length,
+                devices_with_radio_data: radioResults.length,
+                total_locations: locations.length,
+                timestamp: new Date().toISOString(),
+              },
+              locations,
+              // Flat list for table widget compatibility
+              radio_details: radioResults.map((r) => {
+                const deviceId = r['device_id'] as number;
+                const device = deviceMap.get(deviceId) ?? { hostname: `Device ${deviceId}`, location: 'Unknown', mac: '' };
+                const radios = (r['radio_list'] as Array<Record<string, unknown>>) ?? [];
+                return radios.map((radio) => ({
+                  hostname: device.hostname,
+                  location: device.location,
+                  radio_type: String(radio['radio_type'] ?? ''),
+                  channel: Number(radio['channel'] ?? 0),
+                  tx_power_dbm: Number(radio['tx_power'] ?? 0),
+                  noise_floor_dbm: Number(radio['noise_floor'] ?? 0),
+                }));
+              }).flat(),
+            };
+          } catch (e) {
+            return { error: `Radio quality report failed: ${e instanceof Error ? e.message : String(e)}` };
           }
         }
 
