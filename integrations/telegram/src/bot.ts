@@ -117,6 +117,7 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
 
   const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
   const DEFAULT_AGENT_ID = process.env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '';
+  const NEXUS_AGENT_ID = process.env['NEXUS_AGENT_ID'] ?? 'cmoalym5k0009p13whqz2cref';
   const BOT_API_KEY = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
   if (!BOT_API_KEY) {
     console.warn('[telegram] BEX_BOT_API_KEY not set — API requests will fail. Run: bex init');
@@ -143,10 +144,16 @@ bot.command('start', async (ctx) => {
     'Send me any message and I\'ll route it to your AI agent.\n\n' +
     '*Commands:*\n' +
     '/status — check your last request\n' +
+    '/jobs — list scheduled jobs\n' +
     '/agents — list available agents\n' +
     '/skills — list loaded skills\n' +
-    '/tools — show tools for current agent\n' +    '/help — show this message\n\n' +
-    'Just type naturally to ask your agent anything.',
+    '/tools — show tools for current agent\n' +
+    '/help — show this message\n\n' +
+    '*Tip:* Start your message with `@bex` to talk to the BEX system admin (Nexus):\n' +
+    '  `@bex show me scheduled jobs`\n' +
+    '  `@bex pause all scheduled jobs`\n' +
+    '  `@bex resume BonePhone`\n' +
+    '  `@bex system status`',
     { parse_mode: 'Markdown' },
   );
 });
@@ -157,6 +164,7 @@ bot.command('help', async (ctx) => {
     '🤖 *BEX Bot Commands*\n\n' +
     '*/start* — welcome & command list\n' +
     '*/status* — check your last request status\n' +
+    '*/jobs* — list scheduled jobs (quick view, no AI)\n' +
     '*/agents* — list available agents\n' +
     '*/skills* — list loaded skills & domains\n' +
     '*/tools* — list all tools by domain (e.g. `/tools weather` for weather tools)\n' +
@@ -197,7 +205,33 @@ bot.command('cancel', async (ctx) => {
   await ctx.reply('✅ Cleared pending request.');
 });
 
-// /agents — list agents from api-gateway
+// /jobs — quick scheduled jobs list (no AI, direct API call)
+bot.command('jobs', async (ctx) => {
+  trackChatId(ctx.chat.id);
+  try {
+    const res = await fetch(`${API_GATEWAY_URL}/scheduled-jobs`, {
+      headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+    });
+    const data = (await res.json()) as { ok: boolean; data?: Array<Record<string, unknown>> };
+    if (!data.ok || !data.data?.length) {
+      await ctx.reply('No scheduled jobs found.');
+      return;
+    }
+    const lines = data.data.map((j) => {
+      const status = j['enabled'] ? '▶️' : '⏸️';
+      const last = j['lastRunAt'] ? new Date(String(j['lastRunAt'])).toLocaleString('en-GB', { timeZone: 'Europe/London', hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never';
+      return `${status} *${j['name']}*\n  ⏰ \`${j['cronExpr']}\` | last: ${last}`;
+    });
+    const active = data.data.filter((j) => j['enabled']).length;
+    const paused = data.data.length - active;
+    await safeSend(ctx, `🗓 *Scheduled Jobs (${data.data.length})*\n▶️ ${active} active · ⏸️ ${paused} paused\n\n${lines.join('\n\n')}\n\n_Tip: "@bex pause all scheduled jobs" to stop all_`);
+  } catch (err) {
+    console.error('[telegram] /jobs error:', err);
+    await ctx.reply('❌ Could not fetch scheduled jobs.');
+  }
+});
+
+
 bot.command('agents', async (ctx) => {
   trackChatId(ctx.chat.id);
   try {
@@ -317,14 +351,23 @@ bot.on('message:text', async (ctx) => {
     return;
   }
 
+  // @bex prefix → route to Nexus system admin agent
+  const bexPrefixMatch = input.match(/^@bex\s+(.+)/i);
+  if (bexPrefixMatch) {
+    const bexInput = bexPrefixMatch[1]!.trim();
+    await routeToAgent(ctx, bexInput, NEXUS_AGENT_ID);
+    return;
+  }
+
   await routeToAgent(ctx, input);
 });
 
 /**
  * Route a message (text or synthesised command) to the api-gateway agent.
  */
-async function routeToAgent(ctx: BotContext, input: string): Promise<void> {
-  if (!DEFAULT_AGENT_ID) {
+async function routeToAgent(ctx: BotContext, input: string, agentId?: string): Promise<void> {
+  const targetAgentId = agentId ?? DEFAULT_AGENT_ID;
+  if (!targetAgentId) {
     await ctx.reply('⚠️ Bot not fully configured: set TELEGRAM_DEFAULT_AGENT_ID in .env and restart.');
     return;
   }
@@ -340,7 +383,7 @@ async function routeToAgent(ctx: BotContext, input: string): Promise<void> {
         'X-Bclaw-User-External-Id': telegramUserId,
       },
       body: JSON.stringify({
-        agentId: DEFAULT_AGENT_ID,
+        agentId: targetAgentId,
         input,
         channel: 'telegram',
       }),
@@ -478,6 +521,7 @@ async function startPolling(): Promise<void> {
           { command: 'start',  description: 'Welcome message & command list' },
           { command: 'help',   description: 'Show available commands' },
           { command: 'status', description: 'Check your last request status' },
+          { command: 'jobs',   description: 'List scheduled jobs (quick view)' },
           { command: 'agents', description: 'List available agents' },
           { command: 'skills', description: 'List loaded skills & domains' },
           { command: 'tools',  description: 'List all tools by domain — /tools xco, /tools weather, etc.' },

@@ -62,9 +62,11 @@ export class CredentialVaultService {
       throw Object.assign(new Error('Credential not found'), { code: ErrorCodes.CREDENTIAL_NOT_FOUND });
     }
 
-    // Check that the requesting agent has at least one matching permission
+    // Check that the requesting agent has at least one matching permission.
+    // '*' in allowedAgentPermissions means any agent may use this credential.
     const allowed =
       credential.allowedAgentPermissions.length === 0 ||
+      credential.allowedAgentPermissions.includes('*') ||
       agentPermissions.some((p) => credential.allowedAgentPermissions.includes(p));
 
     if (!allowed) {

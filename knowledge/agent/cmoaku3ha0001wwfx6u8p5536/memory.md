@@ -1,11 +1,49 @@
-<!-- 2026-04-22T21:41:32.941Z -->
-BonePhone is currently connected: false, ap_name: null, ssid: null, timestamp: 2026-04-22T21:41:31.166Z
+BonePhone_status = disconnected
+BonePhone_last_seen = null
 
-<!-- 2026-04-22T21:41:33.641Z — BonePhone Presence Check -->
-STATUS_UNCHANGED: BonePhone is not connected.
+<!-- 2026-04-22T21:50:29.729Z — BonePhone Presence Check -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected. 
 
-<!-- 2026-04-22T21:45:47.018Z -->
-BonePhone is currently connected: false, ap_name: null, ssid: null, timestamp: 2026-04-22T21:45:45.559Z
+The following details have been saved to memory:
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
 
-<!-- 2026-04-22T21:45:47.720Z — BonePhone Presence Check -->
-The current state of BonePhone has been saved successfully.
+<!-- 2026-04-22T22:09:28.129Z — BonePhone Presence Check -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected. 
+
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
+
+No changes to announce.
+
+<!-- 2026-04-22T22:10:28.100Z — BonePhone Presence Check -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected.
+
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
+
+No changes to announce.
+
+<!-- 2026-04-22T22:20:20.956Z — BonePhone Presence Check -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected.
+
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
+
+No changes to announce.
+
+<!-- 2026-04-22T22:21:20.008Z — BonePhone Presence Check -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected.
+
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
+
+No changes to announce.
+
+<!-- 2026-04-22T22:25:25.071Z — BonePhone Presence Check -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected.
+
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
+
+No changes to announce.

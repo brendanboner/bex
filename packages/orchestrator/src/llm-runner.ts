@@ -1050,6 +1050,32 @@ export function buildTools(
               if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? resolvedMac);
             }
 
+            // Fallback: search all historical clients (not just active) to find MAC for offline devices
+            if (!resolvedMac && clientName) {
+              try {
+                const histResp = await xiqGetC(token, '/clients', {
+                  searchString: clientName,
+                  limit: 10,
+                }) as { data?: unknown[] } | null;
+                const histMatches = (histResp?.data ?? (Array.isArray(histResp) ? histResp as unknown[] : [])) as Array<Record<string, unknown>>;
+                if (histMatches.length > 0) {
+                  const histRecord = histMatches[0]!;
+                  resolvedMac = String(histRecord['mac_address'] ?? '');
+                  // Capture last-seen info from this historical record if available
+                  if (!clientRecord) {
+                    const ts = histRecord['last_connected'] ?? histRecord['last_seen'] ?? histRecord['update_time'];
+                    if (ts && !Number.isNaN(Number(ts))) {
+                      // We'll use this below in the last-seen derivation step
+                      (histRecord as Record<string, unknown>)['_histLastSeen'] = ts;
+                    }
+                    // Don't set clientRecord here — we want isCurrentlyConnected = false
+                  }
+                }
+              } catch {
+                // /clients endpoint may not exist on all XIQ versions — ignore
+              }
+            }
+
             const isCurrentlyConnected = clientRecord != null;
             const clientId = clientRecord ? (clientRecord['id'] as number | undefined) : null;
 
@@ -1144,6 +1170,172 @@ export function buildTools(
             };
           } catch (e) {
             return { error: `Client snapshot failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── BEX system admin handlers ─────────────────────────────────────
+
+        if (handlerType === 'bex_list_scheduled_jobs') {
+          try {
+            const bexUrl = process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+            const bexKey = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+            const res = await fetch(`${bexUrl}/scheduled-jobs`, {
+              headers: { Authorization: `Bearer ${bexKey}` },
+            });
+            const data = (await res.json()) as { ok: boolean; data?: unknown[] };
+            if (!data.ok) return { error: 'Failed to fetch scheduled jobs' };
+            const jobs = (data.data ?? []) as Array<Record<string, unknown>>;
+            return {
+              scheduled_jobs: jobs.map((j) => ({
+                id: j['id'],
+                name: j['name'],
+                enabled: j['enabled'],
+                cronExpr: j['cronExpr'],
+                lastRunAt: j['lastRunAt'],
+                nextRunAt: j['nextRunAt'],
+                agentId: j['agentId'],
+              })),
+              total: jobs.length,
+              active: jobs.filter((j) => j['enabled']).length,
+              paused: jobs.filter((j) => !j['enabled']).length,
+            };
+          } catch (e) {
+            return { error: `Failed to list scheduled jobs: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        if (handlerType === 'bex_toggle_scheduled_job') {
+          const jobIdOrName = String(args['jobId'] ?? args['jobName'] ?? args['name'] ?? '');
+          const enable = args['enable'] !== false && String(args['action'] ?? 'pause') !== 'pause';
+          try {
+            const bexUrl = process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+            const bexKey = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+
+            // Resolve by name if not a cuid
+            let resolvedId = jobIdOrName;
+            if (!jobIdOrName.match(/^c[a-z0-9]{20,}$/) && !jobIdOrName.match(/^[0-9a-f-]{36}$/)) {
+              const listRes = await fetch(`${bexUrl}/scheduled-jobs`, { headers: { Authorization: `Bearer ${bexKey}` } });
+              const listData = (await listRes.json()) as { ok: boolean; data?: Array<Record<string, unknown>> };
+              const match = (listData.data ?? []).find((j) =>
+                String(j['name']).toLowerCase().includes(jobIdOrName.toLowerCase())
+              );
+              if (!match) return { error: `No scheduled job found matching "${jobIdOrName}"` };
+              resolvedId = String(match['id']);
+            }
+
+            const patchRes = await fetch(`${bexUrl}/scheduled-jobs/${resolvedId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bexKey}` },
+              body: JSON.stringify({ enabled: enable }),
+            });
+            const patchData = (await patchRes.json()) as { ok: boolean; data?: Record<string, unknown> };
+            if (!patchData.ok) return { error: `Failed to update job: ${JSON.stringify(patchData)}` };
+            return {
+              success: true,
+              job_id: resolvedId,
+              job_name: patchData.data?.['name'],
+              enabled: enable,
+              message: `Job "${patchData.data?.['name'] ?? resolvedId}" is now ${enable ? 'enabled ▶️' : 'paused ⏸️'}`,
+            };
+          } catch (e) {
+            return { error: `Failed to update scheduled job: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        if (handlerType === 'bex_toggle_all_scheduled_jobs') {
+          const enable = args['enable'] !== false && String(args['action'] ?? 'pause') !== 'pause';
+          try {
+            const bexUrl = process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+            const bexKey = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+            const listRes = await fetch(`${bexUrl}/scheduled-jobs`, { headers: { Authorization: `Bearer ${bexKey}` } });
+            const listData = (await listRes.json()) as { ok: boolean; data?: Array<Record<string, unknown>> };
+            const jobs = listData.data ?? [];
+            const results = await Promise.all(
+              jobs.map((j) =>
+                fetch(`${bexUrl}/scheduled-jobs/${j['id']}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bexKey}` },
+                  body: JSON.stringify({ enabled: enable }),
+                }).then((r) => r.json() as Promise<{ ok: boolean }>)
+              )
+            );
+            const succeeded = results.filter((r) => r.ok).length;
+            return {
+              success: true,
+              total: jobs.length,
+              updated: succeeded,
+              action: enable ? 'enabled' : 'paused',
+              message: `${succeeded} of ${jobs.length} scheduled jobs are now ${enable ? 'enabled ▶️' : 'paused ⏸️'}`,
+            };
+          } catch (e) {
+            return { error: `Failed to update all scheduled jobs: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        if (handlerType === 'bex_list_agents') {
+          try {
+            const bexUrl = process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+            const bexKey = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+            const res = await fetch(`${bexUrl}/agents`, { headers: { Authorization: `Bearer ${bexKey}` } });
+            const data = (await res.json()) as { ok: boolean; data?: unknown[] };
+            const agents = (data.data ?? []) as Array<Record<string, unknown>>;
+            return {
+              agents: agents.map((a) => ({
+                id: a['id'],
+                name: a['name'],
+                status: a['status'],
+                description: a['description'],
+              })),
+              total: agents.length,
+            };
+          } catch (e) {
+            return { error: `Failed to list agents: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        if (handlerType === 'bex_get_recent_requests') {
+          const limit = Number(args['limit'] ?? 10);
+          try {
+            const bexUrl = process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+            const bexKey = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+            const res = await fetch(`${bexUrl}/requests?limit=${limit}`, { headers: { Authorization: `Bearer ${bexKey}` } });
+            const data = (await res.json()) as { ok: boolean; data?: unknown[] };
+            const requests = (data.data ?? []) as Array<Record<string, unknown>>;
+            return {
+              requests: requests.map((r) => ({
+                id: r['id'],
+                agentId: r['agentId'],
+                status: r['status'],
+                channel: r['channel'],
+                input: String(r['input'] ?? '').slice(0, 120),
+                createdAt: r['createdAt'],
+              })),
+              total: requests.length,
+            };
+          } catch (e) {
+            return { error: `Failed to list recent requests: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        if (handlerType === 'bex_system_status') {
+          try {
+            const bexUrl = process.env['API_GATEWAY_URL'] ?? 'http://localhost:4000';
+            const bexKey = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
+            const [agentsRes, jobsRes, healthRes] = await Promise.all([
+              fetch(`${bexUrl}/agents`, { headers: { Authorization: `Bearer ${bexKey}` } }).then((r) => r.json() as Promise<{ ok: boolean; data?: unknown[] }>),
+              fetch(`${bexUrl}/scheduled-jobs`, { headers: { Authorization: `Bearer ${bexKey}` } }).then((r) => r.json() as Promise<{ ok: boolean; data?: unknown[] }>),
+              fetch(`${bexUrl}/health`).then((r) => r.json() as Promise<{ ok: boolean; version?: string }>),
+            ]);
+            const agents = (agentsRes.data ?? []) as Array<Record<string, unknown>>;
+            const jobs = (jobsRes.data ?? []) as Array<Record<string, unknown>>;
+            return {
+              status: 'online',
+              version: healthRes.version ?? 'unknown',
+              agents: { total: agents.length, active: agents.filter((a) => a['status'] === 'ACTIVE').length },
+              scheduled_jobs: { total: jobs.length, enabled: jobs.filter((j) => j['enabled']).length },
+            };
+          } catch (e) {
+            return { error: `System status check failed: ${e instanceof Error ? e.message : String(e)}` };
           }
         }
 

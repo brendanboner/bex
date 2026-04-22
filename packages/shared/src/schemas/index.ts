@@ -55,6 +55,7 @@ export const SkillToolSchema = z.object({
   description: z.string().min(1).max(500),
   parameters: z.record(z.unknown()).default({}), // JSON Schema object; defaults to empty (no params)
   endpoint: z.string().url().optional(),
+  handlerType: z.string().optional(), // composite handler type (e.g. 'bex_list_scheduled_jobs')
 });
 
 export const CreateSkillSchema = z.object({
