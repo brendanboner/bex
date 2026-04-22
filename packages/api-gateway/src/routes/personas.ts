@@ -87,6 +87,34 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
     }
   });
 
+  // POST /personas/:id/respawn — ensure agent + scheduled job are alive; recreate if missing
+  app.post('/personas/:id/respawn', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const parse = SpawnPersonaSchema.safeParse(request.body);
+    if (!parse.success) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, parse.error.message));
+
+    try {
+      const spawner = new PersonaSpawner(prisma);
+      const externalId = (request.user as { sub: string }).sub;
+      const dbUser = await prisma.user.findUnique({ where: { externalId }, select: { id: true } });
+      const resolvedOwnerId = parse.data.ownerId ?? dbUser?.id;
+      if (!resolvedOwnerId) {
+        return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
+      }
+      const result = await spawner.respawnAgent(id, resolvedOwnerId, {
+        ...(parse.data.name !== undefined ? { name: parse.data.name } : {}),
+        ...(parse.data.llmProvider !== undefined ? { llmProvider: parse.data.llmProvider } : {}),
+        ...(parse.data.llmModel !== undefined ? { llmModel: parse.data.llmModel } : {}),
+      });
+      const status = result.action === 'created' ? 201 : 200;
+      return reply.status(status).send(ok(result));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('not found')) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, msg));
+      return reply.status(500).send(err(ErrorCodes.INTERNAL, msg));
+    }
+  });
+
   // DELETE /personas/:id
   app.delete('/personas/:id', async (request, reply) => {
     const { id } = request.params as { id: string };

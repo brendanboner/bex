@@ -6,6 +6,15 @@ export interface SpawnResult {
   scheduledJob: ScheduledJob | null;
 }
 
+export type RespawnAction = 'created' | 'restored' | 'repaired';
+
+export interface RespawnResult {
+  agent: Agent;
+  scheduledJob: ScheduledJob | null;
+  action: RespawnAction;
+  repairs: string[];
+}
+
 /** Infer agent posture from permission strings. Any write or exec permission → SUPERVISED. */
 function inferPosture(permissions: string[]): 'SUPERVISED' | 'AUTONOMOUS' {
   const hasWriteOrExec = permissions.some((p) => /^(write|exec|delete|ssh):/.test(p));
@@ -142,6 +151,102 @@ export class PersonaSpawner {
     }
 
     return { agent, scheduledJob };
+  }
+
+  /**
+   * Respawn: ensure a persona's agent and scheduled job exist and are healthy.
+   *
+   * - If no agent exists (was deleted) → full fresh spawn (action: 'created')
+   * - If agent exists but INACTIVE → reactivate + repair any missing pieces (action: 'restored')
+   * - If agent is ACTIVE but schedule/charter missing → repair those (action: 'repaired')
+   */
+  async respawnAgent(
+    personaId: string,
+    ownerId: string,
+    overrides?: { name?: string; llmProvider?: string; llmModel?: string },
+  ): Promise<RespawnResult> {
+    const persona = await this.prisma.persona.findUnique({ where: { id: personaId } });
+    if (!persona) throw new Error(`Persona not found: ${personaId}`);
+
+    const repairs: string[] = [];
+
+    // Find the most recently spawned agent for this persona
+    const existing = await this.prisma.agent.findFirst({
+      where: { personaId: persona.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // ── Case 1: no agent at all → full fresh spawn ────────────────────────────
+    if (!existing) {
+      const { agent, scheduledJob } = await this.spawnAgent(personaId, ownerId, overrides);
+      return { agent, scheduledJob, action: 'created', repairs: ['agent', 'charter', ...(scheduledJob ? ['schedule'] : [])] };
+    }
+
+    // ── Case 2 / 3: agent exists — repair what's missing ─────────────────────
+    let agent = existing;
+    const action: RespawnAction = agent.status !== 'ACTIVE' ? 'restored' : 'repaired';
+
+    // Reactivate if INACTIVE
+    if (agent.status !== 'ACTIVE') {
+      agent = await this.prisma.agent.update({
+        where: { id: agent.id },
+        data: { status: 'ACTIVE' },
+      });
+      repairs.push('status → ACTIVE');
+    }
+
+    // Recreate charter if missing
+    if (!agent.charterId) {
+      const posture = inferPosture(persona.suggestedPermissions);
+      const charter = await this.prisma.agentCharter.create({
+        data: {
+          mandate: persona.goal,
+          posture,
+          bearing: 'CONCISE',
+          verbosity: 'STANDARD',
+          conductBoundaries: persona.suggestedPermissions
+            .filter((p) => /^(delete|exec|ssh):/.test(p))
+            .map((p) => p + ':*'),
+          escalationTriggers: ['severity:CRITICAL', 'alarm_count > 10'],
+        },
+      });
+      agent = await this.prisma.agent.update({
+        where: { id: agent.id },
+        data: { charterId: charter.id },
+      });
+      repairs.push('charter');
+    }
+
+    // Find or recreate scheduled job
+    let scheduledJob: ScheduledJob | null = null;
+    if (persona.schedule != null) {
+      scheduledJob = await this.prisma.scheduledJob.findFirst({
+        where: { agentId: agent.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!scheduledJob) {
+        scheduledJob = await this.prisma.scheduledJob.create({
+          data: {
+            name: `${agent.name} — scheduled`,
+            agentId: agent.id,
+            cronExpr: persona.schedule,
+            input: persona.goal,
+            enabled: true,
+          },
+        });
+        repairs.push('schedule');
+      } else if (!scheduledJob.enabled) {
+        // Re-enable if it was disabled
+        scheduledJob = await this.prisma.scheduledJob.update({
+          where: { id: scheduledJob.id },
+          data: { enabled: true },
+        });
+        repairs.push('schedule re-enabled');
+      }
+    }
+
+    return { agent, scheduledJob, action, repairs };
   }
 
   /** Copy workspace docs (instructions/context/memory) from persona domain to agent domain. */

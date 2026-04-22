@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Zap, Clock, BookOpen, ChevronRight, Save, Brain } from 'lucide-react';
+import { Plus, Trash2, Zap, Clock, BookOpen, ChevronRight, Save, Brain, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatDate, truncate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -47,6 +47,11 @@ type GeneratedPersona = {
 type SpawnResult = {
   agent: { id: string; name: string };
   scheduledJob: { id: string; name: string; cronExpr: string } | null;
+};
+
+type RespawnResult = SpawnResult & {
+  action: 'created' | 'restored' | 'repaired';
+  repairs: string[];
 };
 
 type WorkspaceDoc = { domain: string; topic: string; content: string; updatedAt: string };
@@ -136,6 +141,18 @@ export default function PersonasPage() {
       toast({ title: 'Agent spawned ✓', description: `"${res.agent.name}"${jobMsg} created` });
     },
     onError: (e) => toast({ title: 'Spawn failed', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  const respawnMutation = useMutation({
+    mutationFn: (id: string) => api.post<RespawnResult>(`/personas/${id}/respawn`, {}),
+    onSuccess: (res) => {
+      void qc.invalidateQueries({ queryKey: ['personas'] });
+      void qc.invalidateQueries({ queryKey: ['agents'] });
+      const actionLabel = res.action === 'created' ? 'Agent created ✓' : res.action === 'restored' ? 'Agent restored ✓' : 'Agent healthy ✓';
+      const detail = res.repairs.length > 0 ? `Repaired: ${res.repairs.join(', ')}` : 'Everything was already healthy';
+      toast({ title: actionLabel, description: detail });
+    },
+    onError: (e) => toast({ title: 'Respawn failed', description: (e as Error).message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -549,9 +566,21 @@ export default function PersonasPage() {
                   <TableCell>
                     <div className="flex items-center gap-1">
                       {p.spawnedAgent ? (
-                        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled title="Already spawned">
-                          <Zap className="h-3 w-3 mr-1 text-emerald-400" /> Spawned
-                        </Button>
+                        <>
+                          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled title="Already spawned">
+                            <Zap className="h-3 w-3 mr-1 text-emerald-400" /> Spawned
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-muted-foreground hover:text-amber-400"
+                            title="Respawn — recreate agent/schedule if missing"
+                            onClick={() => respawnMutation.mutate(p.id)}
+                            disabled={respawnMutation.isPending}
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${respawnMutation.isPending ? 'animate-spin' : ''}`} />
+                          </Button>
+                        </>
                       ) : (
                         <Button variant="outline" size="sm" onClick={() => openSpawn(p)} className="text-xs">
                           <Zap className="h-3 w-3 mr-1" /> Spawn
