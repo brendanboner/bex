@@ -237,10 +237,23 @@ export function buildTools(
           }
 
           // Step 2: Build URL — replace {param} placeholders, drop empty optional params
-          let rawUrl = urlTemplate.replace(/([?&][^=]+=)\{(\w+)\}/g, (full, prefix, k) => {
-            const v = args[k];
-            return v != null && v !== '' ? `${prefix}${encodeURIComponent(String(v))}` : '';
-          }).replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+          // Arrays are expanded to repeated query params: views=A&views=B
+          const expandValue = (k: string, v: unknown): string => {
+            if (Array.isArray(v)) {
+              return v.map((item) => `${k}=${encodeURIComponent(String(item))}`).join('&');
+            }
+            return `${k}=${encodeURIComponent(String(v))}`;
+          };
+
+          let rawUrl = urlTemplate
+            // Query string params: [?&]key={param}
+            .replace(/([?&])([^=]+)=\{(\w+)\}/g, (full, sep, k, argKey) => {
+              const v = args[argKey];
+              if (v == null || v === '') return '';
+              return `${sep}${expandValue(k, v)}`;
+            })
+            // Path params: {param}
+            .replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
 
           // Normalize: if ? was stripped but & params remain, promote the first & to ?
           // e.g. "https://api.example.com/devices&limit=100" → "...devices?limit=100"
@@ -838,6 +851,255 @@ export function buildTools(
             };
           } catch (e) {
             return { error: `Radio quality report failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── xiq_client_health_report: composite — active clients with full radio/health details ──
+        if (handlerType === 'xiq_client_health_report') {
+          if (!credentialId) return { error: 'xiq_client_health_report requires a credentialId' };
+
+          const loginUrlH = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBaseH = 'https://api.extremecloudiq.com';
+
+          const reachH = await checkReachable(loginUrlH);
+          if (!reachH.reachable) {
+            return { error: reachH.error ?? `Cannot reach ${loginUrlH}`, hint: 'Check VPN or network connectivity' };
+          }
+
+          const { fetch: fetchH } = await import('undici');
+
+          const getTokenH = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await fetchH(loginUrlH, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const xiqGetH = async (token: string, path: string, params: Record<string, string | number | string[]> = {}): Promise<unknown[]> => {
+            const qs = Object.entries(params).flatMap(([k, v]) =>
+              Array.isArray(v) ? v.map((vi) => `${k}=${encodeURIComponent(String(vi))}`) : [`${k}=${encodeURIComponent(String(v))}`]
+            ).join('&');
+            const url = `${apiBaseH}${path}${qs ? '?' + qs : ''}`;
+            const resp = await fetchH(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_client_health_report] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const errText = await resp.text().catch(() => '');
+              console.warn(`[xiq_client_health_report] ${path} failed ${resp.status}: ${errText.slice(0, 200)}`);
+              return [];
+            }
+            const body = await resp.json() as { data?: unknown[] } | unknown[];
+            if (Array.isArray(body)) return body;
+            return (body as { data?: unknown[] }).data ?? [];
+          };
+
+          try {
+            const token = await getTokenH();
+            if (!token) return { error: 'XIQ login failed' };
+
+            // Fetch active clients with CLIENT_DETAILS and HEALTH_STATUS views
+            const clients = await xiqGetH(token, '/clients/active', {
+              views: ['CLIENT_DETAILS', 'HEALTH_STATUS', 'BASIC'],
+              limit: 100,
+            }) as Array<Record<string, unknown>>;
+
+            // Normalise and flatten the client records for dashboard table rendering
+            const clientList = clients.map((c) => ({
+              hostname: String(c['hostname'] ?? c['name'] ?? c['mac_address'] ?? ''),
+              mac_address: String(c['mac_address'] ?? ''),
+              ip_address: String(c['ip_address'] ?? ''),
+              ssid: String(c['ssid'] ?? ''),
+              connected_ap: String(c['connected_ap'] ?? c['ap_name'] ?? ''),
+              snr: Number(c['snr'] ?? 0),
+              rssi: Number(c['rssi'] ?? 0),
+              health_score: Number(c['health_score'] ?? 0),
+              os_type: String(c['os_type'] ?? ''),
+              channel: Number(c['channel'] ?? 0),
+              health_category: String(c['health_category'] ?? (Number(c['health_score'] ?? 50) >= 70 ? 'GOOD' : Number(c['health_score'] ?? 50) >= 40 ? 'FAIR' : 'POOR')),
+            }));
+
+            // Summaries
+            const bySsid: Record<string, number> = {};
+            const byAp: Record<string, number> = {};
+            let poorSignalCount = 0;
+            for (const c of clientList) {
+              if (c.ssid) bySsid[c.ssid] = (bySsid[c.ssid] ?? 0) + 1;
+              if (c.connected_ap) byAp[c.connected_ap] = (byAp[c.connected_ap] ?? 0) + 1;
+              if (c.snr > 0 && c.snr < 20) poorSignalCount++;
+            }
+
+            const ssid_breakdown = Object.entries(bySsid)
+              .map(([ssid, count]) => ({ ssid, client_count: count }))
+              .sort((a, b) => b.client_count - a.client_count);
+
+            const ap_breakdown = Object.entries(byAp)
+              .map(([ap, count]) => ({ access_point: ap, client_count: count }))
+              .sort((a, b) => b.client_count - a.client_count);
+
+            return {
+              summary: {
+                total_clients: clientList.length,
+                poor_signal_clients: poorSignalCount,
+                ssid_count: ssid_breakdown.length,
+                ap_count: ap_breakdown.length,
+                timestamp: new Date().toISOString(),
+              },
+              clients: clientList.sort((a, b) => b.health_score - a.health_score),
+              ssid_breakdown,
+              ap_breakdown,
+              poor_signal_clients: clientList.filter((c) => c.snr > 0 && c.snr < 20),
+            };
+          } catch (e) {
+            return { error: `Client health report failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+        if (handlerType === 'xiq_client_snapshot') {
+          if (!credentialId) return { error: 'xiq_client_snapshot requires a credentialId' };
+
+          const loginUrlC = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBaseC = 'https://api.extremecloudiq.com';
+
+          const reachC = await checkReachable(loginUrlC);
+          if (!reachC.reachable) {
+            return { error: reachC.error ?? `Cannot reach ${loginUrlC}`, hint: 'Check VPN or network connectivity' };
+          }
+
+          const clientName = String(args['clientName'] ?? args['name'] ?? args['hostname'] ?? '');
+          const clientMac = String(args['macAddress'] ?? args['mac'] ?? '');
+          const lookbackMs = Number(args['lookbackHours'] ?? 24) * 3_600_000;
+          const endTime = Date.now();
+          const startTime = endTime - lookbackMs;
+
+          if (!clientName && !clientMac) {
+            return { error: 'xiq_client_snapshot requires clientName or macAddress parameter' };
+          }
+
+          const { fetch: fetchC } = await import('undici');
+
+          const getTokenC = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await fetchC(loginUrlC, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const xiqGetC = async (token: string, path: string, params: Record<string, string | number | string[]> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).flatMap(([k, v]) =>
+              Array.isArray(v) ? v.map((vi) => `${k}=${encodeURIComponent(String(vi))}`) : [`${k}=${encodeURIComponent(String(v))}`]
+            ).join('&');
+            const url = `${apiBaseC}${path}${qs ? '?' + qs : ''}`;
+            const resp = await fetchC(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_client_snapshot] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const txt = await resp.text().catch(() => '');
+              console.warn(`[xiq_client_snapshot] ${path} failed ${resp.status}: ${txt.slice(0, 200)}`);
+              return null;
+            }
+            return resp.json();
+          };
+
+          try {
+            const token = await getTokenC();
+            if (!token) return { error: 'XIQ login failed' };
+
+            // Step 1: Find client — by name or MAC
+            let clientRecord: Record<string, unknown> | null = null;
+            let resolvedMac = clientMac;
+
+            if (clientName) {
+              const searchResp = await xiqGetC(token, '/clients/active', {
+                searchString: clientName,
+                views: ['CLIENT_DETAILS', 'HEALTH_STATUS', 'BASIC'],
+                limit: 10,
+              }) as { data?: unknown[] } | null;
+              const matches = searchResp?.data ?? [];
+              clientRecord = (matches[0] as Record<string, unknown>) ?? null;
+              if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? '');
+            }
+
+            if (!clientRecord && resolvedMac) {
+              const byMacResp = await xiqGetC(token, `/clients/byMac/${encodeURIComponent(resolvedMac)}`, {
+                views: ['CLIENT_DETAILS', 'HEALTH_STATUS', 'BASIC'],
+              }) as Record<string, unknown> | null;
+              clientRecord = byMacResp;
+              if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? resolvedMac);
+            }
+
+            const isCurrentlyConnected = clientRecord != null;
+            const clientId = clientRecord ? (clientRecord['id'] as number | undefined) : null;
+
+            // Step 2: If we have a numeric ID, get detailed stats and events
+            let detailsInfo: unknown = null;
+            let events: unknown[] = [];
+            let connectionTrail: unknown = null;
+
+            if (clientId) {
+              const [detailResp, eventsResp] = await Promise.all([
+                xiqGetC(token, `/client-details/overview/info/${clientId}`, { startTime, endTime }),
+                xiqGetC(token, `/client-details/client-trail/connectivity-experience/${clientId}`, {
+                  startTime, endTime, precision: 300000,
+                }),
+              ]);
+              detailsInfo = detailResp;
+              events = (eventsResp as { data?: unknown[] } | null)?.data
+                ?? (Array.isArray(eventsResp) ? (eventsResp as unknown[]) : []);
+            }
+
+            // Step 3: Connection trail by MAC (always available if we have MAC)
+            if (resolvedMac) {
+              connectionTrail = await xiqGetC(token, `/client-details/topology/client-trail/${encodeURIComponent(resolvedMac)}`);
+            }
+
+            // Step 4: Build structured response
+            return {
+              client_name: clientName || resolvedMac,
+              mac_address: resolvedMac || null,
+              is_currently_connected: isCurrentlyConnected,
+              current_connection: isCurrentlyConnected ? {
+                connected_ap: clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? null,
+                ssid: clientRecord!['ssid'] ?? null,
+                ip_address: clientRecord!['ip_address'] ?? null,
+                snr: clientRecord!['snr'] ?? null,
+                rssi: clientRecord!['rssi'] ?? null,
+                health_score: clientRecord!['health_score'] ?? null,
+                channel: clientRecord!['channel'] ?? null,
+                os_type: clientRecord!['os_type'] ?? null,
+              } : null,
+              recent_events: events.slice(0, 50),
+              details: detailsInfo,
+              connection_trail: connectionTrail,
+              query_window: {
+                start: new Date(startTime).toISOString(),
+                end: new Date(endTime).toISOString(),
+                lookback_hours: Number(args['lookbackHours'] ?? 24),
+              },
+              timestamp: new Date().toISOString(),
+            };
+          } catch (e) {
+            return { error: `Client snapshot failed: ${e instanceof Error ? e.message : String(e)}` };
           }
         }
 

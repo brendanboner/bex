@@ -312,7 +312,7 @@ export class OrchestratorService {
         let credType = s.requiredCredentialType as string | null | undefined;
         if (!credType) {
           const tools = (s.tools as Array<Record<string, unknown>>) ?? [];
-          const hasXiqTool = tools.some((t) => ['xiq_http_call', 'xiq_topology_report', 'xiq_radio_quality_report'].includes(t['handlerType'] as string));
+          const hasXiqTool = tools.some((t) => ['xiq_http_call', 'xiq_topology_report', 'xiq_radio_quality_report', 'xiq_client_snapshot', 'xiq_client_health_report'].includes(t['handlerType'] as string));
           const hasXcoTool = tools.some((t) => t['handlerType'] === 'xco_http_call');
           if (hasXiqTool || hasXcoTool) credType = 'USERNAME_PASSWORD';
         }

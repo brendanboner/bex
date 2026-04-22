@@ -120,3 +120,79 @@ Advanced operations can use direct SSH:
 - Tool: `ssh_exec` with the device's management IP
 - Credentials resolved from vault by target name
 - Common: `show version`, `show interface`, `show alarm`, `show config`
+
+## Client Operations
+
+### Finding a Client by Name or Alias
+
+The most important pattern for client queries. Use `searchString` in `list_active_clients`:
+
+```
+Step 1: list_active_clients(searchString="BonePhone", views=["CLIENT_DETAILS","HEALTH_STATUS"])
+  → Returns: [{ id: 11223344, hostname: "BonePhone", mac_address: "AA:BB:...", ssid: "Corp-WiFi",
+                connected_ap: "AP-Office-1", snr: 35, rssi: -60, ip_address: "10.0.1.42", health_score: 85 }]
+Step 2: Use id (integer 11223344) for all further queries
+```
+
+The `searchString` matches against: hostname, alias, username, MAC address prefix.
+If the client is not in active clients → device is currently **not connected**.
+
+### Getting Full Client Details
+
+Once you have the numeric client ID:
+
+```
+get_client(id=11223344, views=["CLIENT_DETAILS","HEALTH_STATUS","DEVICE_INFO"])
+  → snr, rssi, tx_rate, rx_rate, channel, band, connected_ap, ssid, ip_address, os_type, health_score
+
+get_client_stats(clientId=11223344, startTime=<now-3600000>, endTime=<now>)
+  → current connection metrics: SNR, RSSI, data rate, retry rate
+
+get_client_health(clientId=11223344, startTime=<now-86400000>, endTime=<now>)
+  → health trend chart data for the last 24 hours
+
+get_client_events(clientId=11223344, startTime=<now-86400000>, endTime=<now>)
+  → timeline of connect/disconnect/roam/auth-fail events (equivalent to /clients/{id}/events)
+```
+
+### Checking When a Device Connected or Left
+
+```
+Step 1: list_active_clients(searchString="BonePhone") — if empty, device is NOT currently connected
+Step 2: get_client_by_mac(clientMac="AA:BB:CC:DD:EE:FF") — get numeric ID even if not active
+Step 3: get_client_events(clientId=<id>, startTime=<24h_ago_ms>, endTime=<now_ms>)
+  → look for event_type = "DISCONNECTED" / "CONNECTED" with timestamp
+Step 4: get_connection_trail(macAddress="AA:BB:CC:DD:EE:FF")
+  → full chronological roaming map across all APs
+```
+
+### Device Presence Detection (for scheduled monitoring)
+
+Pattern for tracking whether a named device is on the network:
+```
+1. list_active_clients(searchString="BonePhone")
+2. If results.length > 0 → PRESENT at results[0].connected_ap on results[0].ssid
+3. If results.length = 0 → ABSENT (last seen via get_client_events)
+4. Compare to previous state to detect ARRIVAL or DEPARTURE events
+```
+
+### Client `views` Parameter Reference
+
+Pass `views` as an array to `list_active_clients` and `get_client` to get richer fields:
+
+| View | Fields returned |
+|---|---|
+| `CLIENT_DETAILS` | snr, rssi, tx_rate, rx_rate, channel, band, connected_ap_id |
+| `HEALTH_STATUS` | health_score, health_category |
+| `DEVICE_INFO` | os_type, manufacturer, model |
+| `BASIC` | id, hostname, mac_address, ip_address, ssid, user_profile |
+
+### Time Parameters
+
+All client detail endpoints use epoch milliseconds:
+```js
+const now = Date.now();
+const last24h = now - 86_400_000;
+const lastHour = now - 3_600_000;
+```
+
