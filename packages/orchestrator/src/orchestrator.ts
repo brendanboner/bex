@@ -305,16 +305,22 @@ export class OrchestratorService {
         ['networking.extreme-xco', 'xco'],
       ];
 
+      const VALID_CRED_TYPES = new Set(['API_TOKEN', 'USERNAME_PASSWORD', 'SSH_KEY', 'BASIC_AUTH', 'OAUTH2_CLIENT', 'USER_PREFERENCE']);
+
       for (const s of linkedSkills) {
         // Detect requiredCredentialType from skill field OR from tool handlerTypes in the skill
         let credType = s.requiredCredentialType as string | null | undefined;
         if (!credType) {
           const tools = (s.tools as Array<Record<string, unknown>>) ?? [];
-          const hasXiqTool = tools.some((t) => t['handlerType'] === 'xiq_http_call');
+          const hasXiqTool = tools.some((t) => ['xiq_http_call', 'xiq_topology_report', 'xiq_radio_quality_report'].includes(t['handlerType'] as string));
           const hasXcoTool = tools.some((t) => t['handlerType'] === 'xco_http_call');
           if (hasXiqTool || hasXcoTool) credType = 'USERNAME_PASSWORD';
         }
-        if (!credType) continue;
+        // Guard: skip if credType is not a valid Prisma CredentialType enum value
+        if (!credType || !VALID_CRED_TYPES.has(credType)) {
+          if (credType) console.warn(`[orchestrator] Skill ${s.id} has unrecognised requiredCredentialType "${credType}" — skipping credential resolution`);
+          continue;
+        }
 
         // Resolve keyword: check prefix map first, then token extraction
         let keyword: string | undefined;
