@@ -21,16 +21,19 @@ type LLMConfig = {
   provider: LLMProvider;
   model: string;
   baseUrl?: string;
+  apiVersion?: string;
   isDefault: boolean;
   credentialId?: string;
   createdAt: string;
 };
 
-const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
-  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
-  { value: 'anthropic', label: 'Anthropic', color: 'bg-violet-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true, needsBaseUrl: false },
-  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600', Icon: Cloud, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false },
-  { value: 'ollama', label: 'Ollama', color: 'bg-orange-500', Icon: Server, defaultModel: 'llama3', needsApiKey: false, needsBaseUrl: true },
+const AZURE_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo', 'gpt-4'];
+
+const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean; needsEndpoint: boolean }[] = [
+  { value: 'openai', label: 'OpenAI', color: 'bg-emerald-500', Icon: Bot, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false, needsEndpoint: false },
+  { value: 'anthropic', label: 'Anthropic', color: 'bg-violet-600', Icon: Layers, defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true, needsBaseUrl: false, needsEndpoint: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600', Icon: Cloud, defaultModel: 'gpt-4o', needsApiKey: true, needsBaseUrl: false, needsEndpoint: true },
+  { value: 'ollama', label: 'Ollama', color: 'bg-orange-500', Icon: Server, defaultModel: 'llama3', needsApiKey: false, needsBaseUrl: true, needsEndpoint: false },
 ];
 
 const PROVIDER_COLOURS: Record<LLMProvider, string> = {
@@ -46,6 +49,8 @@ const EMPTY_FORM = {
   model: 'gpt-4o',
   apiKey: '',
   baseUrl: '',
+  endpoint: '',
+  apiVersion: '2024-08-01-preview',
   isDefault: false,
 };
 
@@ -94,6 +99,7 @@ export default function LLMConfigsPage() {
     !form.name ||
     (selectedProvider?.needsApiKey && !form.apiKey) ||
     (selectedProvider?.needsBaseUrl && !form.baseUrl) ||
+    (selectedProvider?.needsEndpoint && !form.endpoint) ||
     createMutation.isPending;
 
   return (
@@ -124,7 +130,7 @@ export default function LLMConfigsPage() {
                   <button
                     key={p.value}
                     type="button"
-                    onClick={() => setForm((v) => ({ ...v, provider: p.value, model: p.defaultModel, apiKey: '', baseUrl: '' }))}
+                    onClick={() => setForm((v) => ({ ...v, provider: p.value, model: p.defaultModel, apiKey: '', baseUrl: '', endpoint: '', apiVersion: '2024-08-01-preview' }))}
                     className={cn(
                       'flex flex-col items-center gap-2 rounded-lg border-2 p-4 text-sm font-medium transition-colors',
                       form.provider === p.value
@@ -151,16 +157,64 @@ export default function LLMConfigsPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>Model</Label>
-                <Input
-                  placeholder={selectedProvider?.defaultModel ?? 'gpt-4o'}
-                  value={form.model}
-                  onChange={(e) => setForm((v) => ({ ...v, model: e.target.value }))}
-                />
+                <Label>{form.provider === 'azure-openai' ? 'Deployment name' : 'Model'}</Label>
+                {form.provider === 'azure-openai' ? (
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={form.model}
+                    onChange={(e) => setForm((v) => ({ ...v, model: e.target.value }))}
+                  >
+                    {AZURE_MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <Input
+                    placeholder={selectedProvider?.defaultModel ?? 'gpt-4o'}
+                    value={form.model}
+                    onChange={(e) => setForm((v) => ({ ...v, model: e.target.value }))}
+                  />
+                )}
               </div>
             </div>
 
-            {/* Ollama: show Base URL; other providers: show API Key */}
+            {/* Azure-specific fields */}
+            {form.provider === 'azure-openai' && (
+              <div className="space-y-4 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4">
+                <p className="text-xs font-medium text-indigo-300">Azure OpenAI Configuration</p>
+                <div className="space-y-1">
+                  <Label>Endpoint URL <span className="text-destructive">*</span></Label>
+                  <Input
+                    placeholder="https://my-resource.openai.azure.com/"
+                    value={form.endpoint}
+                    onChange={(e) => setForm((v) => ({ ...v, endpoint: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Found in Azure Portal → Azure OpenAI → Keys and Endpoint
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label>API Version</Label>
+                  <Input
+                    placeholder="2024-08-01-preview"
+                    value={form.apiVersion}
+                    onChange={(e) => setForm((v) => ({ ...v, apiVersion: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Optional — defaults to 2024-08-01-preview
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label>API Key <span className="text-destructive">*</span></Label>
+                  <Input
+                    type="password"
+                    placeholder="Azure OpenAI API key"
+                    value={form.apiKey}
+                    onChange={(e) => setForm((v) => ({ ...v, apiKey: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Ollama: show Base URL; other non-Azure providers: show API Key */}
             {selectedProvider?.needsBaseUrl ? (
               <div className="space-y-1">
                 <Label>Ollama Base URL</Label>
@@ -173,7 +227,7 @@ export default function LLMConfigsPage() {
                   Remote or local Ollama instance. No API key needed — Ollama&apos;s OpenAI-compatible API is used.
                 </p>
               </div>
-            ) : (
+            ) : selectedProvider?.needsApiKey && !selectedProvider.needsEndpoint ? (
               <div className="space-y-1">
                 <Label>API Key</Label>
                 <Input
@@ -183,7 +237,7 @@ export default function LLMConfigsPage() {
                   onChange={(e) => setForm((v) => ({ ...v, apiKey: e.target.value }))}
                 />
               </div>
-            )}
+            ) : null}
 
             <div className="flex items-center gap-2">
               <input
@@ -240,7 +294,14 @@ export default function LLMConfigsPage() {
                     <TableCell className="text-muted-foreground text-sm">
                       <span>{cfg.model}</span>
                       {cfg.baseUrl && (
-                        <span className="ml-2 text-xs text-slate-500">@ {cfg.baseUrl}</span>
+                        <span className="ml-2 text-xs text-slate-500">
+                          @ {cfg.provider === 'azure-openai'
+                            ? cfg.baseUrl.replace('https://', '').replace(/\/$/, '')
+                            : cfg.baseUrl}
+                        </span>
+                      )}
+                      {cfg.apiVersion && (
+                        <span className="ml-1 text-xs text-slate-600">({cfg.apiVersion})</span>
                       )}
                     </TableCell>
                     <TableCell>

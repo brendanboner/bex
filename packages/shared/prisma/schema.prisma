@@ -637,7 +637,8 @@ model LLMConfig {
   name         String   @unique    // e.g. "OpenAI Production", "Anthropic Dev", "Local Ollama"
   provider     String              // openai | anthropic | azure-openai | ollama
   model        String              // e.g. gpt-4o, claude-3-5-sonnet-20241022, llama3
-  baseUrl      String?             // optional base URL — required for ollama (e.g. http://host:11434)
+  baseUrl      String?             // optional base URL — Ollama host or Azure endpoint
+  apiVersion   String?             // Azure OpenAI API version (e.g. 2024-08-01-preview)
   isDefault    Boolean  @default(false)
   // FK to Credential (API_TOKEN type) holding the API key — optional for Ollama
   credentialId String?
@@ -653,6 +654,45 @@ model LLMConfig {
 // Per-domain structured intelligence: doc references, entity relationships,
 // and analysis playbooks. Populated automatically during skill builds and
 // editable via the dashboard.
+
+// ─── User Dashboards ──────────────────────────────────────────────────────────
+// Dynamic data dashboards backed by agent skill output.
+// Each dashboard has a URL-friendly slug, an agent query (prompt), cached data,
+// and a JSON widget layout (headlines, tables, charts, actions).
+
+model UserDashboard {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+
+  // Which agent provides the data (null = use default agent)
+  agentId     String?
+
+  // The query/prompt sent to the agent to produce dashboard data
+  prompt      String
+
+  // Widget layout — array of { id, type, title, dataKey, ... }
+  widgets     Json      @default("[]")
+
+  // Refresh mode: "manual" | "scheduled" | "realtime"
+  refreshMode String    @default("manual")
+
+  // Cron expression for scheduled refresh (e.g. "*/5 * * * *")
+  cronExpr    String?
+
+  // Cached latest response data from the agent (raw parsed JSON)
+  lastData    Json?
+
+  lastRunAt   DateTime?
+  status      String    @default("active")  // "active" | "paused" | "archived"
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([status])
+}
 
 model DomainKnowledge {
   // Domain key — matches Skill.domain prefix (e.g. "extremecloudiq", "networking.extreme-xco")

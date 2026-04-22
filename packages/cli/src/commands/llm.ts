@@ -70,7 +70,7 @@ async function listLlmConfigs(): Promise<void> {
 }
 
 async function addLlmConfig(): Promise<void> {
-  const { input, select } = await import('@inquirer/prompts');
+  const { input, select, password } = await import('@inquirer/prompts');
   const env = loadEnv();
   const apiUrl = getApiUrl(env);
   const token = getAdminToken(env);
@@ -78,7 +78,15 @@ async function addLlmConfig(): Promise<void> {
 
   console.log(chalk.bold('\nAdd LLM Configuration\n'));
 
-  const name = await input({ message: 'Configuration name (e.g. "OpenAI Production"):' });
+  const AZURE_MODELS = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo', 'gpt-4'];
+  const DEFAULT_MODELS: Record<string, string[]> = {
+    openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
+    'azure-openai': AZURE_MODELS,
+    ollama: ['llama3.2', 'llama3.1', 'mistral', 'gemma2', 'phi3', 'qwen2.5'],
+  };
+
+  const name = await input({ message: 'Configuration name (e.g. "Azure Production"):' });
   const provider = await select({
     message: 'Provider:',
     choices: [
@@ -89,18 +97,15 @@ async function addLlmConfig(): Promise<void> {
     ],
   });
 
-  const defaultModels: Record<string, string> = {
-    openai: 'gpt-4o',
-    anthropic: 'claude-3-5-sonnet-20241022',
-    'azure-openai': 'gpt-4o',
-    ollama: 'llama3',
-  };
-  const model = await input({
-    message: `Model (default: ${defaultModels[provider] ?? 'gpt-4o'}):`,
-    default: defaultModels[provider] ?? 'gpt-4o',
+  const modelChoices = (DEFAULT_MODELS[provider] ?? ['gpt-4o']).map((m) => ({ name: m, value: m }));
+  const model = await select({
+    message: `Deployment / model:`,
+    choices: modelChoices,
   });
 
   let baseUrl: string | undefined;
+  let endpoint: string | undefined;
+  let apiVersion: string | undefined;
   let apiKey: string | undefined;
 
   if (provider === 'ollama') {
@@ -108,9 +113,20 @@ async function addLlmConfig(): Promise<void> {
       message: 'Ollama base URL (e.g. http://192.168.1.10:11434):',
       default: 'http://localhost:11434',
     });
+  } else if (provider === 'azure-openai') {
+    endpoint = await input({
+      message: 'Azure endpoint URL (e.g. https://my-resource.openai.azure.com/):',
+      validate: (v: string) => (v.startsWith('https://') && v.includes('.openai.azure.com')) || 'Enter a valid Azure endpoint',
+    });
+    apiVersion = await input({
+      message: 'API version:',
+      default: '2024-08-01-preview',
+    });
+    apiKey = await password({ message: 'Azure API key:' });
   } else {
-    apiKey = await input({ message: 'API Key:' });
+    apiKey = await password({ message: 'API Key:' });
   }
+
   const isDefault = await select({
     message: 'Set as default?',
     choices: [{ name: 'Yes', value: true }, { name: 'No', value: false }],
@@ -119,15 +135,16 @@ async function addLlmConfig(): Promise<void> {
   const res = await fetch(`${apiUrl}/llm-configs`, {
     method: 'POST',
     headers: headers(token),
-    body: JSON.stringify({ name, provider, model, apiKey, baseUrl, isDefault }),
+    body: JSON.stringify({ name, provider, model, apiKey, baseUrl, endpoint, apiVersion, isDefault }),
   });
 
   if (res.ok) {
     console.log(chalk.green(`\nLLM config "${name}" added successfully.`));
     if (isDefault) console.log(chalk.dim('Set as default LLM provider.'));
   } else {
-    const err = (await res.json()) as { message?: string };
-    console.error(chalk.red(`Failed to add LLM config: ${err.message ?? res.statusText}`));
+    const err = (await res.json()) as { message?: string; error?: { message?: string } };
+    const msg = (err as { error?: { message?: string } }).error?.message ?? (err as { message?: string }).message ?? res.statusText;
+    console.error(chalk.red(`Failed to add LLM config: ${msg}`));
   }
 }
 

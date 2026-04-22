@@ -38,10 +38,25 @@ async function apiFetch<T>(
   // 204 No Content — treat as success with no data
   if (res.status === 204) return undefined as unknown as T;
 
-  const json = (await res.json()) as ApiResponse<T>;
+  // Guard against non-JSON responses (e.g. HTML error pages from a proxy)
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error(`Server returned non-JSON response (HTTP ${res.status})`);
+  }
 
-  if (!json.ok) {
-    const msg = json.error.message ?? 'API error';
+  const envelope = json as ApiResponse<T>;
+
+  if (!envelope.ok) {
+    // Our {ok:false, error:{code,message}} format
+    const apiMsg = typeof envelope.error === 'object' && envelope.error !== null
+      ? (envelope.error as { message?: string }).message
+      : undefined;
+    // Fastify native error format: {statusCode, error, message}
+    const fastifyMsg = (json as { message?: string }).message;
+    const msg = apiMsg ?? fastifyMsg ?? `HTTP ${res.status}`;
+
     // Redirect to login on auth failure
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('bex_token');
@@ -51,7 +66,7 @@ async function apiFetch<T>(
     throw new Error(msg);
   }
 
-  return json.data;
+  return envelope.data;
 }
 
 // ─── Main API (api-gateway :4000) ────────────────────────────────────────────

@@ -525,6 +525,7 @@ export class OrchestratorService {
       // Prefer default LLMConfig from DB over env vars if configured
       let llmApiKey: string | undefined;
       let llmBaseUrl: string | undefined;
+      let llmApiVersion: string | undefined;
       let llmProvider = agent.llmProvider as LlmProvider;
       let llmModel = agent.llmModel;
 
@@ -535,7 +536,8 @@ export class OrchestratorService {
         });
         if (defaultConfig) {
           llmProvider = defaultConfig.provider as LlmProvider;
-          llmModel = defaultConfig.model;
+          // Respect the agent's own model choice if set; only fall back to the default config model
+          llmModel = agent.llmModel || defaultConfig.model;
           if (defaultConfig.credentialId) {
             const cred = await this.vault.resolve(defaultConfig.credentialId, []);
             llmApiKey = (cred as { apiKey?: string }).apiKey;
@@ -543,12 +545,15 @@ export class OrchestratorService {
           if (defaultConfig.baseUrl) {
             llmBaseUrl = defaultConfig.baseUrl;
           }
+          if (defaultConfig.apiVersion) {
+            llmApiVersion = defaultConfig.apiVersion;
+          }
         }
       } catch {
         // Fall through to env-var based config
       }
 
-      const model = buildLlmModel(llmProvider, llmModel, llmApiKey, llmBaseUrl);
+      const model = buildLlmModel(llmProvider, llmModel, llmApiKey, llmBaseUrl, llmApiVersion);
 
       const charterPrompt = buildCharterPrompt(resolvedCharter);
       const personaData = agent.persona as { systemPromptOverride?: string; systemPrompt?: string } | null;
@@ -586,12 +591,16 @@ export class OrchestratorService {
       const readMemoryTool = buildReadMemoryTool(agent.id);
       const allTools = { ...tools, write_memory: writeMemoryTool, read_memory: readMemoryTool };
       const toolsArg = allTools;
+      // Per-agent maxSteps override — read from Agent.llmConfig JSON
+      const agentLlmConfig = agent.llmConfig as { maxSteps?: number } | null;
+      const maxSteps = agentLlmConfig?.maxSteps ?? 8;
+
       const result = await runLlm({
         model,
         messages,
         tools: toolsArg,
         systemPrompt,
-        maxSteps: 8,  // prevent infinite tool-call loops
+        maxSteps,
       });
 
       // 10. Persist result

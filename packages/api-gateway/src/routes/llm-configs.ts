@@ -13,6 +13,8 @@ type LLMConfigBody = {
   model: string;
   apiKey?: string;
   baseUrl?: string;
+  endpoint?: string;  // Azure endpoint URL (stored in baseUrl)
+  apiVersion?: string; // Azure API version
   isDefault?: boolean;
 };
 
@@ -30,12 +32,15 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
 
   // POST /llm-configs — create a new LLM configuration
   app.post<{ Body: LLMConfigBody }>('/llm-configs', async (request, reply) => {
-    const { name, provider, model, apiKey, baseUrl, isDefault } = request.body;
+    const { name, provider, model, apiKey, baseUrl, endpoint, apiVersion, isDefault } = request.body;
     if (!name || !provider || !model) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'name, provider, and model are required'));
     }
     if (provider === 'ollama' && !baseUrl) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'baseUrl is required for Ollama provider'));
+    }
+    if (provider === 'azure-openai' && !endpoint) {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'endpoint is required for Azure OpenAI provider'));
     }
 
     let credentialId: string | undefined;
@@ -61,10 +66,14 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
       await prisma.lLMConfig.updateMany({ data: { isDefault: false } });
     }
 
+    // For Azure, endpoint is stored in baseUrl
+    const resolvedBaseUrl = provider === 'azure-openai' ? endpoint : baseUrl;
+
     const config = await prisma.lLMConfig.create({
       data: {
         name, provider, model, isDefault: isDefault ?? false,
-        ...(baseUrl ? { baseUrl } : {}),
+        ...(resolvedBaseUrl ? { baseUrl: resolvedBaseUrl } : {}),
+        ...(apiVersion ? { apiVersion } : {}),
         ...(credentialId ? { credentialId } : {}),
       },
     });
@@ -77,7 +86,7 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
     '/llm-configs/:id',
     async (request, reply) => {
       const { id } = request.params;
-      const { name, provider, model, isDefault, apiKey, baseUrl } = request.body;
+      const { name, provider, model, isDefault, apiKey, baseUrl, endpoint, apiVersion } = request.body;
 
       const existing = await prisma.lLMConfig.findUnique({ where: { id } });
       if (!existing) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'LLM config not found'));
@@ -111,7 +120,10 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
           ...(provider && { provider }),
           ...(model && { model }),
           ...(isDefault !== undefined && { isDefault }),
-          ...(baseUrl !== undefined && { baseUrl }),
+          // For Azure, endpoint is stored in baseUrl
+          ...(endpoint !== undefined && { baseUrl: endpoint }),
+          ...(baseUrl !== undefined && !endpoint && { baseUrl }),
+          ...(apiVersion !== undefined && { apiVersion }),
           ...(credentialId && credentialId !== existing.credentialId && { credentialId }),
         },
       });
@@ -167,9 +179,17 @@ export async function llmConfigRoutes(app: FastifyInstance, prisma: PrismaClient
         }
         case 'azure-openai': {
           const key = apiKey ?? process.env['AZURE_OPENAI_API_KEY'];
-          const resource = process.env['AZURE_OPENAI_RESOURCE_NAME'];
-          if (!key || !resource) throw new Error('Azure credentials not configured');
-          model = createAzure({ apiKey: key, resourceName: resource })(config.model);
+          const endpoint = config.baseUrl ?? process.env['AZURE_OPENAI_ENDPOINT'];
+          const azureApiVersion = config.apiVersion ?? process.env['AZURE_OPENAI_API_VERSION'] ?? '2024-08-01-preview';
+          if (!key) throw new Error('Azure API key not configured');
+          if (!endpoint) throw new Error('Azure endpoint not configured');
+          const baseURL = `${endpoint.replace(/\/$/, '')}/openai/deployments`;
+          const azureFetch: typeof fetch = (url, init) => {
+            const u = new URL(url.toString());
+            u.searchParams.set('api-version', azureApiVersion);
+            return fetch(u.toString(), init);
+          };
+          model = createAzure({ apiKey: key, baseURL, fetch: azureFetch })(config.model);
           break;
         }
         case 'ollama': {

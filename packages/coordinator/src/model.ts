@@ -11,7 +11,8 @@ export function buildModel(
   const openaiKey = process.env['OPENAI_API_KEY'];
   const anthropicKey = process.env['ANTHROPIC_API_KEY'];
   const azureKey = process.env['AZURE_OPENAI_API_KEY'];
-  const azureResource = process.env['AZURE_OPENAI_RESOURCE_NAME'];
+  const azureEndpoint = baseUrl ?? process.env['AZURE_OPENAI_ENDPOINT'];
+  const azureApiVersion = process.env['AZURE_OPENAI_API_VERSION'] ?? '2024-08-01-preview';
 
   switch (provider) {
     case 'openai':
@@ -20,10 +21,17 @@ export function buildModel(
     case 'anthropic':
       if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
       return createAnthropic({ apiKey: anthropicKey })(model);
-    case 'azure-openai':
-      if (!azureKey || !azureResource)
-        throw new Error('AZURE_OPENAI_API_KEY and AZURE_OPENAI_RESOURCE_NAME must be set');
-      return createAzure({ apiKey: azureKey, resourceName: azureResource })(model);
+    case 'azure-openai': {
+      if (!azureKey) throw new Error('AZURE_OPENAI_API_KEY not set');
+      if (!azureEndpoint) throw new Error('Azure endpoint not configured — set AZURE_OPENAI_ENDPOINT');
+      const azureBaseURL = `${azureEndpoint.replace(/\/$/, '')}/openai/deployments`;
+      const azureFetch: typeof fetch = (url, init) => {
+        const u = new URL(url.toString());
+        u.searchParams.set('api-version', azureApiVersion);
+        return fetch(u.toString(), init);
+      };
+      return createAzure({ apiKey: azureKey, baseURL: azureBaseURL, fetch: azureFetch })(model);
+    }
     case 'ollama': {
       // Ollama exposes an OpenAI-compatible REST API at /v1
       const ollamaBase = baseUrl ?? process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434';

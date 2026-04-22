@@ -27,6 +27,7 @@ import { personaRoutes } from './routes/personas.js';
 import { charterRoutes } from './routes/charter.js';
 import { scheduledJobRoutes } from './routes/scheduled-jobs.js';
 import { llmConfigRoutes } from './routes/llm-configs.js';
+import { userDashboardRoutes } from './routes/user-dashboards.js';
 import { validateEnv } from './env.js';
 
 declare module 'fastify' {
@@ -70,7 +71,10 @@ async function buildApp() {
   app.addHook('onRequest', async (request, reply) => {
     // Public endpoints that bypass auth
     const publicPaths = ['/health', '/approvals', '/admin/setup', '/auth/login'];
-    if (publicPaths.some((p) => request.url.startsWith(p))) return;
+    // Dashboard viewer: all GET + /refresh POSTs are public (internal-network viewer has no token)
+    const isPublicDashboard = request.url.startsWith('/user-dashboards') &&
+      (request.method === 'GET' || request.url.endsWith('/refresh'));
+    if (publicPaths.some((p) => request.url.startsWith(p)) || isPublicDashboard) return;
     try {
       await request.jwtVerify();
     } catch {
@@ -113,6 +117,7 @@ async function buildApp() {
   await charterRoutes(app, prisma);
   await scheduledJobRoutes(app, prisma);
   await llmConfigRoutes(app, prisma);
+  await userDashboardRoutes(app, prisma);
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = async () => {

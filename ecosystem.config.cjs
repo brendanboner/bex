@@ -108,6 +108,22 @@ module.exports = {
       },
     },
     {
+      name: 'bex-user-dashboards',
+      script: path.join(root, 'node_modules/.bin/vite'),
+      args: '--port 8801 --host 0.0.0.0',
+      cwd: path.join(root, 'apps/user-dashboards'),
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      merge_logs: true,
+      error_file: path.join(root, 'logs/user-dashboards.error.log'),
+      out_file:   path.join(root, 'logs/user-dashboards.log'),
+      env: {
+        // Set VITE_API_URL to the full API URL for production (e.g. https://api.example.com).
+        // Leave unset (or empty) to use the Vite dev-server /api proxy pointing at localhost:4000.
+      },
+    },
+    {
       name: 'bex-telegram',
       script: path.join(root, 'integrations/telegram/dist/bot.js'),
       cwd: root,

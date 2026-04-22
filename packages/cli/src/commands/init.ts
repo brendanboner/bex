@@ -14,7 +14,7 @@ import {
 const LLM_MODELS: Record<string, string[]> = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
   anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
-  azure: ['gpt-4o', 'gpt-4-turbo'],
+  azure: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo', 'gpt-4'],
   ollama: ['llama3.2', 'llama3.1', 'mistral', 'gemma2', 'phi3', 'qwen2.5'],
 };
 
@@ -103,6 +103,8 @@ export async function initCommand(): Promise<void> {
 
   let llmApiKey = '';
   let ollamaBaseUrl = '';
+  let azureEndpoint = '';
+  let azureApiVersion = '';
 
   if (llmProvider === 'ollama') {
     ollamaBaseUrl = await input({
@@ -110,10 +112,33 @@ export async function initCommand(): Promise<void> {
       default: prev['OLLAMA_BASE_URL'] || 'http://localhost:11434',
     });
     console.log(chalk.dim('  Make sure Ollama is running and the model is pulled (e.g. ollama pull llama3.2)'));
+  } else if (llmProvider === 'azure') {
+    // Azure requires endpoint + API key (+ optional API version)
+    azureEndpoint = await input({
+      message: `Azure OpenAI endpoint:${hint('AZURE_OPENAI_ENDPOINT')}`,
+      default: prev['AZURE_OPENAI_ENDPOINT'] ?? '',
+      validate: (v: string) => (v.startsWith('https://') && v.includes('.openai.azure.com')) || 'Enter a valid Azure endpoint (e.g. https://my-resource.openai.azure.com/)',
+    });
+    azureApiVersion = await input({
+      message: `Azure API version:${hint('AZURE_OPENAI_API_VERSION')}`,
+      default: prev['AZURE_OPENAI_API_VERSION'] || '2024-08-01-preview',
+    });
+    const apiKeyVar = 'AZURE_OPENAI_API_KEY';
+    if (hasKey(apiKeyVar)) {
+      const change = await confirm({ message: `Azure API key${hintSecret(apiKeyVar)} — change it?`, default: false });
+      if (change) {
+        llmApiKey = await password({ message: 'Azure OpenAI API key:' });
+      } else {
+        llmApiKey = prev[apiKeyVar] ?? '';
+      }
+    } else {
+      llmApiKey = await password({
+        message: 'Azure OpenAI API key:',
+        validate: (v: string) => v.length > 10 || 'API key must be at least 10 characters',
+      });
+    }
   } else {
-    const apiKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
-      : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
-      : 'AZURE_OPENAI_API_KEY';
+    const apiKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
     if (hasKey(apiKeyVar)) {
       const change = await confirm({ message: `${llmProvider} API key${hintSecret(apiKeyVar)} — change it?`, default: false });
       if (change) {
@@ -285,6 +310,8 @@ export async function initCommand(): Promise<void> {
     LLM_PROVIDER: llmProvider,
     LLM_MODEL: llmModel,
     OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : (prev['OLLAMA_BASE_URL'] ?? ''),
+    ...(llmProvider === 'azure' && azureEndpoint && { AZURE_OPENAI_ENDPOINT: azureEndpoint }),
+    ...(llmProvider === 'azure' && azureApiVersion && { AZURE_OPENAI_API_VERSION: azureApiVersion }),
     PORT: '4000',
     ADMIN_API_PORT: '4001',
     DASHBOARD_PORT: '3000',
@@ -583,6 +610,8 @@ export async function initCommand(): Promise<void> {
     SKILL_REGISTRY_URL:    envVars['SKILL_REGISTRY_URL'] ?? '',
     SKILL_REGISTRY_TOKEN:  envVars['SKILL_REGISTRY_TOKEN'] ?? '',
     ...(llmApiKey ? { [llmApiKeyVar]: llmApiKey } : {}),
+    ...(azureEndpoint ? { AZURE_OPENAI_ENDPOINT: azureEndpoint } : {}),
+    ...(azureApiVersion ? { AZURE_OPENAI_API_VERSION: azureApiVersion } : {}),
   };
 
   let xiqReady = false;

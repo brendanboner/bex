@@ -4,6 +4,7 @@
    - If a new device is detected, proceed to step 4.
    - If no new devices are detected, continue monitoring.
 4. **Alerting**: For each new device, gather the device name, access point, and SSID.
+   - Don't send the list of devices, only what has changed
    - Notify the user with the details of the new device.
 5. **Memory Update**: Update the memory with the new list of devices and their MAC addresses.
 6. **Escalation**: If there are issues accessing the network or device information, log the error and attempt to retry up to 3 times before notifying the user of the issue.

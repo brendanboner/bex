@@ -150,14 +150,54 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
     }
 
     const token = app.jwt.sign(
-      { sub: user.externalId, email: user.email, role: user.isSystemUser ? 'system' : 'admin' },
+      { sub: user.externalId, email: user.email, displayName: user.displayName, role: user.isSystemUser ? 'system' : 'admin' },
       { expiresIn: '7d' },
     );
 
     return { ok: true, data: { token, expiresIn: '7d' } };
   });
 
-  // POST /setup/llm — wizard step: configure initial LLM (authenticated)
+  // POST /auth/change-password — authenticated; change your own password
+  app.post<{ Body: { currentPassword: string; newPassword: string } }>(
+    '/auth/change-password',
+    async (request, reply) => {
+      const { currentPassword, newPassword } = request.body ?? {};
+      if (!currentPassword || !newPassword) {
+        return reply.status(400).send({
+          ok: false,
+          error: { code: 'VALIDATION_ERROR', message: 'currentPassword and newPassword are required' },
+        });
+      }
+      if (newPassword.length < 8) {
+        return reply.status(400).send({
+          ok: false,
+          error: { code: 'VALIDATION_ERROR', message: 'New password must be at least 8 characters' },
+        });
+      }
+
+      const jwt = request.user as { sub: string; email: string };
+      const user = await prisma.user.findUnique({ where: { externalId: jwt.sub } });
+      if (!user?.passwordHash) {
+        return reply.status(401).send({ ok: false, error: { code: 'UNAUTHORIZED', message: 'User not found' } });
+      }
+
+      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!valid) {
+        return reply.status(401).send({ ok: false, error: { code: 'UNAUTHORIZED', message: 'Current password is incorrect' } });
+      }
+
+      if (currentPassword === newPassword) {
+        return reply.status(400).send({ ok: false, error: { code: 'VALIDATION_ERROR', message: 'New password must differ from current password' } });
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+      return reply.send({ ok: true, data: { message: 'Password updated successfully' } });
+    },
+  );
+
+
   app.post<{ Body: { provider: string; apiKey?: string; baseUrl?: string; model?: string; name?: string } }>(
     '/setup/llm',
     async (request, reply) => {

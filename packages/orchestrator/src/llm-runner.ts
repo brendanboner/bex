@@ -9,11 +9,12 @@ import jwt from 'jsonwebtoken';
 import type { LlmProvider, SkillTool, ToolCallResult } from '@bclaw/shared';
 import type { CredentialVaultService } from '@bclaw/credential-vault';
 
-export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: string, baseUrl?: string): LanguageModel {
+export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: string, baseUrl?: string, apiVersion?: string): LanguageModel {
   const openaiKey = apiKey ?? process.env['OPENAI_API_KEY'];
   const anthropicKey = apiKey ?? process.env['ANTHROPIC_API_KEY'];
   const azureKey = apiKey ?? process.env['AZURE_OPENAI_API_KEY'];
-  const azureResource = process.env['AZURE_OPENAI_RESOURCE_NAME'];
+  const azureEndpoint = baseUrl ?? process.env['AZURE_OPENAI_ENDPOINT'];
+  const azureApiVersion = apiVersion ?? process.env['AZURE_OPENAI_API_VERSION'] ?? '2024-08-01-preview';
 
   switch (provider) {
     case 'openai':
@@ -22,9 +23,18 @@ export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: str
     case 'anthropic':
       if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
       return createAnthropic({ apiKey: anthropicKey })(model);
-    case 'azure-openai':
-      if (!azureKey || !azureResource) throw new Error('AZURE_OPENAI_API_KEY and AZURE_OPENAI_RESOURCE_NAME must be set');
-      return createAzure({ apiKey: azureKey, resourceName: azureResource })(model);
+    case 'azure-openai': {
+      if (!azureKey) throw new Error('AZURE_OPENAI_API_KEY not set');
+      if (!azureEndpoint) throw new Error('Azure endpoint not configured — set AZURE_OPENAI_ENDPOINT or configure an LLM config with an endpoint');
+      const azureBaseURL = `${azureEndpoint.replace(/\/$/, '')}/openai/deployments`;
+      // Inject api-version query param since older SDK versions hardcode theirs
+      const azureFetch: typeof fetch = (url, init) => {
+        const u = new URL(url.toString());
+        u.searchParams.set('api-version', azureApiVersion);
+        return fetch(u.toString(), init);
+      };
+      return createAzure({ apiKey: azureKey, baseURL: azureBaseURL, fetch: azureFetch })(model);
+    }
     case 'ollama': {
       const ollamaBase = baseUrl ?? process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434';
       return createOpenAI({ baseURL: `${ollamaBase.replace(/\/$/, '')}/v1`, apiKey: 'ollama' })(model);
@@ -497,6 +507,190 @@ export function buildTools(
             return (data as { data?: unknown }).data ?? data;
           } catch (e) {
             return { error: `BEX API call failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── xiq_topology_report: composite XIQ correlation — one call does full SSID→VLAN→client mapping ─
+        // Internally runs: login → list_vlan_profiles → list_network_polices → list_ssids_by_network_policy
+        // (for each policy) → list_user_profiles → list_active_clients, then correlates and returns JSON.
+        if (handlerType === 'xiq_topology_report') {
+          if (!credentialId) return { error: 'xiq_topology_report requires a credentialId' };
+
+          const loginUrl = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBase = 'https://api.extremecloudiq.com';
+
+          // Quick reachability check
+          const reach = await checkReachable(loginUrl);
+          if (!reach.reachable) {
+            return { error: reach.error ?? `Cannot reach ${loginUrl}`, hint: 'Check VPN or network connectivity' };
+          }
+
+          const { fetch } = await import('undici');
+
+          // Shared helper: get/refresh Bearer token
+          const getToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await fetch(loginUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          // Shared helper: GET paginated data from XIQ
+          const xiqGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown[]> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${apiBase}${path}${qs ? '?' + qs : ''}`;
+            const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_topology_report] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const errText = await resp.text().catch(() => '');
+              console.warn(`[xiq_topology_report] ${path} failed: ${resp.status} ${errText.slice(0,200)}`);
+              return [];
+            }
+            const body = await resp.json() as { data?: unknown[] } | unknown[];
+            // XIQ endpoints return either {data: [...]} or a bare array
+            if (Array.isArray(body)) return body;
+            return (body as { data?: unknown[] }).data ?? [];
+          };
+
+          try {
+            const token = await getToken();
+            if (!token) return { error: 'XIQ login failed' };
+
+            // Step 1: VLAN profiles — build map of profileId → {vlan_id, vlan_name}
+            const vlanProfiles = await xiqGet(token, '/vlan-profiles', { page: 1, limit: 100 });
+            const vlanProfileMap = new Map<number, { vlan_id: number; vlan_name: string; description: string }>();
+            for (const vp of vlanProfiles as Array<Record<string, unknown>>) {
+              const pid = vp['id'] as number;
+              vlanProfileMap.set(pid, {
+                vlan_id: (vp['default_vlan_id'] as number) ?? 0,
+                vlan_name: String(vp['name'] ?? ''),
+                description: String(vp['description'] ?? ''),
+              });
+            }
+
+            // Step 2: Network policies
+            const policies = await xiqGet(token, '/network-policies', { page: 1, limit: 50 });
+
+            // Step 3: SSIDs per policy — collect all with their user profile IDs
+            const ssidMap = new Map<string, { profileId: number }>(); // ssid name → profileId
+            for (const policy of policies as Array<Record<string, unknown>>) {
+              const policyId = policy['id'] as number;
+              const ssids = await xiqGet(token, `/network-policies/${policyId}/ssids`, { page: 1, limit: 100 });
+              for (const s of ssids as Array<Record<string, unknown>>) {
+                const ssidName = String(s['name'] ?? s['ssid'] ?? '');
+                const profileId = (s['default_user_profile'] as number) ?? 0;
+                if (ssidName && !ssidMap.has(ssidName)) {
+                  ssidMap.set(ssidName, { profileId });
+                }
+              }
+            }
+
+            // Step 4: User profiles — map profileId → VLAN profile ID
+            const userProfiles = await xiqGet(token, '/user-profiles', { page: 1, limit: 100 });
+            const profileVlanMap = new Map<number, { vlan_id: number; vlan_name: string }>();
+            for (const up of userProfiles as Array<Record<string, unknown>>) {
+              const upId = up['id'] as number;
+              const vp = up['vlan_profile'] as Record<string, unknown> | undefined;
+              if (vp) {
+                const vpId = vp['id'] as number;
+                const resolved = vlanProfileMap.get(vpId);
+                if (resolved) {
+                  profileVlanMap.set(upId, { vlan_id: resolved.vlan_id, vlan_name: resolved.vlan_name });
+                } else {
+                  profileVlanMap.set(upId, {
+                    vlan_id: (vp['default_vlan_id'] as number) ?? 0,
+                    vlan_name: String(vp['name'] ?? ''),
+                  });
+                }
+              }
+            }
+
+            // Step 5: Active clients — group by SSID, also collect IPs for subnet detection
+            const clients = await xiqGet(token, '/clients/active', { page: 1, limit: 100 });
+            const clientsBySSID = new Map<string, number>();
+            const ipsBySSID = new Map<string, string[]>();
+            for (const c of clients as Array<Record<string, unknown>>) {
+              const ssid = String(c['ssid'] ?? '');
+              clientsBySSID.set(ssid, (clientsBySSID.get(ssid) ?? 0) + 1);
+              const ip = String(c['ip_address'] ?? '');
+              if (ip && ip !== '0.0.0.0' && ip !== '') {
+                if (!ipsBySSID.has(ssid)) ipsBySSID.set(ssid, []);
+                ipsBySSID.get(ssid)!.push(ip);
+              }
+            }
+            const totalClients = clients.length;
+
+            // Infer subnet from a list of IPs — returns CIDR or min–max range string
+            const detectSubnet = (ips: string[]): string | null => {
+              if (ips.length === 0) return null;
+              const parsed = ips
+                .map((ip) => ip.split('.').map(Number))
+                .filter((p) => p.length === 4 && p.every((o) => o >= 0 && o <= 255));
+              if (parsed.length === 0) return null;
+              const [f] = parsed;
+              if (parsed.every((p) => p[0] === f[0] && p[1] === f[1] && p[2] === f[2]))
+                return `${f[0]}.${f[1]}.${f[2]}.0/24`;
+              if (parsed.every((p) => p[0] === f[0] && p[1] === f[1]))
+                return `${f[0]}.${f[1]}.0.0/16`;
+              const sorted = [...parsed].sort((a, b) => a.join('.') < b.join('.') ? -1 : 1);
+              return `${sorted[0].join('.')} – ${sorted[sorted.length - 1].join('.')}`;
+            };
+
+            // Step 6: Correlate
+            const topology: Array<{ ssid: string; vlan_id: number | null; vlan_name: string | null; subnet: string | null; client_count: number }> = [];
+            const vlanClientCount = new Map<number, number>();
+            const vlanSSIDCount = new Map<number, number>();
+
+            for (const [ssidName, { profileId }] of ssidMap) {
+              const vlanInfo = profileVlanMap.get(profileId);
+              const clientCount = clientsBySSID.get(ssidName) ?? 0;
+              const vlanId = vlanInfo?.vlan_id ?? null;
+              const vlanName = vlanInfo?.vlan_name ?? null;
+              const subnet = detectSubnet(ipsBySSID.get(ssidName) ?? []);
+
+              topology.push({ ssid: ssidName, vlan_id: vlanId, vlan_name: vlanName, subnet, client_count: clientCount });
+
+              if (vlanId) {
+                vlanClientCount.set(vlanId, (vlanClientCount.get(vlanId) ?? 0) + clientCount);
+                vlanSSIDCount.set(vlanId, (vlanSSIDCount.get(vlanId) ?? 0) + 1);
+              }
+            }
+
+            // Build VLAN summary from all known VLANs
+            const vlanSummary = Array.from(vlanProfileMap.values())
+              .map(({ vlan_id, vlan_name, description }) => ({
+                vlan_id,
+                vlan_name,
+                description,
+                ssid_count: vlanSSIDCount.get(vlan_id) ?? 0,
+                client_count: vlanClientCount.get(vlan_id) ?? 0,
+              }))
+              .filter((v) => v.vlan_id > 0);
+
+            return {
+              summary: {
+                total_ssids: topology.length,
+                total_vlans: vlanSummary.length,
+                total_clients: totalClients,
+                timestamp: new Date().toISOString(),
+              },
+              topology: topology.sort((a, b) => b.client_count - a.client_count),
+              vlan_summary: vlanSummary.sort((a, b) => b.client_count - a.client_count),
+            };
+          } catch (e) {
+            return { error: `Topology report failed: ${e instanceof Error ? e.message : String(e)}` };
           }
         }
 

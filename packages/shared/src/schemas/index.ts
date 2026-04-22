@@ -28,6 +28,9 @@ export const LlmConfigSchema = z.object({
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().positive().optional(),
   extra: z.record(z.unknown()).optional(),
+  // Azure-specific
+  endpoint: z.string().url().optional(),
+  apiVersion: z.string().optional(),
 });
 
 export const CreateAgentSchema = z.object({
@@ -217,3 +220,68 @@ export const SpawnPersonaSchema = z.object({
   llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']).optional(),
   llmModel: z.string().optional(),
 });
+
+// ─── User Dashboards ──────────────────────────────────────────────────────────
+
+export const WidgetSchema = z.object({
+  id: z.string(),
+  type: z.enum(['headline', 'table', 'chart', 'actions']),
+  title: z.string().optional(),
+  // For headline/table/chart: the key in lastData that holds the relevant data
+  dataKey: z.string().optional(),
+  // For table: ordered list of column keys to display
+  columns: z.array(z.string()).optional(),
+  // For chart
+  chartType: z.enum(['bar', 'line', 'pie']).optional(),
+  xKey: z.string().optional(),
+  yKey: z.string().optional(),
+  // For actions
+  actions: z
+    .array(
+      z.object({
+        label: z.string(),
+        action: z.enum(['refresh', 'prompt']),
+        prompt: z.string().optional(),
+        style: z.enum(['primary', 'secondary', 'danger']).default('primary'),
+      }),
+    )
+    .optional(),
+  // Grid positioning (col/row span)
+  colSpan: z.number().int().min(1).max(4).default(1),
+});
+
+export type Widget = z.infer<typeof WidgetSchema>;
+
+export const CreateUserDashboardSchema = z.object({
+  name: z.string().min(1).max(100),
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/)
+    .optional()
+    .nullable(),
+  // Nullable to tolerate null values forwarded from the DB
+  description: z.string().max(500).optional().nullable(),
+  agentId: z.string().optional().nullable(),
+  prompt: z.string().min(1).max(8000),
+  refreshMode: z.enum(['manual', 'scheduled', 'realtime']).default('manual'),
+  cronExpr: z.string().optional().nullable(),
+  widgets: z.array(WidgetSchema).optional(), // if omitted, LLM auto-generates
+});
+
+export type CreateUserDashboard = z.infer<typeof CreateUserDashboardSchema>;
+
+export const UpdateUserDashboardSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  // .nullable() so callers can pass null to clear a field (maps to DB NULL)
+  description: z.string().max(500).optional().nullable(),
+  agentId: z.string().optional().nullable(),
+  prompt: z.string().min(1).max(8000).optional(),
+  refreshMode: z.enum(['manual', 'scheduled', 'realtime']).optional(),
+  cronExpr: z.string().optional().nullable(),
+  widgets: z.array(WidgetSchema).optional(),
+  status: z.enum(['active', 'paused', 'archived']).optional(),
+});
+
+export type UpdateUserDashboard = z.infer<typeof UpdateUserDashboardSchema>;

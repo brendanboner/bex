@@ -12,7 +12,9 @@ import {
   Clock,
   Globe,
   Key,
+  KeyRound,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   MessageSquare,
   Network,
@@ -30,6 +32,7 @@ const navSections = [
       { href: '/chat',     label: 'Nexus',         icon: MessageSquare },
       { href: '/agents',   label: 'Agents',        icon: Bot },
       { href: '/requests', label: 'Activity',      icon: Clock },
+      { href: '/dashboards', label: 'Dashboards',  icon: LayoutGrid },
     ],
   },
   {
@@ -56,17 +59,18 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [userInitials, setUserInitials] = useState('BX');
   const [userName, setUserName] = useState('BEX Admin');
+  const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('bex_token') ?? localStorage.getItem('bforge_token');
       if (!token) router.replace('/login');
-      // Parse display name from JWT if available
       try {
         const payload = JSON.parse(atob(token!.split('.')[1]));
         const name = payload.displayName || payload.name || 'BEX Admin';
         setUserName(name);
         setUserInitials(name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase());
+        if (payload.email) setUserEmail(payload.email);
       } catch {}
     }
   }, [router]);
@@ -138,15 +142,24 @@ export function Sidebar() {
         'flex items-center border-t border-[rgb(var(--border))] p-3',
         collapsed ? 'justify-center' : 'gap-2.5',
       )}>
-        <div className="h-7 w-7 rounded-full bg-gradient-to-br from-violet-600 to-purple-700 flex items-center justify-center shrink-0">
-          <span className="text-[10px] font-bold text-white">{userInitials}</span>
-        </div>
+        <Link href="/account" title={collapsed ? 'Account' : undefined}>
+          <div className="h-7 w-7 rounded-full bg-gradient-to-br from-violet-600 to-purple-700 flex items-center justify-center shrink-0 hover:opacity-80 transition-opacity">
+            <span className="text-[10px] font-bold text-white">{userInitials}</span>
+          </div>
+        </Link>
         {!collapsed && (
           <>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-[rgb(var(--text-primary))] truncate">{userName}</p>
-              <p className="text-[10px] text-[rgb(var(--text-muted))]">v0.1.0</p>
+              <p className="text-[10px] text-[rgb(var(--text-muted))] truncate">{userEmail || 'v0.1.0'}</p>
             </div>
+            <Link
+              href="/account"
+              title="Change password"
+              className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))] transition-colors shrink-0"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+            </Link>
             <button
               onClick={logout}
               title="Sign out"

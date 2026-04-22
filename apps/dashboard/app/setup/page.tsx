@@ -25,11 +25,11 @@ type NotifStatus = {
   whatsapp?: { configured: boolean; twilioSid: string | null; fromNumber: string | null };
 };
 
-const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean }[] = [
-  { value: 'openai',       label: 'OpenAI',       color: 'bg-emerald-600', Icon: Bot,    defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
-  { value: 'anthropic',    label: 'Anthropic',    color: 'bg-violet-600',  Icon: Bot,    defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true,  needsBaseUrl: false },
-  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600',  Icon: Cloud,  defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false },
-  { value: 'ollama',       label: 'Ollama',       color: 'bg-orange-600',  Icon: Server, defaultModel: 'llama3',                    needsApiKey: false, needsBaseUrl: true  },
+const PROVIDERS: { value: LLMProvider; label: string; color: string; Icon: React.ElementType; defaultModel: string; needsApiKey: boolean; needsBaseUrl: boolean; needsEndpoint: boolean }[] = [
+  { value: 'openai',       label: 'OpenAI',       color: 'bg-emerald-600', Icon: Bot,    defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false, needsEndpoint: false },
+  { value: 'anthropic',    label: 'Anthropic',    color: 'bg-violet-600',  Icon: Bot,    defaultModel: 'claude-3-5-sonnet-20241022', needsApiKey: true,  needsBaseUrl: false, needsEndpoint: false },
+  { value: 'azure-openai', label: 'Azure OpenAI', color: 'bg-indigo-600',  Icon: Cloud,  defaultModel: 'gpt-4o',                    needsApiKey: true,  needsBaseUrl: false, needsEndpoint: true  },
+  { value: 'ollama',       label: 'Ollama',       color: 'bg-orange-600',  Icon: Server, defaultModel: 'llama3',                    needsApiKey: false, needsBaseUrl: true,  needsEndpoint: false },
 ];
 
 const PROVIDER_BADGE: Record<LLMProvider, string> = {
@@ -45,7 +45,7 @@ const CHANNELS: { value: NotifChannel; label: string; Icon: React.ElementType }[
   { value: 'whatsapp', label: 'WhatsApp',        Icon: Smartphone },
 ];
 
-const EMPTY_LLM = { name: '', provider: 'openai' as LLMProvider, model: 'gpt-4o', apiKey: '', baseUrl: '' };
+const EMPTY_LLM = { name: '', provider: 'openai' as LLMProvider, model: 'gpt-4o', apiKey: '', baseUrl: '', endpoint: '', apiVersion: '2024-08-01-preview' };
 const EMPTY_NOTIF = { botToken: '', chatId: '', webhookUrl: '', twilioSid: '', twilioAuth: '', fromNumber: '', toNumber: '' };
 
 type TestState = 'idle' | 'testing' | 'ok' | 'fail';
@@ -169,6 +169,7 @@ export default function ConfigPage() {
   const isSaveDisabled = !form.name || !form.model ||
     (selectedProvider.needsApiKey && !form.apiKey) ||
     (selectedProvider.needsBaseUrl && !form.baseUrl) ||
+    (selectedProvider.needsEndpoint && !form.endpoint) ||
     addMutation.isPending;
 
   return (
@@ -201,7 +202,7 @@ export default function ConfigPage() {
               {PROVIDERS.map(p => (
                 <button
                   key={p.value}
-                  onClick={() => setForm(v => ({ ...v, provider: p.value, model: p.defaultModel, apiKey: '', baseUrl: '' }))}
+                  onClick={() => setForm(v => ({ ...v, provider: p.value, model: p.defaultModel, apiKey: '', baseUrl: '', endpoint: '', apiVersion: '2024-08-01-preview' }))}
                   className={cn(
                     'flex flex-col items-center gap-1.5 rounded-lg border p-3 text-xs font-medium transition-all',
                     form.provider === p.value
@@ -244,6 +245,38 @@ export default function ConfigPage() {
                   onChange={e => setForm(v => ({ ...v, baseUrl: e.target.value }))}
                   className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
                 />
+              </div>
+            ) : selectedProvider.needsEndpoint ? (
+              <div className="space-y-3 rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-indigo-400">Azure Configuration</p>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">Endpoint URL *</label>
+                  <input
+                    placeholder="https://my-resource.openai.azure.com/"
+                    value={form.endpoint}
+                    onChange={e => setForm(v => ({ ...v, endpoint: e.target.value }))}
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">API Version</label>
+                  <input
+                    placeholder="2024-08-01-preview"
+                    value={form.apiVersion}
+                    onChange={e => setForm(v => ({ ...v, apiVersion: e.target.value }))}
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))]">API Key *</label>
+                  <input
+                    type="password"
+                    placeholder="Azure OpenAI API key"
+                    value={form.apiKey}
+                    onChange={e => setForm(v => ({ ...v, apiKey: e.target.value }))}
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(130,100,200,0.25)] focus:outline-none transition-colors"
+                  />
+                </div>
               </div>
             ) : (
               <div className="space-y-1">
