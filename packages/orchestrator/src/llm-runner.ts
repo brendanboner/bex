@@ -240,7 +240,8 @@ export function buildTools(
           // Arrays are expanded to repeated query params: views=A&views=B
           const expandValue = (k: string, v: unknown): string => {
             if (Array.isArray(v)) {
-              return v.map((item) => `${k}=${encodeURIComponent(String(item))}`).join('&');
+              // XIQ API expects comma-separated list for array params: views=A,B,C
+              return `${k}=${v.map((item) => encodeURIComponent(String(item))).join(',')}`;
             }
             return `${k}=${encodeURIComponent(String(v))}`;
           };
@@ -888,8 +889,9 @@ export function buildTools(
           };
 
           const xiqGetH = async (token: string, path: string, params: Record<string, string | number | string[]> = {}): Promise<unknown[]> => {
-            const qs = Object.entries(params).flatMap(([k, v]) =>
-              Array.isArray(v) ? v.map((vi) => `${k}=${encodeURIComponent(String(vi))}`) : [`${k}=${encodeURIComponent(String(v))}`]
+            // XIQ uses comma-separated list for array params (not repeated key=val)
+            const qs = Object.entries(params).map(([k, v]) =>
+              Array.isArray(v) ? `${k}=${v.map(encodeURIComponent).join(',')}` : `${k}=${encodeURIComponent(String(v))}`
             ).join('&');
             const url = `${apiBaseH}${path}${qs ? '?' + qs : ''}`;
             const resp = await fetchH(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
@@ -908,9 +910,8 @@ export function buildTools(
             const token = await getTokenH();
             if (!token) return { error: 'XIQ login failed' };
 
-            // Fetch active clients with CLIENT_DETAILS and HEALTH_STATUS views
+            // Fetch active clients — no views parameter, basic fields work reliably
             const clients = await xiqGetH(token, '/clients/active', {
-              views: ['CLIENT_DETAILS', 'HEALTH_STATUS', 'BASIC'],
               limit: 100,
             }) as Array<Record<string, unknown>>;
 
@@ -1007,8 +1008,9 @@ export function buildTools(
           };
 
           const xiqGetC = async (token: string, path: string, params: Record<string, string | number | string[]> = {}): Promise<unknown> => {
-            const qs = Object.entries(params).flatMap(([k, v]) =>
-              Array.isArray(v) ? v.map((vi) => `${k}=${encodeURIComponent(String(vi))}`) : [`${k}=${encodeURIComponent(String(v))}`]
+            // XIQ uses comma-separated list for array params
+            const qs = Object.entries(params).map(([k, v]) =>
+              Array.isArray(v) ? `${k}=${v.map(encodeURIComponent).join(',')}` : `${k}=${encodeURIComponent(String(v))}`
             ).join('&');
             const url = `${apiBaseC}${path}${qs ? '?' + qs : ''}`;
             const resp = await fetchC(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
@@ -1068,16 +1070,55 @@ export function buildTools(
                 ?? (Array.isArray(eventsResp) ? (eventsResp as unknown[]) : []);
             }
 
-            // Step 3: Connection trail by MAC (always available if we have MAC)
+            // Step 3: Connection trail by MAC — available even for offline devices
             if (resolvedMac) {
               connectionTrail = await xiqGetC(token, `/client-details/topology/client-trail/${encodeURIComponent(resolvedMac)}`);
             }
 
-            // Step 4: Build structured response
+            // Step 4: Derive last-seen from events or connection trail
+            let lastSeenAt: string | null = null;
+            let lastSeenAp: string | null = null;
+            let lastSeenSsid: string | null = null;
+
+            if (Array.isArray(events) && events.length > 0) {
+              const lastEvent = events[events.length - 1] as Record<string, unknown>;
+              const ts = lastEvent['timestamp'] ?? lastEvent['time'] ?? lastEvent['create_time'];
+              if (ts) lastSeenAt = new Date(Number(ts)).toISOString();
+            }
+
+            if (!lastSeenAt && connectionTrail) {
+              const trailData = connectionTrail as Record<string, unknown>;
+              const entries = (trailData['data'] ?? trailData['trail'] ?? trailData['entries'] ?? []) as Array<Record<string, unknown>>;
+              if (Array.isArray(entries) && entries.length > 0) {
+                const sorted = [...entries].sort((a, b) => {
+                  const ta = Number(a['timestamp'] ?? a['last_seen'] ?? a['time'] ?? 0);
+                  const tb = Number(b['timestamp'] ?? b['last_seen'] ?? b['time'] ?? 0);
+                  return tb - ta;
+                });
+                const latest = sorted[0]!;
+                const ts = latest['timestamp'] ?? latest['last_seen'] ?? latest['time'];
+                if (ts) {
+                  lastSeenAt = new Date(Number(ts)).toISOString();
+                  lastSeenAp = String(latest['ap_name'] ?? latest['device_name'] ?? latest['hostname'] ?? '');
+                  lastSeenSsid = String(latest['ssid'] ?? '');
+                }
+              }
+            }
+
+            // Build a human-readable status message the LLM can use directly
+            const statusMessage = isCurrentlyConnected
+              ? `${clientName || resolvedMac} is CONNECTED on ${String(clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? 'unknown AP')} (${String(clientRecord!['ssid'] ?? 'unknown SSID')})`
+              : lastSeenAt
+                ? `${clientName || resolvedMac} is NOT currently connected. Last seen: ${lastSeenAt}${lastSeenAp ? ` on AP "${lastSeenAp}"` : ''}${lastSeenSsid ? ` SSID "${lastSeenSsid}"` : ''}`
+                : resolvedMac
+                  ? `${clientName || resolvedMac} is NOT connected. No events found in the last ${Number(args['lookbackHours'] ?? 24)} hours.`
+                  : `${clientName || 'Device'} not found in active clients. Provide macAddress to retrieve connection history.`;
+
             return {
               client_name: clientName || resolvedMac,
               mac_address: resolvedMac || null,
               is_currently_connected: isCurrentlyConnected,
+              status_message: statusMessage,
               current_connection: isCurrentlyConnected ? {
                 connected_ap: clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? null,
                 ssid: clientRecord!['ssid'] ?? null,
@@ -1088,6 +1129,9 @@ export function buildTools(
                 channel: clientRecord!['channel'] ?? null,
                 os_type: clientRecord!['os_type'] ?? null,
               } : null,
+              last_seen_at: isCurrentlyConnected ? new Date().toISOString() : (lastSeenAt ?? null),
+              last_seen_ap: isCurrentlyConnected ? String(clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? '') : (lastSeenAp ?? null),
+              last_seen_ssid: isCurrentlyConnected ? String(clientRecord!['ssid'] ?? '') : (lastSeenSsid ?? null),
               recent_events: events.slice(0, 50),
               details: detailsInfo,
               connection_trail: connectionTrail,

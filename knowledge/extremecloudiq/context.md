@@ -196,3 +196,28 @@ const last24h = now - 86_400_000;
 const lastHour = now - 3_600_000;
 ```
 
+
+### Offline Client Lookups — MAC Address is Key
+
+When a client is not currently connected, XIQ can only look up history via MAC address (not by name).
+The `xiq_client_snapshot` handler handles this automatically, but needs the MAC:
+
+```
+Pattern: check memory first
+1. Check agent memory for "<DeviceName>_mac" key (e.g. "BonePhone_mac")
+2. If found: pass it as macAddress parameter to xiq_client_snapshot
+3. xiq_client_snapshot will then query connection trail and return last_seen_at
+
+Pattern: when device IS found connected
+1. Save mac_address to memory as "<DeviceName>_mac" for future offline lookups
+2. Save connection state for change detection
+```
+
+### Reading the xiq_client_snapshot response
+
+The response always includes `status_message` — a ready-to-report plain-English summary:
+- Connected: "BonePhone is CONNECTED on AP-Office-1 (Corp-WiFi)"
+- Offline with history: "BonePhone is NOT currently connected. Last seen: 2026-04-22T09:10:00Z on AP-Reception (Corp-WiFi)"
+- Offline no history: "BonePhone not found in active clients. Provide macAddress to retrieve connection history."
+
+Always report the `status_message` to the user. Also include `last_seen_at` when relevant.
