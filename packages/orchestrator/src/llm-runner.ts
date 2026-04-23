@@ -237,11 +237,23 @@ export function buildTools(
           }
 
           // Step 2: Build URL — replace {param} placeholders, drop empty optional params
-          // Arrays are expanded to repeated query params: views=A&views=B
+          // Spring @RequestParam List<> params (views, fields, deviceIds etc.) require repeated params: views=A&views=B
+          // NOT comma-joined: views=A,B,C is rejected with 400
+          const REPEATED_ARRAY_PARAMS = new Set([
+            'views', 'fields', 'deviceIds', 'locationIds', 'ssids', 'vlans',
+            'userNames', 'clientOsNames', 'clientConnectionTypes', 'userProfileNames',
+          ]);
           const expandValue = (k: string, v: unknown): string => {
+            // Normalise to array: JSON array OR comma-string for known array params
+            let items: string[] | null = null;
             if (Array.isArray(v)) {
-              // XIQ API expects comma-separated list for array params: views=A,B,C
-              return `${k}=${v.map((item) => encodeURIComponent(String(item))).join(',')}`;
+              items = v.map(String);
+            } else if (typeof v === 'string' && v.includes(',') && REPEATED_ARRAY_PARAMS.has(k)) {
+              items = v.split(',').map((s) => s.trim()).filter(Boolean);
+            }
+            if (items) {
+              // Repeated params: views=CLIENT_DETAILS&views=HEALTH_STATUS
+              return items.map((item) => `${k}=${encodeURIComponent(item)}`).join('&');
             }
             return `${k}=${encodeURIComponent(String(v))}`;
           };
@@ -1050,11 +1062,17 @@ export function buildTools(
               if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? '');
             }
 
-            // Strategy 2: if MAC known (from facts/args), look up directly in active clients
+            // Strategy 2: if MAC known, search active clients by MAC (searchString accepts MAC)
             if (!clientRecord && resolvedMac) {
-              const byMacResp = await xiqGetC(token, `/clients/byMac/${encodeURIComponent(resolvedMac)}`) as Record<string, unknown> | null;
-              clientRecord = byMacResp;
-              if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? resolvedMac);
+              try {
+                const byMacResp = await xiqGetC(token, '/clients/active', {
+                  searchString: resolvedMac,
+                  limit: 5,
+                }) as { data?: unknown[] } | null;
+                const macMatches = (byMacResp?.data ?? []) as Array<Record<string, unknown>>;
+                clientRecord = macMatches[0] ?? null;
+                if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? resolvedMac);
+              } catch { /* continue */ }
             }
 
             // Strategy 3: fetch broader active client list and match by hostname (client-side)
@@ -1073,28 +1091,20 @@ export function buildTools(
               } catch { /* broad search failed — continue */ }
             }
 
-            // Strategy 4: historical /clients by searchString (offline device lookup)
-            if (!clientRecord && !resolvedMac && clientName) {
+            // Strategy 4: try searchString in active clients with MAC (if we have MAC but no record)
+            if (!clientRecord && resolvedMac) {
               try {
-                const histResp = await xiqGetC(token, '/clients', { searchString: clientName, limit: 20 }) as { data?: unknown[] } | null;
-                const histMatches = (histResp?.data ?? (Array.isArray(histResp) ? histResp as unknown[] : [])) as Array<Record<string, unknown>>;
-                if (histMatches.length > 0) resolvedMac = String(histMatches[0]!['mac_address'] ?? '');
-              } catch { /* /clients may not be available */ }
+                // Try normalized MAC format (remove colons/dashes)
+                const normMac = resolvedMac.replace(/[:\-]/g, '').toUpperCase();
+                const macResp = await xiqGetC(token, '/clients/active', { searchString: normMac, limit: 5 }) as { data?: unknown[] } | null;
+                const macMatches = (macResp?.data ?? []) as Array<Record<string, unknown>>;
+                clientRecord = macMatches[0] ?? null;
+                if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? resolvedMac);
+              } catch { /* continue */ }
             }
 
-            // Strategy 5: historical broad list + hostname filter
-            if (!clientRecord && !resolvedMac && clientName) {
-              try {
-                const histBroadResp = await xiqGetC(token, '/clients', { limit: 200 }) as { data?: unknown[] } | null;
-                const histAll = (histBroadResp?.data ?? []) as Array<Record<string, unknown>>;
-                const lowerSearch = clientName.toLowerCase();
-                const histMatch = histAll.find((c) => {
-                  const h = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
-                  return h.includes(lowerSearch);
-                }) ?? null;
-                if (histMatch) resolvedMac = String(histMatch['mac_address'] ?? '');
-              } catch { /* ignore */ }
-            }
+            // Strategy 5: offline device — search historical events via alerts endpoint
+            // Note: /clients (without /active) returns 404 on some XIQ environments — skip it
 
             const isCurrentlyConnected = clientRecord != null;
             const clientId = clientRecord ? (clientRecord['id'] as number | undefined) : null;
@@ -1117,8 +1127,13 @@ export function buildTools(
             }
 
             // Step 3: Connection trail by MAC — available even for offline devices
-            if (resolvedMac) {
-              connectionTrail = await xiqGetC(token, `/client-details/topology/client-trail/${encodeURIComponent(resolvedMac)}`);
+            // Note: /client-details/topology/client-trail/{mac} is unreliable (XIQ server-side bug with null stack members)
+            // Skip it and derive last-seen from events/details instead
+            if (resolvedMac && events.length === 0) {
+              // Only try if we have no events yet — this endpoint is fragile
+              try {
+                connectionTrail = await xiqGetC(token, `/client-details/topology/client-trail/${encodeURIComponent(resolvedMac)}`);
+              } catch { /* XIQ topology trail is unreliable — ignore */ }
             }
 
             // Step 4: Derive last-seen from events or connection trail
@@ -1160,20 +1175,29 @@ export function buildTools(
                   ? `${clientName || resolvedMac} is NOT connected. No events found in the last ${Number(args['lookbackHours'] ?? 24)} hours.`
                   : `${clientName || 'Device'} not found in active clients. Provide macAddress to retrieve connection history.`;
 
+            // Extract radio metrics — prefer detailsInfo (full client details) over basic client record
+            const details = detailsInfo as Record<string, unknown> | null;
+            const extractMetric = (field: string, fallback?: string): number | null => {
+              const fromDetails = details ? Number(details[field] ?? details[fallback ?? ''] ?? NaN) : NaN;
+              if (!isNaN(fromDetails) && fromDetails !== 0) return fromDetails;
+              const fromRecord = clientRecord ? Number(clientRecord![field] ?? NaN) : NaN;
+              return (!isNaN(fromRecord) && fromRecord !== 0) ? fromRecord : null;
+            };
+
             return {
               client_name: clientName || resolvedMac,
               mac_address: resolvedMac || null,
               is_currently_connected: isCurrentlyConnected,
               status_message: statusMessage,
               current_connection: isCurrentlyConnected ? {
-                connected_ap: clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? null,
-                ssid: clientRecord!['ssid'] ?? null,
-                ip_address: clientRecord!['ip_address'] ?? null,
-                snr: clientRecord!['snr'] ?? null,
-                rssi: clientRecord!['rssi'] ?? null,
-                health_score: clientRecord!['health_score'] ?? null,
-                channel: clientRecord!['channel'] ?? null,
-                os_type: clientRecord!['os_type'] ?? null,
+                connected_ap: clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? details?.['connected_ap'] ?? null,
+                ssid: clientRecord!['ssid'] ?? details?.['ssid'] ?? null,
+                ip_address: clientRecord!['ip_address'] ?? details?.['ip_address'] ?? null,
+                snr: extractMetric('snr', 'signal_to_noise_ratio'),
+                rssi: extractMetric('rssi', 'received_signal_strength'),
+                health_score: extractMetric('health_score'),
+                channel: extractMetric('channel'),
+                os_type: String(clientRecord!['os_type'] ?? details?.['os_type'] ?? ''),
               } : null,
               last_seen_at: isCurrentlyConnected ? new Date().toISOString() : (lastSeenAt ?? null),
               last_seen_ap: isCurrentlyConnected ? String(clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? '') : (lastSeenAp ?? null),
