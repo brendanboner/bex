@@ -47,3 +47,11 @@ BonePhone is currently not found in active clients. Its status remains unchanged
 - **BonePhone_last_seen**: null
 
 No changes to announce.
+
+<!-- 2026-04-23T10:59:14.042Z — manual-cmobdcwft001hcuor33abmyyt -->
+BonePhone is currently not found in active clients. Its status remains unchanged as disconnected.
+
+- **BonePhone_status**: disconnected
+- **BonePhone_last_seen**: null
+
+No changes to announce.

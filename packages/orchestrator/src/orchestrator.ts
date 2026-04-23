@@ -22,15 +22,36 @@ const knowledgeStore = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? '
 /** Load workspace docs for an agent and return a formatted prompt section. */
 async function loadWorkspaceDocs(agentId: string): Promise<string> {
   const domain = `agent/${agentId}`;
-  const [instructions, context, memory] = await Promise.all([
+  const [instructions, context, memory, factsEntry] = await Promise.all([
     knowledgeStore.read(domain, 'instructions').catch(() => null),
     knowledgeStore.read(domain, 'context').catch(() => null),
     knowledgeStore.read(domain, 'memory').catch(() => null),
+    knowledgeStore.read(domain, 'facts').catch(() => null),
   ]);
   const parts: string[] = [];
   if (instructions?.content) parts.push(`## Agent Instructions\n${instructions.content}`);
   if (context?.content) parts.push(`## Workspace Context\n${context.content}`);
-  if (memory?.content) parts.push(`## Agent Memory\n${memory.content}`);
+
+  // Inject structured facts first (compact key-value, always fresh)
+  if (factsEntry?.content) {
+    try {
+      const facts = JSON.parse(factsEntry.content) as Record<string, unknown>;
+      const lines = Object.entries(facts).map(([k, v]) => `- ${k}: ${String(v)}`).join('\n');
+      parts.push(`## Agent Facts (structured memory)\n${lines}`);
+    } catch {
+      parts.push(`## Agent Facts\n${factsEntry.content}`);
+    }
+  }
+
+  // Inject prose memory, but truncate to the last 5 log entries to avoid context bloat
+  if (memory?.content) {
+    const entries = memory.content.split(/(?=<!-- )/);
+    const recent = entries.length > 5 ? entries.slice(-5) : entries;
+    const truncated = recent.length < entries.length;
+    const truncNote = truncated ? `_(showing ${recent.length} of ${entries.length} log entries)_\n\n` : '';
+    parts.push(`## Agent Memory\n${truncNote}${recent.join('')}`);
+  }
+
   return parts.join('\n\n');
 }
 
@@ -81,6 +102,59 @@ function buildReadMemoryTool(agentId: string): CoreTool {
         query,
         updatedAt: entry.updatedAt,
       };
+    },
+  });
+}
+
+/**
+ * set_fact — stores a named fact (key-value) in a compact facts.json file.
+ * Facts persist across runs and are injected at the top of the agent's context
+ * BEFORE the prose memory log. Use this for device MACs, status flags, settings.
+ * Facts do NOT grow unbounded — writing the same key overwrites the previous value.
+ */
+function buildSetFactTool(agentId: string): CoreTool {
+  return tool({
+    description: 'Store a named fact in structured agent memory. Facts are key-value pairs that persist across runs and are always available at the start of context. Use this for device MACs, status flags, last-seen times, or any small piece of state that must be remembered reliably. Writing the same key overwrites the previous value (no growing history).',
+    parameters: z.object({
+      key: z.string().describe('Fact name, e.g. "BonePhone_mac", "BonePhone_status", "last_alert_sent"'),
+      value: z.string().describe('The value to store, e.g. "107DC8AAB652", "connected", "2026-04-23T09:10:00Z"'),
+    }),
+    execute: async ({ key, value }) => {
+      const domain = `agent/${agentId}`;
+      const existing = await knowledgeStore.read(domain, 'facts').catch(() => null);
+      let facts: Record<string, unknown> = {};
+      if (existing?.content) {
+        try { facts = JSON.parse(existing.content) as Record<string, unknown>; } catch { /* start fresh */ }
+      }
+      facts[key] = value;
+      await knowledgeStore.write(domain, 'facts', JSON.stringify(facts, null, 2));
+      return { saved: true, key, value };
+    },
+  });
+}
+
+/**
+ * get_fact — retrieves a named fact from structured agent memory.
+ * Returns null if the fact has never been set. Faster and more reliable than
+ * searching through prose memory for a specific piece of information.
+ */
+function buildGetFactTool(agentId: string): CoreTool {
+  return tool({
+    description: 'Retrieve a named fact from structured agent memory. Use this to look up device MACs, status flags, or other stored key-value state before making API calls. Returns null if the fact has never been set.',
+    parameters: z.object({
+      key: z.string().describe('The fact name to retrieve, e.g. "BonePhone_mac", "BonePhone_status"'),
+    }),
+    execute: async ({ key }) => {
+      const domain = `agent/${agentId}`;
+      const entry = await knowledgeStore.read(domain, 'facts').catch(() => null);
+      if (!entry?.content) return { value: null, found: false };
+      try {
+        const facts = JSON.parse(entry.content) as Record<string, unknown>;
+        const value = facts[key] ?? null;
+        return { value, found: value !== null };
+      } catch {
+        return { value: null, found: false };
+      }
     },
   });
 }
@@ -595,7 +669,9 @@ export class OrchestratorService {
       // 9. Run LLM — always add write_memory and read_memory tools
       const writeMemoryTool = buildWriteMemoryTool(agent.id);
       const readMemoryTool = buildReadMemoryTool(agent.id);
-      const allTools = { ...tools, write_memory: writeMemoryTool, read_memory: readMemoryTool };
+      const setFactTool = buildSetFactTool(agent.id);
+      const getFactTool = buildGetFactTool(agent.id);
+      const allTools = { ...tools, write_memory: writeMemoryTool, read_memory: readMemoryTool, set_fact: setFactTool, get_fact: getFactTool };
       const toolsArg = allTools;
       // Per-agent maxSteps override — read from Agent.llmConfig JSON
       const agentLlmConfig = agent.llmConfig as { maxSteps?: number } | null;

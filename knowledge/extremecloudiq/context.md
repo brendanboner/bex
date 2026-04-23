@@ -5,6 +5,47 @@
 ExtremeCloud IQ (XIQ) is Extreme Networks' cloud-managed network management platform.
 It manages Extreme Networks access points, switches, and SD-WAN devices.
 
+---
+
+## ⚠️ CRITICAL: Network Terminology — Device vs Client
+
+In the Extreme Networks / XIQ ecosystem these terms have **precise meanings** and map to **different API endpoints**. Never confuse them.
+
+### Device (a.k.a. "managed device")
+- A **network infrastructure device** managed by XIQ: access point (AP), switch, router, SD-WAN device, server
+- Listed at: `GET /devices`
+- Identified by a **numeric integer `id`** (never a MAC address where ID is needed)
+- Examples: "Beverly Home AP5010", "Core-Switch-2", "AP-Reception"
+- Has: `id`, `mac_address`, `hostname`, `model`, `location_id`, `status`
+
+### Client (a.k.a. "wireless client", "end-user device")
+- An **end-user device connected to the wireless network**: phone, laptop, tablet, IoT device
+- Listed at: `GET /clients/active` (currently connected) or `GET /clients` (all/historical)
+- Identified by **MAC address** in the URL (e.g. `/clients/byMac/AA:BB:CC:DD:EE:FF`)
+- Has a numeric `id` too (for detail endpoints), but primary key for lookup is MAC
+- Examples: "Brendan's iPhone", "MacBook-Pro", any phone/laptop/tablet
+- Has: `mac_address`, `hostname`, `ip_address`, `ssid`, `connected_ap`, `os_type`, `snr`, `rssi`
+
+### How to answer common questions
+
+| Question | Correct endpoint | Notes |
+|---|---|---|
+| "Show all clients on AP X" | `GET /clients/active` filter by `connected_ap` | Only clients connect to APs |
+| "Show all devices on AP X" | `GET /clients/active` filter by `connected_ap` | **Same as above** — only clients connect to APs |
+| "Show devices at location Y" | `GET /devices?locationId=Y` | Network infra at a location |
+| "Who is connected to SSID X?" | `GET /clients/active` filter by `ssid` | |
+| "What APs are in building Z?" | `GET /devices` filter by location | Devices = APs/switches |
+| "Show me all devices" without context | Ask: device infra or client devices? | Ambiguous — clarify |
+| "Is BonePhone online?" | `GET /clients/active?searchString=BonePhone` | Client/end-user device |
+| "Check AP-5010 health" | `GET /monitor/devices/{id}` after listing devices | Infrastructure device |
+
+**Rule of thumb:**
+- If the thing has a user/owner (phone, laptop) → **client** → `/clients`
+- If it's plugged into a wall/ceiling (AP, switch) → **device** → `/devices`
+- "Devices on AP X" almost always means "clients connected to AP X" in conversation
+
+---
+
 ## API Authentication
 
 - XIQ uses Bearer token authentication.
@@ -135,7 +176,17 @@ Step 2: Use id (integer 11223344) for all further queries
 ```
 
 The `searchString` matches against: hostname, alias, username, MAC address prefix.
-If the client is not in active clients → device is currently **not connected**.
+**Important**: `searchString` may NOT match the iOS `hostname` field in all XIQ versions.
+
+### Fallback Search Strategy (when searchString returns 0 results)
+
+If `searchString` returns no results but you believe the device might be connected, use the composite `xiq_client_snapshot` tool — it automatically tries all strategies:
+1. `searchString` against active clients
+2. Fetch all active clients (up to 500) and filter client-side where `hostname` contains the search term
+3. Search historical `/clients` by `searchString`  
+4. Historical clients filtered by `hostname`
+
+**This handles iOS devices** where the hostname (e.g. "BonePhone") is set by the device but may differ from the XIQ display name/alias.
 
 ### Getting Full Client Details
 

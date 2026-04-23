@@ -1027,53 +1027,73 @@ export function buildTools(
             const token = await getTokenC();
             if (!token) return { error: 'XIQ login failed' };
 
-            // Step 1: Find client — by name or MAC
+            // ── Multi-strategy client search ──────────────────────────────
+            // Strategy 1: searchString against active clients (fast path)
             let clientRecord: Record<string, unknown> | null = null;
             let resolvedMac = clientMac;
+
+            // Normalise search term: strip common iOS suffixes for broader matching
+            const normName = clientName.replace(/'s\s+(iphone|ipad|macbook|phone|laptop|watch)/i, '').trim();
 
             if (clientName) {
               const searchResp = await xiqGetC(token, '/clients/active', {
                 searchString: clientName,
-                views: ['CLIENT_DETAILS', 'HEALTH_STATUS', 'BASIC'],
-                limit: 10,
+                limit: 20,
               }) as { data?: unknown[] } | null;
-              const matches = searchResp?.data ?? [];
-              clientRecord = (matches[0] as Record<string, unknown>) ?? null;
+              const matches = (searchResp?.data ?? []) as Array<Record<string, unknown>>;
+              clientRecord = matches[0] ?? null;
+              if (!clientRecord && normName !== clientName) {
+                // Try normalised name too
+                const normResp = await xiqGetC(token, '/clients/active', { searchString: normName, limit: 20 }) as { data?: unknown[] } | null;
+                clientRecord = ((normResp?.data ?? []) as Array<Record<string, unknown>>)[0] ?? null;
+              }
               if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? '');
             }
 
+            // Strategy 2: if MAC known (from facts/args), look up directly in active clients
             if (!clientRecord && resolvedMac) {
-              const byMacResp = await xiqGetC(token, `/clients/byMac/${encodeURIComponent(resolvedMac)}`, {
-                views: ['CLIENT_DETAILS', 'HEALTH_STATUS', 'BASIC'],
-              }) as Record<string, unknown> | null;
+              const byMacResp = await xiqGetC(token, `/clients/byMac/${encodeURIComponent(resolvedMac)}`) as Record<string, unknown> | null;
               clientRecord = byMacResp;
               if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? resolvedMac);
             }
 
-            // Fallback: search all historical clients (not just active) to find MAC for offline devices
-            if (!resolvedMac && clientName) {
+            // Strategy 3: fetch broader active client list and match by hostname (client-side)
+            if (!clientRecord && clientName) {
               try {
-                const histResp = await xiqGetC(token, '/clients', {
-                  searchString: clientName,
-                  limit: 10,
-                }) as { data?: unknown[] } | null;
+                const broadResp = await xiqGetC(token, '/clients/active', { limit: 500 }) as { data?: unknown[] } | null;
+                const allActive = (broadResp?.data ?? []) as Array<Record<string, unknown>>;
+                const lowerSearch = clientName.toLowerCase();
+                clientRecord = allActive.find((c) => {
+                  const h = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
+                  const alias = String(c['alias'] ?? c['username'] ?? '').toLowerCase();
+                  return h.includes(lowerSearch) || alias.includes(lowerSearch) ||
+                    lowerSearch.includes(h.split('-')[0] ?? '') && h.length > 2;
+                }) ?? null;
+                if (clientRecord) resolvedMac = String(clientRecord['mac_address'] ?? '');
+              } catch { /* broad search failed — continue */ }
+            }
+
+            // Strategy 4: historical /clients by searchString (offline device lookup)
+            if (!clientRecord && !resolvedMac && clientName) {
+              try {
+                const histResp = await xiqGetC(token, '/clients', { searchString: clientName, limit: 20 }) as { data?: unknown[] } | null;
                 const histMatches = (histResp?.data ?? (Array.isArray(histResp) ? histResp as unknown[] : [])) as Array<Record<string, unknown>>;
-                if (histMatches.length > 0) {
-                  const histRecord = histMatches[0]!;
-                  resolvedMac = String(histRecord['mac_address'] ?? '');
-                  // Capture last-seen info from this historical record if available
-                  if (!clientRecord) {
-                    const ts = histRecord['last_connected'] ?? histRecord['last_seen'] ?? histRecord['update_time'];
-                    if (ts && !Number.isNaN(Number(ts))) {
-                      // We'll use this below in the last-seen derivation step
-                      (histRecord as Record<string, unknown>)['_histLastSeen'] = ts;
-                    }
-                    // Don't set clientRecord here — we want isCurrentlyConnected = false
-                  }
-                }
-              } catch {
-                // /clients endpoint may not exist on all XIQ versions — ignore
-              }
+                if (histMatches.length > 0) resolvedMac = String(histMatches[0]!['mac_address'] ?? '');
+              } catch { /* /clients may not be available */ }
+            }
+
+            // Strategy 5: historical broad list + hostname filter
+            if (!clientRecord && !resolvedMac && clientName) {
+              try {
+                const histBroadResp = await xiqGetC(token, '/clients', { limit: 200 }) as { data?: unknown[] } | null;
+                const histAll = (histBroadResp?.data ?? []) as Array<Record<string, unknown>>;
+                const lowerSearch = clientName.toLowerCase();
+                const histMatch = histAll.find((c) => {
+                  const h = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
+                  return h.includes(lowerSearch);
+                }) ?? null;
+                if (histMatch) resolvedMac = String(histMatch['mac_address'] ?? '');
+              } catch { /* ignore */ }
             }
 
             const isCurrentlyConnected = clientRecord != null;
@@ -1166,6 +1186,8 @@ export function buildTools(
                 end: new Date(endTime).toISOString(),
                 lookback_hours: Number(args['lookbackHours'] ?? 24),
               },
+              // Include hostname from the found client record for transparency
+              found_hostname: isCurrentlyConnected ? String(clientRecord!['hostname'] ?? clientRecord!['name'] ?? '') : null,
               timestamp: new Date().toISOString(),
             };
           } catch (e) {
