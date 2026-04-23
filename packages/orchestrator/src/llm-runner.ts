@@ -977,6 +977,238 @@ export function buildTools(
             return { error: `Client health report failed: ${e instanceof Error ? e.message : String(e)}` };
           }
         }
+
+        // ── xiq_clients_by_vendor: filter active clients by OS/vendor, get radio metrics ──
+        // Use for: "show apple clients", "list all iPhones", "android radio quality", etc.
+        // Apple detection: os_type match + hostname pattern + MAC OUI (multi-strategy)
+        if (handlerType === 'xiq_clients_by_vendor') {
+          if (!credentialId) return { error: 'xiq_clients_by_vendor requires a credentialId' };
+
+          const loginUrlV = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBaseV = 'https://api.extremecloudiq.com';
+
+          const reachV = await checkReachable(loginUrlV);
+          if (!reachV.reachable) {
+            return { error: reachV.error ?? `Cannot reach ${loginUrlV}`, hint: 'Check VPN or network connectivity' };
+          }
+
+          const { fetch: fetchV } = await import('undici');
+
+          const getTokenV = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await fetchV(loginUrlV, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const xiqGetV = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${apiBaseV}${path}${qs ? '?' + qs : ''}`;
+            const resp = await fetchV(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_clients_by_vendor] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const errText = await resp.text().catch(() => '');
+              console.warn(`[xiq_clients_by_vendor] ${path} failed ${resp.status}: ${errText.slice(0, 200)}`);
+              return null;
+            }
+            return resp.json();
+          };
+
+          // Vendor filter predicates — network engineer multi-signal approach
+          // Each predicate checks os_type, hostname, and (where applicable) MAC OUI prefix
+          const vendor = String(args['vendor'] ?? 'apple').toLowerCase();
+          const apFilter = String(args['apName'] ?? '').toLowerCase();
+
+          type ClientRecord = Record<string, unknown>;
+
+          const VENDOR_MATCHERS: Record<string, (c: ClientRecord) => boolean> = {
+            apple: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              const hostname = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
+              const mac = String(c['mac_address'] ?? '').toUpperCase().replace(/[:\-]/g, '');
+              // os_type signals
+              if (os.includes('apple') || os.includes('ios') || os.includes('macos') ||
+                  os.includes('mac os') || os.includes('ipad') || os.includes('watchos') ||
+                  os.includes('tvos')) return true;
+              // Hostname patterns common for Apple devices
+              if (/iphone|ipad|macbook|imac|mac mini|mac pro|apple|airpod|ipod|apple watch|apple tv/i.test(hostname)) return true;
+              // Apple MAC OUI prefixes (IEEE registered; covers most consumer devices)
+              // See https://regauth.standards.ieee.org/standards-ra-web/pub/view.html#registries
+              const appleOuis = [
+                'F81EDF','F0DB30','F0B429','ECA6B4','E8FAC6','E0F5C6','E0ACEF','DCA904',
+                'D83062','D0A637','CCA223','CC08E0','BC9FEF','BC3400','B8FF61','B844D9',
+                'B82AAA','B0BE76','ACF6F7','ACBC32','AC87A3','A8969D','A45E60','A4C361',
+                'A030D6','9CF48E','9CF387','9C8BB1','9C4FB0','9C293F','98FEDC','98EFC9',
+                '98E0D9','94BF2D','90B21F','90840D','8CAAB5','8C7B9D','8C29F7','88E9FE',
+                '885166','8845DD','84B153','84A134','80ED2C','786C1C','78D75F','706E6D',
+                '6C96CF','6C70AC','6C40A3','68AE20','683B78','6010F3','5C96A4','5CACB9',
+                '5857CA','544E90','50EA66','504BAA','4CA560','48D705','48437C','48A195',
+                '440010','40CB00','40484C','3C5282','3C2EFF','38CAC5','34363B','2095F0',
+                '18E7F4','18AF61','189EFC','143C4A','10DDB1','102477','0CFE45','0C5415',
+                '087130','089E08','080007','040CCE','001CBE','001B63','001124','001050',
+              ];
+              const oui = mac.substring(0, 6);
+              return appleOuis.includes(oui);
+            },
+            android: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              return os.includes('android') || os.includes('google') || os.includes('chrome os');
+            },
+            windows: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              return os.includes('windows') || os.includes('microsoft');
+            },
+            linux: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              return os.includes('linux') || os.includes('ubuntu') || os.includes('debian');
+            },
+            embedded: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              return os.includes('embedded') || os.includes('iot') || os.includes('rtos');
+            },
+          };
+
+          const matchFn = VENDOR_MATCHERS[vendor] ?? VENDOR_MATCHERS['apple']!;
+
+          try {
+            const token = await getTokenV();
+            if (!token) return { error: 'XIQ login failed' };
+
+            // Paginate to get all active clients — vendors can be a minority so we need all
+            let allClients: ClientRecord[] = [];
+            let page = 1;
+            const pageSize = 100;
+            while (allClients.length < 1000) {
+              const resp = await xiqGetV(token, '/clients/active', { page, limit: pageSize }) as { data?: ClientRecord[]; total_count?: number } | null;
+              if (!resp) break;
+              const batch = resp?.data ?? (Array.isArray(resp) ? (resp as ClientRecord[]) : []);
+              if (batch.length === 0) break;
+              allClients = allClients.concat(batch);
+              if (batch.length < pageSize) break;
+              page++;
+            }
+
+            console.info(`[xiq_clients_by_vendor] Fetched ${allClients.length} total clients, filtering for vendor="${vendor}"`);
+
+            // Filter by vendor AND optional AP name filter
+            let matched = allClients.filter(matchFn);
+            if (apFilter) {
+              matched = matched.filter((c) =>
+                String(c['connected_ap'] ?? c['ap_name'] ?? '').toLowerCase().includes(apFilter)
+              );
+            }
+
+            // Build os_type breakdown for transparency (useful for debugging false negatives)
+            const osBreakdown: Record<string, number> = {};
+            for (const c of allClients) {
+              const os = String(c['os_type'] ?? 'unknown');
+              osBreakdown[os] = (osBreakdown[os] ?? 0) + 1;
+            }
+
+            // Enrich up to 20 matched clients with radio details
+            const enrichedClients: Array<Record<string, unknown>> = [];
+            const detailBatch = matched.slice(0, 20);
+            await Promise.all(
+              detailBatch.map(async (c) => {
+                const clientId = c['id'] as number | undefined;
+                let snr = Number(c['snr'] ?? 0);
+                let rssi = Number(c['rssi'] ?? 0);
+                let healthScore = Number(c['health_score'] ?? 0);
+                let channel = Number(c['channel'] ?? 0);
+
+                if (clientId && (snr === 0 || rssi === 0)) {
+                  try {
+                    const now = Date.now();
+                    // /client-details/overview/info gives connection metadata but NOT radio metrics
+                    // Use connectivity-experience trail for SNR/RSSI time-series; take latest point
+                    const trail = await xiqGetV(token, `/client-details/client-trail/connectivity-experience/${clientId}`, {
+                      startTime: now - 3_600_000,
+                      endTime: now,
+                      precision: 300000, // 5 min buckets
+                    }) as { data?: Record<string, unknown>[] } | Record<string, unknown>[] | null;
+
+                    const trailPoints = (Array.isArray(trail) ? trail : (trail as { data?: Record<string, unknown>[] })?.data ?? []) as Array<Record<string, unknown>>;
+                    if (trailPoints.length > 0) {
+                      // Take the latest point with non-zero values
+                      const latestPoint = [...trailPoints].reverse().find((p) =>
+                        Number(p['snr'] ?? 0) !== 0 || Number(p['rssi'] ?? 0) !== 0
+                      ) ?? trailPoints[trailPoints.length - 1];
+                      if (latestPoint) {
+                        snr = Number(latestPoint['snr'] ?? latestPoint['avg_snr'] ?? snr) || snr;
+                        rssi = Number(latestPoint['rssi'] ?? latestPoint['avg_rssi'] ?? rssi) || rssi;
+                        healthScore = Number(latestPoint['health_score'] ?? latestPoint['client_health_score'] ?? healthScore) || healthScore;
+                        channel = Number(latestPoint['channel'] ?? channel) || channel;
+                      }
+                    }
+
+                    // Also get overview for AP name / connection details
+                    const overview = await xiqGetV(token, `/client-details/overview/info/${clientId}`, {
+                      startTime: now - 3_600_000,
+                      endTime: now,
+                    }) as Record<string, unknown> | null;
+                    if (overview) {
+                      // connection_to = connected AP name; supplement if missing from basic record
+                      const detailAp = String(overview['connection_to'] ?? overview['connected_ap'] ?? '');
+                      if (detailAp) c['connected_ap'] = detailAp;
+                    }
+                  } catch { /* detail fetch failed — use basic values */ }
+                }
+
+                enrichedClients.push({
+                  hostname: String(c['hostname'] ?? c['name'] ?? c['mac_address'] ?? ''),
+                  mac_address: String(c['mac_address'] ?? ''),
+                  ip_address: String(c['ip_address'] ?? ''),
+                  os_type: String(c['os_type'] ?? ''),
+                  connected_ap: String(c['connected_ap'] ?? c['ap_name'] ?? ''),
+                  ssid: String(c['ssid'] ?? ''),
+                  snr,
+                  rssi,
+                  health_score: healthScore,
+                  channel,
+                  // iOS 14+/macOS 12+ uses random MACs by default — radio metrics may be unavailable
+                  mac_randomized: snr === 0 && rssi === 0 ? 'likely (iOS/macOS private MAC)' : undefined,
+                });
+              })
+            );
+
+            // Sort by SNR descending (best signal first)
+            enrichedClients.sort((a, b) => Number(b['snr'] ?? 0) - Number(a['snr'] ?? 0));
+
+            return {
+              vendor_filter: vendor,
+              ap_filter: apFilter || null,
+              total_scanned: allClients.length,
+              matched_count: matched.length,
+              shown_count: enrichedClients.length,
+              note: matched.length > 20 ? `Showing top 20 of ${matched.length} matched ${vendor} clients` : undefined,
+              clients: enrichedClients,
+              os_type_breakdown: Object.entries(osBreakdown)
+                .sort((a, b) => b[1] - a[1])
+                .map(([os, count]) => ({ os_type: os, count })),
+              ap_breakdown: enrichedClients.reduce((acc: Record<string, number>, c) => {
+                const ap = String(c['connected_ap'] ?? '');
+                if (ap) acc[ap] = (acc[ap] ?? 0) + 1;
+                return acc;
+              }, {}),
+              timestamp: new Date().toISOString(),
+            };
+          } catch (e) {
+            return { error: `Vendor client filter failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
         if (handlerType === 'xiq_client_snapshot') {
           if (!credentialId) return { error: 'xiq_client_snapshot requires a credentialId' };
 

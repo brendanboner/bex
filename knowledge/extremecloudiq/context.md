@@ -164,19 +164,37 @@ Advanced operations can use direct SSH:
 
 ## Client Operations
 
+### ⚠️ Finding Apple/iOS/Android Clients by Vendor — NEVER use searchString="Apple"
+
+`searchString` searches display names and aliases — it does NOT search `os_type`. Searching `searchString=Apple` returns zero results because device names are like "BonePhone", "Brendan's MacBook", not "Apple".
+
+**Always use `xiq_clients_by_vendor` tool for vendor/OS queries:**
+```
+xiq_clients_by_vendor(vendor="apple")       → all Apple clients (iPhone/iPad/Mac/Watch)
+xiq_clients_by_vendor(vendor="android")     → all Android clients
+xiq_clients_by_vendor(vendor="apple", apName="Beverly")  → Apple clients on APs with "Beverly" in name
+```
+
+**Apple client detection uses 3 signals (multi-strategy):**
+1. `os_type` contains: 'Apple iOS', 'macOS', 'Mac OS X', 'iPadOS', 'watchOS'
+2. Hostname contains: 'iPhone', 'iPad', 'MacBook', 'iMac', 'AirPods', 'Apple Watch'
+3. MAC OUI (first 3 octets) matches known Apple IEEE-registered OUIs
+
+**Why os_type alone fails:** iOS devices with MAC randomisation have unknown OUIs so XIQ fingerprints them as 'Undetermined'. A device named "BonePhone" is an iPhone but its `os_type` may be blank.
+**Why searchString fails:** It only matches display name/alias, never `os_type` or vendor info.
+
 ### Finding a Client by Name or Alias
 
-The most important pattern for client queries. Use `searchString` in `list_active_clients`:
+Use `xiq_client_snapshot` (composite handler — preferred) or `list_active_clients` with `searchString`:
 
 ```
-Step 1: list_active_clients(searchString="BonePhone", views=["CLIENT_DETAILS","HEALTH_STATUS"])
-  → Returns: [{ id: 11223344, hostname: "BonePhone", mac_address: "AA:BB:...", ssid: "Corp-WiFi",
-                connected_ap: "AP-Office-1", snr: 35, rssi: -60, ip_address: "10.0.1.42", health_score: 85 }]
-Step 2: Use id (integer 11223344) for all further queries
+xiq_client_snapshot(clientName="BonePhone")
+  → is_currently_connected, current_connection {ap, ssid, ip, snr, rssi, health_score}, last_seen_at
 ```
 
 The `searchString` matches against: hostname, alias, username, MAC address prefix.
 **Important**: `searchString` may NOT match the iOS `hostname` field in all XIQ versions.
+**Do NOT use `views` parameter** — `list_active_clients` with `views` causes a 400 error. SNR/RSSI come from the `/client-details/overview/info/{id}` endpoint, not the client list.
 
 ### Fallback Search Strategy (when searchString returns 0 results)
 
@@ -190,20 +208,18 @@ If `searchString` returns no results but you believe the device might be connect
 
 ### Getting Full Client Details
 
-Once you have the numeric client ID:
+Once you have the numeric client ID (from `xiq_client_snapshot` or `list_active_clients`):
 
 ```
-get_client(id=11223344, views=["CLIENT_DETAILS","HEALTH_STATUS","DEVICE_INFO"])
+/client-details/overview/info/{clientId}?startTime={ms}&endTime={ms}
   → snr, rssi, tx_rate, rx_rate, channel, band, connected_ap, ssid, ip_address, os_type, health_score
+  NOTE: Do NOT use get_client with views parameter — views causes 400 errors
 
 get_client_stats(clientId=11223344, startTime=<now-3600000>, endTime=<now>)
   → current connection metrics: SNR, RSSI, data rate, retry rate
 
-get_client_health(clientId=11223344, startTime=<now-86400000>, endTime=<now>)
-  → health trend chart data for the last 24 hours
-
 get_client_events(clientId=11223344, startTime=<now-86400000>, endTime=<now>)
-  → timeline of connect/disconnect/roam/auth-fail events (equivalent to /clients/{id}/events)
+  → timeline of connect/disconnect/roam/auth-fail events
 ```
 
 ### Checking When a Device Connected or Left
