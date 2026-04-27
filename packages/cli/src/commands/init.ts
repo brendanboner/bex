@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import {
   printBanner, printSuccess, printError, printWarning,
   findProjectRoot, readEnv, writeEnv, waitForService,
-  isDockerRunning, ensureInfraRunning, ensureDashboardBuilt, startLocalServices,
+  isDockerRunning, ensureInfraRunning, waitForPostgres, ensureDashboardBuilt, startLocalServices,
 } from '../utils.js';
 
 const LLM_MODELS: Record<string, string[]> = {
@@ -361,6 +361,16 @@ export async function initCommand(): Promise<void> {
   }
   await new Promise((r) => setTimeout(r, 2000));
 
+  // ── Wait for PostgreSQL to accept connections ─────────────────────────────
+  const pgSpinner = ora('Waiting for PostgreSQL to be ready…').start();
+  const pgUser = envVars['POSTGRES_USER'] ?? 'bex';
+  const pgReady = await waitForPostgres(root, pgUser, 60_000);
+  if (!pgReady) {
+    pgSpinner.fail('PostgreSQL did not become ready in 60s — check Docker is running');
+    process.exit(1);
+  }
+  pgSpinner.succeed('PostgreSQL ready');
+
   // ── Run DB migrations ────────────────────────────────────────────────────
   const migrateSpinner = ora('Running database migrations…').start();
   const migrateEnv = { ...process.env, ...envVars };
@@ -369,8 +379,11 @@ export async function initCommand(): Promise<void> {
     { cwd: root, env: migrateEnv, stdio: 'pipe', encoding: 'utf-8' },
   );
   if (migrateResult.status !== 0) {
-    migrateSpinner.warn('Migration warning — check `bex logs` if services fail to start');
-    if (migrateResult.stderr) console.error(chalk.dim(migrateResult.stderr.slice(0, 400)));
+    migrateSpinner.fail('Database migrations failed — cannot continue');
+    if (migrateResult.stdout) console.error(chalk.dim(migrateResult.stdout.slice(0, 600)));
+    if (migrateResult.stderr) console.error(chalk.dim(migrateResult.stderr.slice(0, 600)));
+    console.log(chalk.yellow('\nFix the issue above then re-run: bex init'));
+    process.exit(1);
   } else {
     migrateSpinner.succeed('Database migrations applied');
   }

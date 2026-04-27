@@ -182,9 +182,39 @@ export function ensureInfraRunning(root: string): void {
   const composePath = resolve(root, 'infra', 'docker-compose.yml');
   const envFilePath = resolve(root, '.env');
   // Only start postgres+redis, not app services
-  spawnSync('docker', ['compose', '-f', composePath, '--env-file', envFilePath, 'up', '-d', 'postgres', 'redis'], {
-    stdio: 'pipe',
-    cwd: root,
-  });
+  const result = spawnSync(
+    'docker', ['compose', '-f', composePath, '--env-file', envFilePath, 'up', '-d', 'postgres', 'redis'],
+    { stdio: 'pipe', cwd: root, encoding: 'utf-8' },
+  );
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || '').trim().slice(0, 400);
+    throw new Error(`docker compose failed to start postgres/redis:\n${detail}`);
+  }
+}
+
+/**
+ * Poll until the postgres container inside the compose stack is healthy and
+ * accepting connections. Uses `docker compose exec postgres pg_isready` so it
+ * works without any host-side Postgres client tools.
+ */
+export async function waitForPostgres(
+  root: string,
+  dbUser = 'bex',
+  timeoutMs = 60_000,
+): Promise<boolean> {
+  const composePath = resolve(root, 'infra', 'docker-compose.yml');
+  const envFilePath = resolve(root, '.env');
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = spawnSync(
+      'docker',
+      ['compose', '-f', composePath, '--env-file', envFilePath,
+        'exec', '-T', 'postgres', 'pg_isready', '-U', dbUser],
+      { stdio: 'pipe', cwd: root, encoding: 'utf-8' },
+    );
+    if (result.status === 0) return true;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
 }
 
