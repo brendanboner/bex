@@ -18,8 +18,7 @@ out/
 .env.*.local
 !.env.example
 
-# Prisma
-packages/shared/prisma/migrations/
+# Prisma — migrations ARE version-controlled so fresh installs can run migrate deploy
 
 # Logs
 *.log

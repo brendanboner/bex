@@ -375,18 +375,28 @@ export async function initCommand(): Promise<void> {
   // ── Run DB migrations ────────────────────────────────────────────────────
   const migrateSpinner = ora('Running database migrations…').start();
   const migrateEnv = { ...process.env, ...envVars };
+  const schemaPath = resolve(root, 'packages/shared/prisma/schema.prisma');
+  const migrationsDir = resolve(root, 'packages/shared/prisma/migrations');
+
+  // Prefer migrate deploy (tracks history) when migration files exist;
+  // fall back to db push for fresh clones where migrations haven't been generated yet.
+  const usePush = !existsSync(migrationsDir);
+  const migrateArgs = usePush
+    ? ['prisma', 'db', 'push', '--schema', schemaPath, '--skip-generate', '--accept-data-loss']
+    : ['prisma', 'migrate', 'deploy', '--schema', schemaPath];
+
   const migrateResult = spawnSync(
-    'npx', ['prisma', 'migrate', 'deploy', '--schema', resolve(root, 'packages/shared/prisma/schema.prisma')],
+    'npx', migrateArgs,
     { cwd: root, env: migrateEnv, stdio: 'pipe', encoding: 'utf-8' },
   );
   if (migrateResult.status !== 0) {
-    migrateSpinner.fail('Database migrations failed — cannot continue');
+    migrateSpinner.fail('Database schema setup failed — cannot continue');
     if (migrateResult.stdout) console.error(chalk.dim(migrateResult.stdout.slice(0, 600)));
     if (migrateResult.stderr) console.error(chalk.dim(migrateResult.stderr.slice(0, 600)));
     console.log(chalk.yellow('\nFix the issue above then re-run: bex init'));
     process.exit(1);
   } else {
-    migrateSpinner.succeed('Database migrations applied');
+    migrateSpinner.succeed(usePush ? 'Database schema applied (db push)' : 'Database migrations applied');
   }
 
   // ── Build dashboard (first time) ─────────────────────────────────────────
