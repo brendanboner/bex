@@ -95,23 +95,31 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
   // be available yet if the bot starts before init completes.
   let botToken: string | undefined = process.env['TELEGRAM_BOT_TOKEN'];
   if (!botToken) {
-    console.warn('[telegram] TELEGRAM_BOT_TOKEN not in env — loading from credential vault...');
-    for (let attempt = 0; attempt < 30; attempt++) {
+    console.warn('[telegram] TELEGRAM_BOT_TOKEN not in env — waiting for credential vault...');
+    // Retry for up to 30 minutes (180 × 10s). bex init can take several minutes
+    // on first run (dashboard build + skill pulls), so a short window causes the
+    // bot to give up before setup completes.
+    const MAX_ATTEMPTS = 180;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const prisma = new PrismaClient();
       try {
         await loadSystemSecrets(prisma);
+      } catch {
+        // DB may not be ready yet — keep waiting
       } finally {
         await prisma.$disconnect();
       }
       botToken = process.env['TELEGRAM_BOT_TOKEN'];
       if (botToken) break;
-      console.warn(`[telegram] Token not in vault yet (attempt ${attempt + 1}/30) — retrying in 10s...`);
+      if (attempt % 6 === 0) {
+        console.warn(`[telegram] Token not in vault yet (${attempt * 10}s elapsed) — run: bex init`);
+      }
       await new Promise((r) => setTimeout(r, 10_000));
     }
   }
 
   if (!botToken) {
-    console.error('[telegram] TELEGRAM_BOT_TOKEN not found after 30 attempts. Run: bex init');
+    console.error('[telegram] TELEGRAM_BOT_TOKEN not found after 30 minutes. Run: bex init');
     process.exit(1);
   }
 

@@ -9,6 +9,7 @@ import {
   printBanner, printSuccess, printError, printWarning,
   findProjectRoot, readEnv, writeEnv, waitForService,
   isDockerRunning, ensureInfraRunning, waitForPostgres, ensureDashboardBuilt, startLocalServices,
+  restartService,
 } from '../utils.js';
 
 const LLM_MODELS: Record<string, string[]> = {
@@ -503,6 +504,13 @@ export async function initCommand(): Promise<void> {
       }
 
       vaultSpinner.succeed('Secrets stored in credential vault');
+
+      // Restart the Telegram bot now that its token is in the vault.
+      // It starts alongside all other services (before vault is populated) and
+      // may still be in its retry loop — a restart gives it a clean start.
+      if (channel === 'telegram' || channelEnv['TELEGRAM_BOT_TOKEN']) {
+        restartService('bex-telegram');
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       vaultSpinner.warn(`Could not store in vault (${message}) — re-run bex init to retry`);
