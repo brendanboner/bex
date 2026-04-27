@@ -23,6 +23,7 @@ install: ## Install dependencies, build all packages, and link bex globally
 	    exit 1; \
 	  fi
 	@echo "🔗 Linking bex globally..."
+	@chmod +x packages/cli/dist/bin/bex.js
 	@cd packages/cli && npm link --force --loglevel=error --no-audit > /dev/null 2>&1
 	@echo ""
 	@echo "✅ Done! Run: bex init"
