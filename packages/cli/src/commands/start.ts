@@ -10,6 +10,7 @@ import {
   printSuccess,
   printWarning,
   waitForService,
+  waitForPostgres,
   startLocalServices,
   ensureDashboardBuilt,
   ensureInfraRunning,
@@ -161,6 +162,23 @@ export async function startCommand(args: string[] = []): Promise<void> {
     infraSpinner.warn('Could not start Docker infra — ensure postgres + redis are running');
   }
   await new Promise((r) => setTimeout(r, 1000));
+
+  // ── Run DB migrations (idempotent — safe on every start) ─────────────────
+  const envVars = readEnv();
+  const pgUser = envVars['POSTGRES_USER'] ?? 'bex';
+  const pgReady = await waitForPostgres(root, pgUser, 30_000);
+  if (pgReady) {
+    const migrateSpinner = ora('Applying database migrations…').start();
+    const migrateResult = spawnSync(
+      'npx', ['prisma', 'migrate', 'deploy', '--schema', resolve(root, 'packages/shared/prisma/schema.prisma')],
+      { cwd: root, env: { ...process.env, ...envVars }, stdio: 'pipe', encoding: 'utf-8' },
+    );
+    if (migrateResult.status !== 0) {
+      migrateSpinner.warn('Migrations had issues — check: bex logs');
+    } else {
+      migrateSpinner.succeed('Database up to date');
+    }
+  }
 
   // Ensure dashboard is built before starting
   if (!existsSync(resolve(root, 'apps/dashboard/.next/standalone/apps/dashboard/server.js'))) {

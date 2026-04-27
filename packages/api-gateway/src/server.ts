@@ -37,7 +37,6 @@ declare module 'fastify' {
 }
 
 async function buildApp() {
-  validateEnv();
   const app = Fastify({
     logger: {
       level: process.env['LOG_LEVEL'] ?? 'info',
@@ -46,6 +45,7 @@ async function buildApp() {
 
   const prisma = new PrismaClient();
   await loadSystemSecrets(prisma);
+  validateEnv(); // validate after vault secrets are injected into process.env
   const vault = new CredentialVaultService(prisma);
   const sshExecutor = new SshExecutorService(prisma, vault);
 

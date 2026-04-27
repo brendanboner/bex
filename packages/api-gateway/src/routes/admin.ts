@@ -8,12 +8,16 @@ import { KnowledgeStore } from '@bex/knowledge-store';
 const SetupSchema = z.object({
   adminEmail: z.string().email(),
   adminPassword: z.string().min(8),
-  llmProvider: z.enum(['openai', 'anthropic', 'azure']),
-  llmApiKey: z.string().min(10),
+  llmProvider: z.enum(['openai', 'anthropic', 'azure', 'ollama']),
+  llmApiKey: z.string().optional().default(''),
   llmModel: z.string().optional().default('gpt-4o'),
+  ollamaBaseUrl: z.string().optional(),
   channel: z.enum(['dashboard', 'telegram', 'teams', 'whatsapp']).optional().default('dashboard'),
   channelConfig: z.record(z.string()).optional().default({}),
-});
+}).refine(
+  (d) => d.llmProvider === 'ollama' || (d.llmApiKey?.length ?? 0) >= 10,
+  { message: 'llmApiKey must be at least 10 characters for non-Ollama providers', path: ['llmApiKey'] },
+);
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -48,7 +52,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       });
     }
 
-    const { adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, channel, channelConfig } = body.data;
+    const { adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, ollamaBaseUrl, channel, channelConfig } = body.data;
     const passwordHash = await bcrypt.hash(adminPassword, 12);
 
     await prisma.user.upsert({
@@ -72,7 +76,9 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       description: `${llmProvider} LLM configuration`,
       scope: 'SYSTEM',
       credentialType: 'API_TOKEN',
-      value: { provider: llmProvider, apiKey: llmApiKey, model: llmModel },
+      value: llmProvider === 'ollama'
+        ? { provider: llmProvider, model: llmModel, baseUrl: ollamaBaseUrl ?? 'http://localhost:11434' }
+        : { provider: llmProvider, apiKey: llmApiKey, model: llmModel },
       allowedAgentPermissions: [],
     });
 

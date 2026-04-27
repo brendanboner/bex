@@ -7,7 +7,63 @@
  * the dashboard GUI.
  */
 import type { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { CredentialVaultService } from '@bex/credential-vault';
+import { SkillRegistryClient } from '@bex/skill-registry-client';
+
+const XIQ_SKILL_DOMAINS = [
+  'extremecloudiq.networking',
+  'extremecloudiq.devices',
+  'extremecloudiq.clients',
+  'extremecloudiq.monitoring',
+  'extremecloudiq.alerts.logs',
+  'extremecloudiq.network.policy',
+] as const;
+
+const XCO_SKILL_DOMAINS = [
+  'networking.extreme-xco.monitor',
+  'networking.extreme-xco.operations',
+] as const;
+
+/**
+ * Attempt to pull a skill from the remote registry and upsert it locally.
+ * Returns the skill id on success, null on any error (non-blocking).
+ */
+async function tryPullFromRegistry(
+  prisma: PrismaClient,
+  client: SkillRegistryClient,
+  domain: string,
+  version = '1.0.0',
+): Promise<string | null> {
+  try {
+    const manifest = await client.fetch(domain, version);
+    if (!client.verify(manifest)) return null;
+    const skill = await prisma.skill.upsert({
+      where: { domain_version: { domain: manifest.domain, version: manifest.version } },
+      create: {
+        name: manifest.name,
+        domain: manifest.domain,
+        version: manifest.version,
+        description: manifest.description ?? null,
+        capabilities: manifest.capabilities ?? [],
+        tools: manifest.tools as Prisma.InputJsonValue,
+        systemPrompt: manifest.systemPrompt ?? null,
+        status: 'PUBLISHED',
+      },
+      update: {
+        name: manifest.name,
+        description: manifest.description ?? null,
+        tools: manifest.tools as Prisma.InputJsonValue,
+        systemPrompt: manifest.systemPrompt ?? null,
+        capabilities: manifest.capabilities ?? [],
+        status: 'PUBLISHED',
+      },
+    });
+    return skill.id;
+  } catch {
+    return null;
+  }
+}
 
 async function credentialExists(prisma: PrismaClient, name: string): Promise<boolean> {
   const cred = await prisma.credential.findFirst({ where: { name, scope: 'SYSTEM' }, select: { id: true } });
@@ -19,26 +75,53 @@ async function agentExists(prisma: PrismaClient, ...names: string[]): Promise<bo
   return agent !== null;
 }
 
+async function ensureSkillsInstalled(
+  prisma: PrismaClient,
+  domainPrefix: string,
+  domains: readonly string[],
+  label: string,
+): Promise<boolean> {
+  const existing = await prisma.skill.findFirst({
+    where: { domain: { startsWith: domainPrefix } },
+    select: { id: true },
+  });
+  if (existing) return true;
+
+  // Skills absent — try registry pull
+  const client = new SkillRegistryClient();
+  const ids: string[] = [];
+  for (const domain of domains) {
+    const id = await tryPullFromRegistry(prisma, client, domain);
+    if (id) ids.push(id);
+  }
+
+  if (ids.length > 0) {
+    console.info(`[provision] Installed ${ids.length} ${label} skill(s) from registry`);
+    return true;
+  }
+
+  console.info(`[provision] ${label} skills not available — run: bex skill build`);
+  return false;
+}
+
 async function provisionXiqAgent(prisma: PrismaClient): Promise<boolean> {
+  const skillsReady = await ensureSkillsInstalled(prisma, 'extremecloudiq.', XIQ_SKILL_DOMAINS, 'ExtremeCloud IQ');
+  if (!skillsReady) return false;
+
   const xiqSkills = await prisma.skill.findMany({
     where: { domain: { startsWith: 'extremecloudiq.' } },
     select: { id: true, domain: true },
   });
-  if (xiqSkills.length === 0) {
-    console.info('[provision] XIQ credentials present but no extremecloudiq.* skills installed — skipping agent creation');
-    return false;
-  }
 
   // seed-xciq-full.ts creates "ExtremeCloud IQ Monitor"; init.ts creates "ExtremeCloud IQ"
   if (await agentExists(prisma, 'ExtremeCloud IQ', 'ExtremeCloud IQ Monitor')) {
-    console.info('[provision] ExtremeCloud IQ agent already exists — skipping');
     return true;
   }
 
   // Provision runs as system user
   const systemUser = await prisma.user.findFirst({ where: { isSystemUser: true }, select: { id: true } });
   if (!systemUser) {
-    console.warn('[provision] No system user found — run bex init first');
+    // System user is created by bex init — if it doesn't exist yet, skip silently
     return false;
   }
 
@@ -85,24 +168,25 @@ Be concise and clear in your responses.`,
 }
 
 async function provisionXcoAgent(prisma: PrismaClient): Promise<boolean> {
+  const skillsReady = await ensureSkillsInstalled(prisma, 'networking.extreme-xco.', XCO_SKILL_DOMAINS, 'ExtremeCloud Orchestrator');
+  if (!skillsReady) return false;
+
   const xcoSkills = await prisma.skill.findMany({
     where: { domain: { startsWith: 'networking.extreme-xco.' } },
     select: { id: true, domain: true },
   });
   if (xcoSkills.length === 0) {
-    console.info('[provision] XCO credentials present but no networking.extreme-xco.* skills installed — skipping agent creation');
+    // ensureSkillsInstalled already logged a message — just return
     return false;
   }
 
   // setup-xco.js creates "XCO Monitor/Operator/Provisioner"; init.ts creates "ExtremeCloud Orchestrator"
   if (await agentExists(prisma, 'ExtremeCloud Orchestrator', 'XCO Monitor', 'XCO Operator', 'XCO Provisioner')) {
-    console.info('[provision] ExtremeCloud Orchestrator agent already exists — skipping');
     return true;
   }
 
   const systemUser = await prisma.user.findFirst({ where: { isSystemUser: true }, select: { id: true } });
   if (!systemUser) {
-    console.warn('[provision] No system user found — run bex init first');
     return false;
   }
 
@@ -151,7 +235,6 @@ async function provisionNetOpsPersona(prisma: PrismaClient): Promise<void> {
     select: { id: true },
   });
   if (existing) {
-    console.info('[provision] Network Operations Manager persona already exists — skipping');
     return;
   }
 

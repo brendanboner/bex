@@ -474,8 +474,9 @@ export async function initCommand(): Promise<void> {
       // can inject it into process.env on subsequent service restarts.
       const llmKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
         : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
-        : 'AZURE_OPENAI_API_KEY';
-      if (llmApiKey) {
+        : llmProvider === 'azure' ? 'AZURE_OPENAI_API_KEY'
+        : ''; // ollama has no API key to store
+      if (llmApiKey && llmKeyVar) {
         await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, 'API_TOKEN', { [llmKeyVar.toLowerCase()]: llmApiKey });
       }
       if (channelEnv['TELEGRAM_BOT_TOKEN']) {
@@ -621,7 +622,8 @@ export async function initCommand(): Promise<void> {
   // Derive the LLM API key env var name for passing to subprocesses
   const llmApiKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
     : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
-    : 'AZURE_OPENAI_API_KEY';
+    : llmProvider === 'azure' ? 'AZURE_OPENAI_API_KEY'
+    : ''; // ollama has no API key
   const subprocEnvBase = {
     ...process.env,
     DATABASE_URL:          envVars['DATABASE_URL']!,
@@ -630,7 +632,8 @@ export async function initCommand(): Promise<void> {
     LLM_MODEL:             llmModel,
     SKILL_REGISTRY_URL:    envVars['SKILL_REGISTRY_URL'] ?? '',
     SKILL_REGISTRY_TOKEN:  envVars['SKILL_REGISTRY_TOKEN'] ?? '',
-    ...(llmApiKey ? { [llmApiKeyVar]: llmApiKey } : {}),
+    ...(llmApiKey && llmApiKeyVar ? { [llmApiKeyVar]: llmApiKey } : {}),
+    ...(ollamaBaseUrl ? { OLLAMA_BASE_URL: ollamaBaseUrl } : {}),
     ...(azureEndpoint ? { AZURE_OPENAI_ENDPOINT: azureEndpoint } : {}),
     ...(azureApiVersion ? { AZURE_OPENAI_API_VERSION: azureApiVersion } : {}),
   };
