@@ -1,21 +1,27 @@
 # Forge — Makefile
 
+SHELL := /bin/bash
+
 .PHONY: install bootstrap start stop restart status logs build test db-studio db-migrate db-reset clean help
 
 ##@ First-time Setup
 
 install: ## Install dependencies, build all packages, and link bex globally
 	@echo "📦 Installing dependencies..."
-	@npm install --loglevel=error --no-audit --no-fund > /dev/null 2>&1
+	@npm install --no-audit --no-fund 2>&1 | grep -Ev "^npm (warn|notice)" | grep -v "^$$" || true
 	@echo "⚙️  Generating Prisma client..."
-	@cd packages/shared && npx prisma generate --schema=prisma/schema.prisma 2>&1 | grep -E "✔|error|Error" || true
+	@cd packages/shared && npx prisma generate --schema=prisma/schema.prisma 2>&1 \
+	  | grep -E "✔|error|Error" || true
 	@echo "🔨 Building all packages..."
-	@if ! npm run build > /tmp/forge-build.log 2>&1; then \
-		echo ""; \
-		echo "❌ Build failed. Output:"; \
-		cat /tmp/forge-build.log; \
-		exit 1; \
-	fi
+	@npm run build -- --ui=stream 2>&1 \
+	  | tee /tmp/forge-build.log \
+	  | grep --line-buffered -E "Running build in [0-9]+|:build: cache miss|^\s+(Tasks:|Cached:|Time:)|error TS[0-9]+" \
+	  | sed 's/@bclaw\/\([^:]*\):build: cache miss.*/  ↳ @bclaw\/\1/'; \
+	  if [ $${PIPESTATUS[0]} -ne 0 ]; then \
+	    echo ""; echo "❌ Build failed. Errors:"; \
+	    grep -E "error TS[0-9]+|^error" /tmp/forge-build.log | head -20; \
+	    exit 1; \
+	  fi
 	@echo "🔗 Linking bex globally..."
 	@cd packages/cli && npm link --loglevel=error --no-audit > /dev/null 2>&1
 	@echo ""
