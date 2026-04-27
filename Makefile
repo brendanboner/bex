@@ -15,8 +15,8 @@ install: ## Install dependencies, build all packages, and link bex globally
 	@echo "🔨 Building all packages..."
 	@npm run build -- --ui=stream 2>&1 \
 	  | tee /tmp/forge-build.log \
-	  | grep --line-buffered -E "Running build in [0-9]+|:build: cache miss|^\s+(Tasks:|Cached:|Time:)|error TS[0-9]+" \
-	  | sed 's/@bclaw\/\([^:]*\):build: cache miss.*/  ↳ @bclaw\/\1/'; \
+	  | grep --line-buffered -E "^\s+(Tasks:|Cached:|Time:)|error TS[0-9]+" \
+	  | sed 's/^/  /'; \
 	  if [ $${PIPESTATUS[0]} -ne 0 ]; then \
 	    echo ""; echo "❌ Build failed. Errors:"; \
 	    grep -E "error TS[0-9]+|^error" /tmp/forge-build.log | head -20; \
