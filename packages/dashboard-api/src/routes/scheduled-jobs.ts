@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
-import { CreateScheduledJobSchema, ok, err, ErrorCodes } from '@bclaw/shared';
+import { CreateScheduledJobSchema, ok, err, ErrorCodes } from '@bex/shared';
 
 export async function scheduledJobRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   app.get('/admin/scheduled-jobs', async (_request, reply) => {

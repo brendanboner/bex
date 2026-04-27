@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
-import { CreateCredentialSchema, ok, err, ErrorCodes } from '@bclaw/shared';
-import { CredentialVaultService } from '@bclaw/credential-vault';
+import { CreateCredentialSchema, ok, err, ErrorCodes } from '@bex/shared';
+import { CredentialVaultService } from '@bex/credential-vault';
 import { resolveUserId } from '../user-resolver.js';
 
 export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {

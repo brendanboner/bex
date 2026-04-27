@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
-import { EndpointSchema, ok, err, ErrorCodes } from '@bclaw/shared';
+import { EndpointSchema, ok, err, ErrorCodes } from '@bex/shared';
 
 export async function endpointRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   app.get('/admin/endpoints', async (_request, reply) => {

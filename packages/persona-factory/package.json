@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/persona-factory",
+  "name": "@bex/persona-factory",
   "version": "0.1.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,9 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
-    "@bclaw/skill-engine": "*",
-    "@bclaw/knowledge-store": "*",
+    "@bex/shared": "*",
+    "@bex/skill-engine": "*",
+    "@bex/knowledge-store": "*",
     "@ai-sdk/openai": "^0.0.66",
     "@ai-sdk/anthropic": "^0.0.53",
     "ai": "^3.4.33",

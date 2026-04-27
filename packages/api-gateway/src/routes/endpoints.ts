@@ -5,9 +5,9 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
-import type { CredentialVaultService } from '@bclaw/credential-vault';
-import { sshExec } from '@bclaw/ssh-executor';
-import { ok, err, ErrorCodes } from '@bclaw/shared';
+import type { CredentialVaultService } from '@bex/credential-vault';
+import { sshExec } from '@bex/ssh-executor';
+import { ok, err, ErrorCodes } from '@bex/shared';
 
 export async function endpointRoutes(
   app: FastifyInstance,

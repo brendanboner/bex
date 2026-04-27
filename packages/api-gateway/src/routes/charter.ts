@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
-import { AgentCharterSchema, UpdateAgentCharterSchema } from '@bclaw/shared';
-import { ok, err, ErrorCodes } from '@bclaw/shared';
+import { AgentCharterSchema, UpdateAgentCharterSchema } from '@bex/shared';
+import { ok, err, ErrorCodes } from '@bex/shared';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPrisma = any;

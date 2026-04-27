@@ -5,7 +5,7 @@ import { Bot, Context, session } from 'grammy';
 import type { SessionFlavor } from 'grammy';
 import { fetch } from 'undici';
 import { PrismaClient } from '@prisma/client';
-import { loadSystemSecrets } from '@bclaw/credential-vault';
+import { loadSystemSecrets } from '@bex/credential-vault';
 
 // Load .env from repo root (two directories up from integrations/telegram/dist)
 dotenvConfig({ path: resolve(__dirname, '../../../.env') });

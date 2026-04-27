@@ -6,7 +6,7 @@ vi.mock('ai', () => ({
   generateObject: vi.fn(),
 }));
 
-vi.mock('@bclaw/skill-engine', () => ({
+vi.mock('@bex/skill-engine', () => ({
   buildModel: vi.fn().mockReturnValue({}),
 }));
 

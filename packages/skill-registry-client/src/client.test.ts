@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { computeSkillChecksum, SkillRegistryClient } from '../src/client.js';
-import type { SkillManifest } from '@bclaw/shared';
+import type { SkillManifest } from '@bex/shared';
 
 const sampleTools = [
   { name: 'get_devices', description: 'List all devices', parameters: { type: 'object', properties: {} } },

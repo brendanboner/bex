@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/agent-mesh",
+  "name": "@bex/agent-mesh",
   "version": "0.1.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
+    "@bex/shared": "*",
     "bullmq": "^5.13.2",
     "ioredis": "^5.3.2",
     "zod": "^3.23.8"

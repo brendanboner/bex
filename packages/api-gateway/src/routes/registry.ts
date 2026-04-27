@@ -4,10 +4,10 @@ import { Prisma } from '@prisma/client';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 
-import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
-import { ok, err, ErrorCodes } from '@bclaw/shared';
-import type { SkillManifest } from '@bclaw/shared';
+import { SkillRegistryClient, computeSkillChecksum } from '@bex/skill-registry-client';
+import { KnowledgeStore } from '@bex/knowledge-store';
+import { ok, err, ErrorCodes } from '@bex/shared';
+import type { SkillManifest } from '@bex/shared';
 
 /** Write any bundled knowledge docs from a manifest to the local KnowledgeStore. */
 async function installKnowledgeDocs(manifest: SkillManifest): Promise<number> {
@@ -97,7 +97,7 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
     });
 
     // 2. Fetch from remote registry if configured
-    let remoteSkills: import('@bclaw/skill-registry-client').RemoteSkill[] = [];
+    let remoteSkills: import('@bex/skill-registry-client').RemoteSkill[] = [];
     if (client.isConfigured) {
       try {
         remoteSkills = await client.list(query);

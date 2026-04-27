@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/coordinator",
+  "name": "@bex/coordinator",
   "version": "0.1.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,9 +18,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
-    "@bclaw/credential-vault": "*",
-    "@bclaw/skill-engine": "*",
+    "@bex/shared": "*",
+    "@bex/credential-vault": "*",
+    "@bex/skill-engine": "*",
     "@ai-sdk/openai": "^0.0.66",
     "@ai-sdk/anthropic": "^0.0.53",
     "@ai-sdk/azure": "^0.0.38",

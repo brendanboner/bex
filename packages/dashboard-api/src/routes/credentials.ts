@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
-import { ok, err, ErrorCodes } from '@bclaw/shared';
+import { ok, err, ErrorCodes } from '@bex/shared';
 
 export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   // GET /admin/credentials — list all credentials (no secrets, metadata only)

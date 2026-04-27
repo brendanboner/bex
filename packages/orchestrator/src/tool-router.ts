@@ -24,7 +24,7 @@
  *     about XIQ, we don't reset to all-domains on the next turn.
  */
 
-import type { SkillTool } from '@bclaw/shared';
+import type { SkillTool } from '@bex/shared';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

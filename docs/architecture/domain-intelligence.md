@@ -31,7 +31,7 @@ type DocRef = {
 };
 ```
 
-**How it's built:** When a skill is built from a URL, `discoverLinkedDocs()` in `@bclaw/skill-engine`:
+**How it's built:** When a skill is built from a URL, `discoverLinkedDocs()` in `@bex/skill-engine`:
 1. Fetches the source URL
 2. Extracts all same-host links from the page
 3. Visits each link and reads the title

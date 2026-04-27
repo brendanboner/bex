@@ -1,5 +1,5 @@
 import twilio from 'twilio';
-import type { ApprovalPayload } from '@bclaw/shared';
+import type { ApprovalPayload } from '@bex/shared';
 
 const accountSid = requireEnv('TWILIO_ACCOUNT_SID');
 const authToken = requireEnv('TWILIO_AUTH_TOKEN');

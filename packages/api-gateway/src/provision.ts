@@ -7,7 +7,7 @@
  * the dashboard GUI.
  */
 import type { PrismaClient } from '@prisma/client';
-import type { CredentialVaultService } from '@bclaw/credential-vault';
+import type { CredentialVaultService } from '@bex/credential-vault';
 
 async function credentialExists(prisma: PrismaClient, name: string): Promise<boolean> {
   const cred = await prisma.credential.findFirst({ where: { name, scope: 'SYSTEM' }, select: { id: true } });

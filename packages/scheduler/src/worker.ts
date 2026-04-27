@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { loadSystemSecrets } from '@bclaw/credential-vault';
+import { loadSystemSecrets } from '@bex/credential-vault';
 
 import { createAgentWorker } from './queue.js';
 import { runCronLoop } from './cron.js';

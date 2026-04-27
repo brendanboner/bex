@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/integration-telegram",
+  "name": "@bex/integration-telegram",
   "version": "0.1.0",
   "private": true,
   "description": "Telegram bot integration — routes messages to api-gateway",
@@ -12,8 +12,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/credential-vault": "*",
-    "@bclaw/shared": "*",
+    "@bex/credential-vault": "*",
+    "@bex/shared": "*",
     "dotenv": "^16.4.0",
     "grammy": "^1.29.0",
     "undici": "^6.20.0",

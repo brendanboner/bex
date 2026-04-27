@@ -1,5 +1,5 @@
-import type { ResolvedCharter } from '@bclaw/shared';
-import { DEFAULT_CHARTER } from '@bclaw/shared';
+import type { ResolvedCharter } from '@bex/shared';
+import { DEFAULT_CHARTER } from '@bex/shared';
 
 // Merge DB charter with defaults
 export function resolveCharter(charter: {

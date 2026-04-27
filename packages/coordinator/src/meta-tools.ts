@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { WorkflowPlanner } from './planner.js';
-import { SkillBuilderService } from '@bclaw/skill-engine';
+import { SkillBuilderService } from '@bex/skill-engine';
 
 // ─── list_agents ─────────────────────────────────────────────────────────────
 

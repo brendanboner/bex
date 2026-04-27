@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
-import { ok, err, ErrorCodes } from '@bclaw/shared';
-import { CredentialVaultService } from '@bclaw/credential-vault';
+import { ok, err, ErrorCodes } from '@bex/shared';
+import { CredentialVaultService } from '@bex/credential-vault';
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';

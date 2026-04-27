@@ -2,8 +2,8 @@ import { generateObject, generateText } from 'ai';
 import { z } from 'zod';
 import { PrismaClient, Prisma } from '@prisma/client';
 
-import type { LlmProvider, SkillDiscoveryResult } from '@bclaw/shared';
-import { CreateSkillSchema } from '@bclaw/shared';
+import type { LlmProvider, SkillDiscoveryResult } from '@bex/shared';
+import { CreateSkillSchema } from '@bex/shared';
 
 import { parseMarkdown, parseOpenApi, parsePdf, discoverLinkedDocs } from './knowledge-parser.js';
 import type { ParsedKnowledge, DocRef } from './knowledge-parser.js';

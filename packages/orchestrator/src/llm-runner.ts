@@ -6,8 +6,8 @@ import { generateText } from 'ai';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 
-import type { LlmProvider, SkillTool, ToolCallResult } from '@bclaw/shared';
-import type { CredentialVaultService } from '@bclaw/credential-vault';
+import type { LlmProvider, SkillTool, ToolCallResult } from '@bex/shared';
+import type { CredentialVaultService } from '@bex/credential-vault';
 
 export function buildLlmModel(provider: LlmProvider, model: string, apiKey?: string, baseUrl?: string, apiVersion?: string): LanguageModel {
   const openaiKey = apiKey ?? process.env['OPENAI_API_KEY'];

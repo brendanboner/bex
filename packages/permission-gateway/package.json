@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/permission-gateway",
+  "name": "@bex/permission-gateway",
   "version": "0.1.0",
   "private": true,
   "description": "Approval workflow engine with Telegram and Teams notification adapters",
@@ -22,7 +22,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
+    "@bex/shared": "*",
     "@prisma/client": "^5.17.0",
     "twilio": "^5.3.3",
     "undici": "^6.20.0",

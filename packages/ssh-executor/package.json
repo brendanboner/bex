@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/ssh-executor",
+  "name": "@bex/ssh-executor",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,8 +19,8 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
-    "@bclaw/credential-vault": "*",
+    "@bex/shared": "*",
+    "@bex/credential-vault": "*",
     "ssh2": "^1.16.0",
     "zod": "^3.23.0"
   },

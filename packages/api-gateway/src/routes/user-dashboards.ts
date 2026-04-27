@@ -13,9 +13,9 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient, Prisma } from '@prisma/client';
 
-import { CreateUserDashboardSchema, UpdateUserDashboardSchema, ok, err, ErrorCodes } from '@bclaw/shared';
-import { OrchestratorService } from '@bclaw/orchestrator';
-import { createAgentQueue } from '@bclaw/scheduler';
+import { CreateUserDashboardSchema, UpdateUserDashboardSchema, ok, err, ErrorCodes } from '@bex/shared';
+import { OrchestratorService } from '@bex/orchestrator';
+import { createAgentQueue } from '@bex/scheduler';
 import { resolveUserId } from '../user-resolver.js';
 import { generateWidgets } from '../widget-generator.js';
 

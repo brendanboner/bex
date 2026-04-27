@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import type { CredentialVaultService } from '@bclaw/credential-vault';
+import type { CredentialVaultService } from '@bex/credential-vault';
 import { sshExec } from './client.js';
 import type { SshExecResult } from './client.js';
 import type { CoreTool } from 'ai';

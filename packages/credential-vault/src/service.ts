@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
-import type { CreateCredentialInput, CredentialValues, CredentialType, ProxiedRequestConfig, ProxiedRequestResult } from '@bclaw/shared';
-import { ErrorCodes } from '@bclaw/shared';
+import type { CreateCredentialInput, CredentialValues, CredentialType, ProxiedRequestConfig, ProxiedRequestResult } from '@bex/shared';
+import { ErrorCodes } from '@bex/shared';
 
 import { decrypt, encrypt } from './crypto.js';
 

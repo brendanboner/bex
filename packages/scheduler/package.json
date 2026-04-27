@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/scheduler",
+  "name": "@bex/scheduler",
   "version": "0.1.0",
   "private": true,
   "description": "BullMQ-based job queue and cron scheduling for agent tasks",
@@ -21,9 +21,9 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
-    "@bclaw/orchestrator": "*",
-    "@bclaw/knowledge-store": "*",
+    "@bex/shared": "*",
+    "@bex/orchestrator": "*",
+    "@bex/knowledge-store": "*",
     "@prisma/client": "^5.17.0",
     "bullmq": "^5.12.12",
     "cron-parser": "^4.9.0",

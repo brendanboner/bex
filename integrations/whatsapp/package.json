@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/integration-whatsapp",
+  "name": "@bex/integration-whatsapp",
   "version": "0.1.0",
   "private": true,
   "description": "WhatsApp integration via Twilio — approval notifications and webhook callbacks",
@@ -12,7 +12,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
+    "@bex/shared": "*",
     "fastify": "^4.28.1",
     "twilio": "^5.3.3",
     "undici": "^6.20.0"

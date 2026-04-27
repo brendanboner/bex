@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // Mock external dependencies before importing
-vi.mock('@bclaw/credential-vault', () => ({
+vi.mock('@bex/credential-vault', () => ({
   CredentialVaultService: class {
     proxyRequest() { return Promise.resolve({ status: 200, headers: {}, body: { result: 'ok' } }); }
   },
@@ -29,7 +29,7 @@ vi.mock('ai', () => ({
 }));
 
 import { buildLlmModel, buildTools, runLlm } from '../src/llm-runner.js';
-import { CredentialVaultService } from '@bclaw/credential-vault';
+import { CredentialVaultService } from '@bex/credential-vault';
 import { PrismaClient } from '@prisma/client';
 
 const mockVault = new CredentialVaultService({} as PrismaClient);

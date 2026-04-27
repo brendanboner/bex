@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import type { SkillManifest } from '@bclaw/shared';
+import type { SkillManifest } from '@bex/shared';
 
 export type RemoteSkill = {
   domain: string;

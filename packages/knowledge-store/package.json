@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/knowledge-store",
+  "name": "@bex/knowledge-store",
   "version": "0.1.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
+    "@bex/shared": "*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

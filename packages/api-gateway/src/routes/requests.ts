@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
-import { OrchestratorService } from '@bclaw/orchestrator';
-import { CreateAgentRequestSchema, ok, err, ErrorCodes } from '@bclaw/shared';
-import { createAgentQueue } from '@bclaw/scheduler';
+import { OrchestratorService } from '@bex/orchestrator';
+import { CreateAgentRequestSchema, ok, err, ErrorCodes } from '@bex/shared';
+import { createAgentQueue } from '@bex/scheduler';
 import { resolveUserId } from '../user-resolver.js';
 
 export async function requestRoutes(
@@ -101,7 +101,7 @@ export async function requestRoutes(
 
   // POST /approvals/:requestId/approve
   app.post<{ Params: { requestId: string } }>('/approvals/:requestId/approve', async (request, reply) => {
-    const { PermissionGatewayService } = await import('@bclaw/permission-gateway');
+    const { PermissionGatewayService } = await import('@bex/permission-gateway');
     const gateway = new PermissionGatewayService(prisma);
     await gateway.recordDecision(request.params.requestId, 'APPROVED');
 
@@ -129,7 +129,7 @@ export async function requestRoutes(
 
   // POST /approvals/:requestId/deny
   app.post<{ Params: { requestId: string } }>('/approvals/:requestId/deny', async (request, reply) => {
-    const { PermissionGatewayService } = await import('@bclaw/permission-gateway');
+    const { PermissionGatewayService } = await import('@bex/permission-gateway');
     const gateway = new PermissionGatewayService(prisma);
     await gateway.recordDecision(request.params.requestId, 'DENIED');
 

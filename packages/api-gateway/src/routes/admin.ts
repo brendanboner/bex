@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
-import { CredentialVaultService } from '@bclaw/credential-vault';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
+import { CredentialVaultService } from '@bex/credential-vault';
+import { KnowledgeStore } from '@bex/knowledge-store';
 
 const SetupSchema = z.object({
   adminEmail: z.string().email(),

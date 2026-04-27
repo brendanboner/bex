@@ -9,7 +9,7 @@
   "importOrder": [
     "^node:",
     "<THIRD_PARTY_MODULES>",
-    "^@bclaw/(.*)$",
+    "^@bex/(.*)$",
     "^[./]"
   ],
   "importOrderSeparation": true,

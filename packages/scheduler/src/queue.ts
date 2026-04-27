@@ -4,8 +4,8 @@ import { PrismaClient } from '@prisma/client';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { OrchestratorService } from '@bclaw/orchestrator';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
+import { OrchestratorService } from '@bex/orchestrator';
+import { KnowledgeStore } from '@bex/knowledge-store';
 
 const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
 const knowledgeStore = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');

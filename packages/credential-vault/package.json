@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/credential-vault",
+  "name": "@bex/credential-vault",
   "version": "0.1.0",
   "private": true,
   "description": "AES-256-GCM credential encryption and outbound request proxy",
@@ -22,7 +22,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
+    "@bex/shared": "*",
     "@prisma/client": "^5.17.0",
     "undici": "^6.20.0",
     "zod": "^3.23.8"

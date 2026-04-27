@@ -175,7 +175,7 @@ Write operations are checked against the agent's `AgentCharter.posture` and `con
 
 ## Persona Factory
 
-`@bclaw/persona-factory` generates agent configurations from a plain-text goal. Given:
+`@bex/persona-factory` generates agent configurations from a plain-text goal. Given:
 
 ```
 "Monitor XIQ for new client devices and alert via Telegram"
@@ -189,7 +189,7 @@ See [Personas guide](../guides/personas.md).
 
 ## Coordinator
 
-`@bclaw/coordinator` is the multi-agent orchestration layer. `POST /coordinator/chat` routes a query to the best-fit agent from the active pool using `AgentMesh` capability matching and `DomainConstraint` compatibility scores. Each routed task produces a `MeshEvent` record for observability.
+`@bex/coordinator` is the multi-agent orchestration layer. `POST /coordinator/chat` routes a query to the best-fit agent from the active pool using `AgentMesh` capability matching and `DomainConstraint` compatibility scores. Each routed task produces a `MeshEvent` record for observability.
 
 See [Coordinator guide](../guides/coordinator.md).
 
@@ -197,7 +197,7 @@ See [Coordinator guide](../guides/coordinator.md).
 
 ## Agent Mesh
 
-`@bclaw/agent-mesh` maintains the registry of active agent workers and their domain capabilities. Key responsibilities:
+`@bex/agent-mesh` maintains the registry of active agent workers and their domain capabilities. Key responsibilities:
 - `AgentMesh.route(task)` — selects the best-fit agent based on capability matching
 - `DomainConstraint` registry — enforces domain-level constraints (e.g. read-only in production)
 - `MeshEvent` log — every routed task creates an observability record

@@ -67,23 +67,23 @@ api-gateway ← integrations/telegram, integrations/teams, integrations/whatsapp
 
 | Package | Responsibility |
 |---|---|
-| `@bclaw/shared` | Prisma schema, Zod schemas, shared TypeScript types, `ok()`/`err()` helpers |
-| `@bclaw/credential-vault` | AES-256-GCM encryption, outbound HTTP proxy that injects credentials |
-| `@bclaw/ssh-executor` | SSH client (ssh2); exec + verify; LLM-callable `createSshTool()` |
-| `@bclaw/permission-gateway` | Approval workflows; Telegram/Teams/WhatsApp notification adapters |
-| `@bclaw/skill-engine` | Skill discovery (LLM + knowledge parsing), skill builder (URL fetch + parse), test runner |
-| `@bclaw/skill-registry-client` | Push/pull skill manifests to/from central registry; checksum verification |
-| `@bclaw/orchestrator` | Core execution engine; LLM multi-provider via Vercel AI SDK |
-| `@bclaw/coordinator` | Smart gateway node; multi-agent orchestration, intent routing, CoordinatorSession management |
-| `@bclaw/persona-factory` | LLM-driven Persona generation from a goal description; spawns Agent records |
-| `@bclaw/knowledge-store` | Markdown knowledge file CRUD; search and injection into skill system prompts |
-| `@bclaw/agent-mesh` | Inter-agent capability routing, constraint registry, MeshEvent observability log |
-| `@bclaw/scheduler` | BullMQ worker + cron loop for scheduled agent jobs |
-| `@bclaw/api-gateway` | Fastify server, JWT auth, all HTTP routes, audit trail |
-| `@bclaw/dashboard-api` | Admin REST API (status, users, scheduled jobs, endpoints) |
-| `@bclaw/integration-telegram` | grammY bot → api-gateway bridge |
-| `@bclaw/integration-teams` | botbuilder Teams bot → api-gateway bridge |
-| `@bclaw/integration-whatsapp` | Twilio WhatsApp bot → api-gateway bridge |
+| `@bex/shared` | Prisma schema, Zod schemas, shared TypeScript types, `ok()`/`err()` helpers |
+| `@bex/credential-vault` | AES-256-GCM encryption, outbound HTTP proxy that injects credentials |
+| `@bex/ssh-executor` | SSH client (ssh2); exec + verify; LLM-callable `createSshTool()` |
+| `@bex/permission-gateway` | Approval workflows; Telegram/Teams/WhatsApp notification adapters |
+| `@bex/skill-engine` | Skill discovery (LLM + knowledge parsing), skill builder (URL fetch + parse), test runner |
+| `@bex/skill-registry-client` | Push/pull skill manifests to/from central registry; checksum verification |
+| `@bex/orchestrator` | Core execution engine; LLM multi-provider via Vercel AI SDK |
+| `@bex/coordinator` | Smart gateway node; multi-agent orchestration, intent routing, CoordinatorSession management |
+| `@bex/persona-factory` | LLM-driven Persona generation from a goal description; spawns Agent records |
+| `@bex/knowledge-store` | Markdown knowledge file CRUD; search and injection into skill system prompts |
+| `@bex/agent-mesh` | Inter-agent capability routing, constraint registry, MeshEvent observability log |
+| `@bex/scheduler` | BullMQ worker + cron loop for scheduled agent jobs |
+| `@bex/api-gateway` | Fastify server, JWT auth, all HTTP routes, audit trail |
+| `@bex/dashboard-api` | Admin REST API (status, users, scheduled jobs, endpoints) |
+| `@bex/integration-telegram` | grammY bot → api-gateway bridge |
+| `@bex/integration-teams` | botbuilder Teams bot → api-gateway bridge |
+| `@bex/integration-whatsapp` | Twilio WhatsApp bot → api-gateway bridge |
 
 ### API surface (api-gateway :4000)
 
@@ -128,15 +128,15 @@ Health:       GET /health
 ## Key conventions
 
 ### Response envelope
-All API responses use the shared `ApiResponse<T>` type from `@bclaw/shared`:
+All API responses use the shared `ApiResponse<T>` type from `@bex/shared`:
 ```ts
 { ok: true, data: T }           // success
 { ok: false, error: { code, message, details? } }  // error
 ```
-Always use the `ok()` and `err()` helpers from `@bclaw/shared` — never construct these objects manually.
+Always use the `ok()` and `err()` helpers from `@bex/shared` — never construct these objects manually.
 
 ### Error codes
-Use constants from `ErrorCodes` in `@bclaw/shared` (e.g. `ErrorCodes.NOT_FOUND`). Use `ErrorCodes.INTERNAL` (not `INTERNAL_ERROR`). Attach a `code` property to thrown errors using `Object.assign(new Error(...), { code })`.
+Use constants from `ErrorCodes` in `@bex/shared` (e.g. `ErrorCodes.NOT_FOUND`). Use `ErrorCodes.INTERNAL` (not `INTERNAL_ERROR`). Attach a `code` property to thrown errors using `Object.assign(new Error(...), { code })`.
 
 ### Schema validation
 All external input is validated with Zod schemas defined in `packages/shared/src/schemas/index.ts`. Add new schemas there — not in individual packages.
@@ -164,7 +164,7 @@ If `!healthy` → call `POST /requests/:id/escalate` to spawn a remediation agen
 Remediation agents with write permissions require approval via permission-gateway.
 
 ### LLM provider abstraction
-Use `buildLlmModel(provider, model)` from `@bclaw/orchestrator` to get a Vercel AI SDK `LanguageModel`. For structured output (skill discovery/testing), use `generateObject`. For agent execution, use `generateText` with `maxSteps`.
+Use `buildLlmModel(provider, model)` from `@bex/orchestrator` to get a Vercel AI SDK `LanguageModel`. For structured output (skill discovery/testing), use `generateObject`. For agent execution, use `generateText` with `maxSteps`.
 
 ### Approval channels
 `DEFAULT_APPROVAL_CHANNEL` controls which adapter is used: `telegram`, `teams`, or `whatsapp`. The approval callback URL must be publicly accessible (`PERMISSION_GATEWAY_CALLBACK_URL`).
@@ -199,10 +199,10 @@ PATCH /agents/:id/charter   — partial update (merge patch)
 ```
 
 ### Mesh worker pattern
-`@bclaw/agent-mesh` exposes `AgentMesh.route(task)` which selects the best-fit agent from the active pool based on capability matching and `DomainConstraint` compatibility scores. Each routed task produces a `MeshEvent` record for observability. Set `MESH_AUTO_START_WORKERS=true` to auto-register all `ACTIVE` agents as mesh workers at startup.
+`@bex/agent-mesh` exposes `AgentMesh.route(task)` which selects the best-fit agent from the active pool based on capability matching and `DomainConstraint` compatibility scores. Each routed task produces a `MeshEvent` record for observability. Set `MESH_AUTO_START_WORKERS=true` to auto-register all `ACTIVE` agents as mesh workers at startup.
 
 ### Imports
-Use `@bclaw/<package>` workspace imports. TypeScript project references enforce build order. Always use `.js` extensions in import paths (ESM + `NodeNext`).
+Use `@bex/<package>` workspace imports. TypeScript project references enforce build order. Always use `.js` extensions in import paths (ESM + `NodeNext`).
 
 ### Environment
 `make setup` auto-generates all secrets. Required for operation: `CREDENTIAL_VAULT_KEY` (64 hex chars), `JWT_SECRET`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, and at least one LLM key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`).
@@ -267,33 +267,33 @@ api-gateway ← integrations/telegram, integrations/teams
 
 | Package | Responsibility |
 |---|---|
-| `@bclaw/shared` | Prisma schema, Zod schemas, shared TypeScript types, `ok()`/`err()` helpers |
-| `@bclaw/credential-vault` | AES-256-GCM encryption, outbound HTTP proxy that injects credentials |
-| `@bclaw/permission-gateway` | Approval workflows; Telegram/Teams notification adapters |
-| `@bclaw/skill-engine` | Skill discovery (LLM + knowledge parsing), skill registry CRUD |
-| `@bclaw/orchestrator` | Core execution engine; LLM multi-provider via Vercel AI SDK |
-| `@bclaw/coordinator` | Smart gateway node; multi-agent orchestration, intent routing, CoordinatorSession management |
-| `@bclaw/persona-factory` | LLM-driven Persona generation from a goal description; spawns Agent records |
-| `@bclaw/knowledge-store` | Markdown knowledge file CRUD; search and injection into skill system prompts |
-| `@bclaw/agent-mesh` | Inter-agent capability routing, constraint registry, MeshEvent observability log |
-| `@bclaw/scheduler` | BullMQ worker + cron loop for scheduled agent jobs |
-| `@bclaw/api-gateway` | Fastify server, JWT auth, all HTTP routes, audit trail |
-| `@bclaw/integration-telegram` | grammY bot → api-gateway bridge |
+| `@bex/shared` | Prisma schema, Zod schemas, shared TypeScript types, `ok()`/`err()` helpers |
+| `@bex/credential-vault` | AES-256-GCM encryption, outbound HTTP proxy that injects credentials |
+| `@bex/permission-gateway` | Approval workflows; Telegram/Teams notification adapters |
+| `@bex/skill-engine` | Skill discovery (LLM + knowledge parsing), skill registry CRUD |
+| `@bex/orchestrator` | Core execution engine; LLM multi-provider via Vercel AI SDK |
+| `@bex/coordinator` | Smart gateway node; multi-agent orchestration, intent routing, CoordinatorSession management |
+| `@bex/persona-factory` | LLM-driven Persona generation from a goal description; spawns Agent records |
+| `@bex/knowledge-store` | Markdown knowledge file CRUD; search and injection into skill system prompts |
+| `@bex/agent-mesh` | Inter-agent capability routing, constraint registry, MeshEvent observability log |
+| `@bex/scheduler` | BullMQ worker + cron loop for scheduled agent jobs |
+| `@bex/api-gateway` | Fastify server, JWT auth, all HTTP routes, audit trail |
+| `@bex/integration-telegram` | grammY bot → api-gateway bridge |
 
 ---
 
 ## Key conventions
 
 ### Response envelope
-All API responses use the shared `ApiResponse<T>` type from `@bclaw/shared`:
+All API responses use the shared `ApiResponse<T>` type from `@bex/shared`:
 ```ts
 { ok: true, data: T }           // success
 { ok: false, error: { code, message, details? } }  // error
 ```
-Always use the `ok()` and `err()` helpers from `@bclaw/shared` — never construct these objects manually.
+Always use the `ok()` and `err()` helpers from `@bex/shared` — never construct these objects manually.
 
 ### Error codes
-Use constants from `ErrorCodes` in `@bclaw/shared` (e.g. `ErrorCodes.NOT_FOUND`). Attach a `code` property to thrown errors using `Object.assign(new Error(...), { code })` so the gateway can map them to HTTP status codes.
+Use constants from `ErrorCodes` in `@bex/shared` (e.g. `ErrorCodes.NOT_FOUND`). Attach a `code` property to thrown errors using `Object.assign(new Error(...), { code })` so the gateway can map them to HTTP status codes.
 
 ### Schema validation
 All external input is validated with Zod schemas defined in `packages/shared/src/schemas/index.ts`. Add new schemas there — not in individual packages.
@@ -309,7 +309,7 @@ All outbound API calls that require credentials **must** go through `CredentialV
 Only system users (`User.isSystemUser = true`) can call `/skills/:id/publish`.
 
 ### LLM provider abstraction
-Use `buildLlmModel(provider, model)` from `@bclaw/orchestrator` to get a Vercel AI SDK `LanguageModel`. For structured output (skill discovery), use `generateObject` from the `ai` package. For agent execution, use `generateText` with `maxSteps`.
+Use `buildLlmModel(provider, model)` from `@bex/orchestrator` to get a Vercel AI SDK `LanguageModel`. For structured output (skill discovery), use `generateObject` from the `ai` package. For agent execution, use `generateText` with `maxSteps`.
 
 ### Tool naming
 Skill tool names must match `/^[a-z_][a-z0-9_]*$/` (enforced by `SkillToolSchema`). They map directly to LLM function call names.
@@ -320,7 +320,7 @@ Skill tool names must match `/^[a-z_][a-z0-9_]*$/` (enforced by `SkillToolSchema
 The `channel` field on `AgentRequest` and `CoordinatorSession` records which surface originated the request: `api` | `telegram` | `teams` | `dashboard` | `scheduler`.
 
 ### Imports
-Use `@bclaw/<package>` workspace imports. TypeScript project references enforce build order. Always use `.js` extensions in import paths (ESM + `NodeNext`).
+Use `@bex/<package>` workspace imports. TypeScript project references enforce build order. Always use `.js` extensions in import paths (ESM + `NodeNext`).
 
 ### Environment
 Copy `.env.example` to `.env`. Required secrets: `CREDENTIAL_VAULT_KEY` (64 hex chars), `JWT_SECRET`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, and at least one LLM key.

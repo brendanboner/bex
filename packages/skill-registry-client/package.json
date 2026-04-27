@@ -1,5 +1,5 @@
 {
-  "name": "@bclaw/skill-registry-client",
+  "name": "@bex/skill-registry-client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,7 +19,7 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@bclaw/shared": "*",
+    "@bex/shared": "*",
     "zod": "^3.23.0"
   },
   "devDependencies": {

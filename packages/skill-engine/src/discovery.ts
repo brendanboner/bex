@@ -1,8 +1,8 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 
-import type { LlmProvider, SkillDiscoveryRequest, SkillDiscoveryResult } from '@bclaw/shared';
-import { CreateSkillSchema } from '@bclaw/shared';
+import type { LlmProvider, SkillDiscoveryRequest, SkillDiscoveryResult } from '@bex/shared';
+import { CreateSkillSchema } from '@bex/shared';
 
 import type { ParsedKnowledge } from './knowledge-parser.js';
 import { parseMarkdown, parseOpenApi, parsePdf, parseUrl } from './knowledge-parser.js';

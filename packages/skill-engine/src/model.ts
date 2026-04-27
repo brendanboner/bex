@@ -3,7 +3,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createAzure } from '@ai-sdk/azure';
 import type { LanguageModel } from 'ai';
 
-import type { LlmProvider } from '@bclaw/shared';
+import type { LlmProvider } from '@bex/shared';
 
 /**
  * Constructs the AI SDK model instance for the given LLM provider.

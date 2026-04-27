@@ -1,4 +1,4 @@
-import type { ApprovalPayload } from '@bclaw/shared';
+import type { ApprovalPayload } from '@bex/shared';
 
 export interface NotificationAdapter {
   /**

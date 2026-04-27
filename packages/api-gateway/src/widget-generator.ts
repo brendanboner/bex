@@ -9,8 +9,8 @@
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { buildLlmModel } from '@bclaw/orchestrator';
-import type { Widget } from '@bclaw/shared';
+import { buildLlmModel } from '@bex/orchestrator';
+import type { Widget } from '@bex/shared';
 
 // ─── JSON extraction ──────────────────────────────────────────────────────────
 

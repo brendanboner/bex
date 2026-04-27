@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
-import type { ApprovalChannel, ApprovalPayload } from '@bclaw/shared';
-import { ErrorCodes } from '@bclaw/shared';
+import type { ApprovalChannel, ApprovalPayload } from '@bex/shared';
+import { ErrorCodes } from '@bex/shared';
 
 import type { NotificationAdapter } from './adapters.js';
 import { TelegramAdapter, TeamsAdapter, WhatsAppAdapter } from './adapters.js';

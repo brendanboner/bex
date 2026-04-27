@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-import { ok, err, ErrorCodes } from '@bclaw/shared';
-import { CoordinatorAgent, SessionManager } from '@bclaw/coordinator';
+import { ok, err, ErrorCodes } from '@bex/shared';
+import { CoordinatorAgent, SessionManager } from '@bex/coordinator';
 
 const ChatBodySchema = z.object({
   message: z.string().min(1),

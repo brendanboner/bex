@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-import { ok, err, ErrorCodes } from '@bclaw/shared';
-import { DomainConstraintRegistry } from '@bclaw/agent-mesh';
+import { ok, err, ErrorCodes } from '@bex/shared';
+import { DomainConstraintRegistry } from '@bex/agent-mesh';
 
 const RegisterConstraintSchema = z.object({
   sourceDomain: z.string().min(1),

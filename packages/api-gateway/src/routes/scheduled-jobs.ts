@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-import { ok, err, ErrorCodes } from '@bclaw/shared';
+import { ok, err, ErrorCodes } from '@bex/shared';
 
 const CreateJobSchema = z.object({
   name: z.string().min(1).max(200),
@@ -83,7 +83,7 @@ export async function scheduledJobRoutes(app: FastifyInstance, prisma: PrismaCli
     const systemUser = await prisma.user.findFirst({ where: { isSystemUser: true }, select: { id: true } });
     if (!systemUser) return reply.status(500).send(err(ErrorCodes.INTERNAL, 'No system user found'));
 
-    const { createAgentQueue } = await import('@bclaw/scheduler');
+    const { createAgentQueue } = await import('@bex/scheduler');
     const queue = createAgentQueue();
 
     const agentRequest = await prisma.agentRequest.create({

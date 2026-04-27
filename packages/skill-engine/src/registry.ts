@@ -1,7 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 
-import type { CreateSkillInput, LlmProvider, SkillDiscoveryRequest } from '@bclaw/shared';
-import { ErrorCodes } from '@bclaw/shared';
+import type { CreateSkillInput, LlmProvider, SkillDiscoveryRequest } from '@bex/shared';
+import { ErrorCodes } from '@bex/shared';
 
 import { SkillDiscoveryService } from './discovery.js';
 

@@ -11,7 +11,7 @@ async function main(): Promise<void> {
     create: {
       externalId: 'system',
       displayName: 'System',
-      email: 'system@bclaw.internal',
+      email: 'system@bex.internal',
       isSystemUser: true,
     },
   });

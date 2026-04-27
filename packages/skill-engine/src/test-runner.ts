@@ -2,7 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 
-import type { LlmProvider } from '@bclaw/shared';
+import type { LlmProvider } from '@bex/shared';
 
 import { buildModel } from './model.js';
 

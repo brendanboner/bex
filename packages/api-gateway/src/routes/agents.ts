@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
+import { KnowledgeStore } from '@bex/knowledge-store';
 
-import { CreateAgentSchema, UpdateAgentSchema, ok, err, ErrorCodes } from '@bclaw/shared';
+import { CreateAgentSchema, UpdateAgentSchema, ok, err, ErrorCodes } from '@bex/shared';
 
 const WORKSPACE_TOPICS = ['instructions', 'context', 'memory'] as const;
 type WorkspaceTopic = typeof WORKSPACE_TOPICS[number];

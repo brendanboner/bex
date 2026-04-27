@@ -2,15 +2,15 @@ import type { CoreMessage, CoreTool } from 'ai';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
-import { SkillRegistryClient } from '@bclaw/skill-registry-client';
+import { KnowledgeStore } from '@bex/knowledge-store';
+import { SkillRegistryClient } from '@bex/skill-registry-client';
 
-import type { ExecutionContext, LlmProvider, SkillTool } from '@bclaw/shared';
-import { ErrorCodes } from '@bclaw/shared';
-import { CredentialVaultService } from '@bclaw/credential-vault';
-import { SkillRegistryService, ToolRegistry } from '@bclaw/skill-engine';
-import { PermissionGatewayService } from '@bclaw/permission-gateway';
-import { SshExecutorService, createSshTool } from '@bclaw/ssh-executor';
+import type { ExecutionContext, LlmProvider, SkillTool } from '@bex/shared';
+import { ErrorCodes } from '@bex/shared';
+import { CredentialVaultService } from '@bex/credential-vault';
+import { SkillRegistryService, ToolRegistry } from '@bex/skill-engine';
+import { PermissionGatewayService } from '@bex/permission-gateway';
+import { SshExecutorService, createSshTool } from '@bex/ssh-executor';
 
 import { buildLlmModel, buildTools, runLlm, getCachedReachability } from './llm-runner.js';
 import { resolveCharter, buildCharterPrompt, isRestrictedAction } from './charter.js';

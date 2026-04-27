@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
-import type { SshExecutorService } from '@bclaw/ssh-executor';
+import type { SshExecutorService } from '@bex/ssh-executor';
 
-import { CreateTargetSchema, UpdateTargetSchema, ok, err, ErrorCodes } from '@bclaw/shared';
+import { CreateTargetSchema, UpdateTargetSchema, ok, err, ErrorCodes } from '@bex/shared';
 
 export async function targetRoutes(
   app: FastifyInstance,

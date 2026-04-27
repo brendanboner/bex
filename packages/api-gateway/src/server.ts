@@ -6,8 +6,8 @@ import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import { PrismaClient } from '@prisma/client';
 
-import { CredentialVaultService, loadSystemSecrets } from '@bclaw/credential-vault';
-import { SshExecutorService } from '@bclaw/ssh-executor';
+import { CredentialVaultService, loadSystemSecrets } from '@bex/credential-vault';
+import { SshExecutorService } from '@bex/ssh-executor';
 
 import { adminRoutes } from './routes/admin.js';
 import { provisionDefaults } from './provision.js';

@@ -1,9 +1,9 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { PrismaClient, Persona } from '@prisma/client';
-import { buildModel } from '@bclaw/skill-engine';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
-import type { LlmProvider } from '@bclaw/shared';
+import { buildModel } from '@bex/skill-engine';
+import { KnowledgeStore } from '@bex/knowledge-store';
+import type { LlmProvider } from '@bex/shared';
 
 export interface GeneratePersonaOptions {
   goal: string;

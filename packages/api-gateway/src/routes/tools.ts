@@ -2,9 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-import { ok, err, ErrorCodes } from '@bclaw/shared';
-import { ToolRegistry } from '@bclaw/skill-engine';
-import type { ToolDefinition } from '@bclaw/skill-engine';
+import { ok, err, ErrorCodes } from '@bex/shared';
+import { ToolRegistry } from '@bex/skill-engine';
+import type { ToolDefinition } from '@bex/skill-engine';
 
 const RegisterToolSchema = z.object({
   name: z.string().min(1),

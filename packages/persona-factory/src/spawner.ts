@@ -1,5 +1,5 @@
 import type { PrismaClient, Agent, ScheduledJob } from '@prisma/client';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
+import { KnowledgeStore } from '@bex/knowledge-store';
 
 export interface SpawnResult {
   agent: Agent;

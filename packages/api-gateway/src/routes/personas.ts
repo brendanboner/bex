@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
-import { PersonaFactory, PersonaSpawner } from '@bclaw/persona-factory';
-import { GeneratePersonaSchema, SpawnPersonaSchema } from '@bclaw/shared';
-import { ok, err, ErrorCodes } from '@bclaw/shared';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
+import { PersonaFactory, PersonaSpawner } from '@bex/persona-factory';
+import { GeneratePersonaSchema, SpawnPersonaSchema } from '@bex/shared';
+import { ok, err, ErrorCodes } from '@bex/shared';
+import { KnowledgeStore } from '@bex/knowledge-store';
 
 export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   // POST /personas/generate — generate persona from goal via LLM

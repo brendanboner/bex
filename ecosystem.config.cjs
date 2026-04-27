@@ -19,7 +19,7 @@ const sharedEnv = {
   JWT_SECRET:            process.env.JWT_SECRET,
   CREDENTIAL_VAULT_KEY:  process.env.CREDENTIAL_VAULT_KEY,
   // LLM API keys are NOT passed here — loadSystemSecrets() injects them from
-  // the credential vault at service startup (see @bclaw/credential-vault).
+  // the credential vault at service startup (see @bex/credential-vault).
   CORS_ORIGIN:           process.env.CORS_ORIGIN      ?? 'http://localhost:3000',
   SKILL_REGISTRY_URL:    process.env.SKILL_REGISTRY_URL ?? 'http://localhost:5050',
   SKILL_REGISTRY_TOKEN:  process.env.SKILL_REGISTRY_TOKEN ?? 'bex-registry-dev',

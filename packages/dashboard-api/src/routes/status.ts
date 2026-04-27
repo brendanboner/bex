@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
-import { ok } from '@bclaw/shared';
+import { ok } from '@bex/shared';
 
 export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
 

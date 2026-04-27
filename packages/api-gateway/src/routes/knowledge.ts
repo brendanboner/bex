@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
-import { ok, err, ErrorCodes } from '@bclaw/shared';
+import { KnowledgeStore } from '@bex/knowledge-store';
+import { ok, err, ErrorCodes } from '@bex/shared';
 
 export async function knowledgeRoutes(app: FastifyInstance): Promise<void> {
   const baseDir = process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge';

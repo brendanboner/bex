@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
-import { CreateSkillSchema, ok, err, ErrorCodes } from '@bclaw/shared';
-import { SkillBuilderService, SkillRegistryService, SkillTestRunner, SkillProberService } from '@bclaw/skill-engine';
-import { SkillRegistryClient, computeSkillChecksum } from '@bclaw/skill-registry-client';
-import { KnowledgeStore } from '@bclaw/knowledge-store';
-import { CredentialVaultService } from '@bclaw/credential-vault';
-import type { BuildSkillSource } from '@bclaw/skill-engine';
+import { CreateSkillSchema, ok, err, ErrorCodes } from '@bex/shared';
+import { SkillBuilderService, SkillRegistryService, SkillTestRunner, SkillProberService } from '@bex/skill-engine';
+import { SkillRegistryClient, computeSkillChecksum } from '@bex/skill-registry-client';
+import { KnowledgeStore } from '@bex/knowledge-store';
+import { CredentialVaultService } from '@bex/credential-vault';
+import type { BuildSkillSource } from '@bex/skill-engine';
 
 export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const registry = new SkillRegistryService(prisma);
@@ -343,7 +343,7 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
             publishedAt: new Date().toISOString(),
             ...(knowledgeDocs.length > 0 && { knowledgeDocs }),
             ...(hasDomainKnowledge && { domainKnowledge: { entityGraph, playbooks } }),
-          } as import('@bclaw/shared').SkillManifest;
+          } as import('@bex/shared').SkillManifest;
 
           const { url } = await remoteRegistry.publish(manifest);
           app.log.info({ skillId: request.params.id, domain: skill.domain, registryUrl: url, playbooksIncluded: playbooks.length }, 'Skill pushed to standalone registry');
