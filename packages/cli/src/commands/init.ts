@@ -117,7 +117,7 @@ export async function initCommand(): Promise<void> {
     azureEndpoint = await input({
       message: `Azure OpenAI endpoint:${hint('AZURE_OPENAI_ENDPOINT')}`,
       default: prev['AZURE_OPENAI_ENDPOINT'] ?? '',
-      validate: (v: string) => (v.startsWith('https://') && v.includes('.openai.azure.com')) || 'Enter a valid Azure endpoint (e.g. https://my-resource.openai.azure.com/)',
+      validate: (v: string) => (v.startsWith('https://') && (v.includes('.openai.azure.com') || v.includes('.cognitiveservices.azure.com'))) || 'Enter a valid Azure endpoint (e.g. https://my-resource.openai.azure.com/ or https://my-resource.cognitiveservices.azure.com/)',
     });
     azureApiVersion = await input({
       message: `Azure API version:${hint('AZURE_OPENAI_API_VERSION')}`,
