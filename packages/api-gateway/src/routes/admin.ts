@@ -36,96 +36,105 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
   // POST /admin/setup — first-run bootstrap, public (but returns 409 if already done)
   app.post('/admin/setup', async (request, reply) => {
-    const existingAdmin = await prisma.user.findFirst({ where: { isSystemUser: false } });
-    if (existingAdmin) {
-      return reply.status(409).send({
-        ok: false,
-        error: { code: 'CONFLICT', message: 'Platform already configured.' },
+    try {
+      const existingAdmin = await prisma.user.findFirst({ where: { isSystemUser: false } });
+      if (existingAdmin) {
+        return reply.status(409).send({
+          ok: false,
+          error: { code: 'CONFLICT', message: 'Platform already configured.' },
+        });
+      }
+
+      const body = SetupSchema.safeParse(request.body);
+      if (!body.success) {
+        return reply.status(400).send({
+          ok: false,
+          error: { code: 'VALIDATION_ERROR', message: body.error.message },
+        });
+      }
+
+      const { adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, ollamaBaseUrl, channel, channelConfig } = body.data;
+      const passwordHash = await bcrypt.hash(adminPassword, 12);
+
+      await prisma.user.upsert({
+        where: { externalId: 'system' },
+        update: {},
+        create: { externalId: 'system', displayName: 'System', isSystemUser: true },
       });
-    }
 
-    const body = SetupSchema.safeParse(request.body);
-    if (!body.success) {
-      return reply.status(400).send({
-        ok: false,
-        error: { code: 'VALIDATION_ERROR', message: body.error.message },
+      const admin = await prisma.user.create({
+        data: {
+          externalId: `admin-${Date.now()}`,
+          email: adminEmail,
+          displayName: adminEmail.split('@')[0] ?? 'Admin',
+          passwordHash,
+          isSystemUser: true, // bootstrapped admin has full system privileges
+        },
       });
-    }
 
-    const { adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, ollamaBaseUrl, channel, channelConfig } = body.data;
-    const passwordHash = await bcrypt.hash(adminPassword, 12);
-
-    await prisma.user.upsert({
-      where: { externalId: 'system' },
-      update: {},
-      create: { externalId: 'system', displayName: 'System', isSystemUser: true },
-    });
-
-    const admin = await prisma.user.create({
-      data: {
-        externalId: `admin-${Date.now()}`,
-        email: adminEmail,
-        displayName: adminEmail.split('@')[0] ?? 'Admin',
-        passwordHash,
-        isSystemUser: true, // bootstrapped admin has full system privileges
-      },
-    });
-
-    await vault.create({
-      name: 'bex.llm.primary',
-      description: `${llmProvider} LLM configuration`,
-      scope: 'SYSTEM',
-      credentialType: 'API_TOKEN',
-      value: llmProvider === 'ollama'
-        ? { provider: llmProvider, model: llmModel, baseUrl: ollamaBaseUrl ?? 'http://localhost:11434' }
-        : { provider: llmProvider, apiKey: llmApiKey, model: llmModel },
-      allowedAgentPermissions: [],
-    });
-
-    if (channel !== 'dashboard' && Object.keys(channelConfig).length > 0) {
       await vault.create({
-        name: `bex.channel.${channel}`,
-        description: `${channel} channel config`,
+        name: 'bex.llm.primary',
+        description: `${llmProvider} LLM configuration`,
         scope: 'SYSTEM',
-        credentialType: 'USER_PREFERENCE',
-        value: channelConfig,
+        credentialType: 'API_TOKEN',
+        value: llmProvider === 'ollama'
+          ? { provider: llmProvider, model: llmModel, baseUrl: ollamaBaseUrl ?? 'http://localhost:11434' }
+          : { provider: llmProvider, apiKey: llmApiKey, model: llmModel },
         allowedAgentPermissions: [],
       });
+
+      if (channel !== 'dashboard' && Object.keys(channelConfig).length > 0) {
+        await vault.create({
+          name: `bex.channel.${channel}`,
+          description: `${channel} channel config`,
+          scope: 'SYSTEM',
+          credentialType: 'USER_PREFERENCE',
+          value: channelConfig,
+          allowedAgentPermissions: [],
+        });
+      }
+
+      await knowledge.write(
+        'platform',
+        'config',
+        [
+          `# BEX Platform Configuration`,
+          ``,
+          `## LLM`,
+          `- Provider: ${llmProvider}`,
+          `- Model: ${llmModel}`,
+          ``,
+          `## Interface Channel`,
+          `- Active: ${channel}`,
+          ``,
+          `## Admin`,
+          `- Email: ${adminEmail}`,
+          `- Configured: ${new Date().toISOString()}`,
+        ].join('\n'),
+      );
+
+      const token = app.jwt.sign(
+        { sub: admin.externalId, email: admin.email, role: 'admin' },
+        { expiresIn: '7d' },
+      );
+
+      return reply.status(201).send({
+        ok: true,
+        data: {
+          adminToken: token,
+          dashboardUrl: `http://localhost:${process.env['DASHBOARD_PORT'] ?? '3000'}`,
+          apiUrl: `http://localhost:${process.env['PORT'] ?? '4000'}`,
+          message: 'Forge configured. Open the dashboard to get started.',
+        },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      request.log.error({ err }, 'Setup failed');
+      return reply.status(500).send({
+        ok: false,
+        error: { code: 'INTERNAL', message },
+      });
     }
-
-    await knowledge.write(
-      'platform',
-      'config',
-      [
-        `# BEX Platform Configuration`,
-        ``,
-        `## LLM`,
-        `- Provider: ${llmProvider}`,
-        `- Model: ${llmModel}`,
-        ``,
-        `## Interface Channel`,
-        `- Active: ${channel}`,
-        ``,
-        `## Admin`,
-        `- Email: ${adminEmail}`,
-        `- Configured: ${new Date().toISOString()}`,
-      ].join('\n'),
-    );
-
-    const token = app.jwt.sign(
-      { sub: admin.externalId, email: admin.email, role: 'admin' },
-      { expiresIn: '7d' },
-    );
-
-    return reply.status(201).send({
-      ok: true,
-      data: {
-        adminToken: token,
-        dashboardUrl: `http://localhost:${process.env['DASHBOARD_PORT'] ?? '3000'}`,
-        apiUrl: `http://localhost:${process.env['PORT'] ?? '4000'}`,
-        message: 'Forge configured. Open the dashboard to get started.',
-      },
-    });
   });
 
   // POST /auth/login — email + password => JWT

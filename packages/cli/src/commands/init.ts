@@ -543,29 +543,38 @@ export async function initCommand(): Promise<void> {
     } catch { /* proceed without auth */ }
   }
 
-  async function pullSkillFromRegistry(
-    label: string,
-    domain: string,
-    version = '1.0.0',
-  ): Promise<string | null> {
-    console.log('');
-    const sp = ora(`Installing ${label} skill from registry…`).start();
+  async function batchInstallFromRegistry(domains: readonly string[]): Promise<string[]> {
+    const skillIds: string[] = [];
+    await Promise.all(
+      domains.map(async (domain) => {
+        try {
+          const res = await fetch(
+            `http://localhost:4000/registry/install/${encodeURIComponent(domain)}/1.0.0`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json', ...registryAuthHeader } },
+          );
+          const json = (await res.json()) as { ok: boolean; data?: { skillId?: string } };
+          if (json.ok && json.data?.skillId) skillIds.push(json.data.skillId);
+        } catch { /* silent — fall through to local build */ }
+      }),
+    );
+    return skillIds;
+  }
+
+  async function pushSkillsToRegistry(domainPrefix: string): Promise<void> {
+    if (!envVars['SKILL_REGISTRY_TOKEN']) return;
     try {
-      const res = await fetch(
-        `http://localhost:4000/registry/install/${encodeURIComponent(domain)}/${encodeURIComponent(version)}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json', ...registryAuthHeader } },
+      const res = await fetch('http://localhost:4000/skills', { headers: registryAuthHeader });
+      const json = (await res.json()) as { ok: boolean; data?: Array<{ id: string; domain?: string }> };
+      const skills = (json.data ?? []).filter((s) => s.domain?.startsWith(domainPrefix));
+      await Promise.all(
+        skills.map((s) =>
+          fetch(`http://localhost:4000/skills/${s.id}/publish-to-registry`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...registryAuthHeader },
+          }).catch(() => {}),
+        ),
       );
-      const json = (await res.json()) as { ok: boolean; data?: { skillId?: string }; error?: unknown };
-      if (json.ok && json.data?.skillId) {
-        sp.succeed(`${label} skill installed`);
-        return json.data.skillId;
-      }
-      sp.warn(`${label} not in registry — build manually: bex skill build`);
-      return null;
-    } catch {
-      sp.warn(`Could not reach registry — build manually: bex skill build`);
-      return null;
-    }
+    } catch { /* non-fatal */ }
   }
 
   async function createDefaultAgent(opts: {
@@ -641,30 +650,32 @@ export async function initCommand(): Promise<void> {
   let xiqReady = false;
   let xcoReady = false;
 
+  const hasAuth = Object.keys(registryAuthHeader).length > 0;
+
   if (setupXiq) {
-    // Install all key XIQ skills from registry
-    const xiqDomains = [
-      ['ExtremeCloud IQ — Core',       'extremecloudiq.networking'],
-      ['ExtremeCloud IQ — Devices',    'extremecloudiq.devices'],
-      ['ExtremeCloud IQ — Clients',    'extremecloudiq.clients'],
-      ['ExtremeCloud IQ — Monitoring', 'extremecloudiq.monitoring'],
-      ['ExtremeCloud IQ — Alerts',     'extremecloudiq.alerts.logs'],
-      ['ExtremeCloud IQ — Policies',   'extremecloudiq.network.policy'],
-    ] as const;
+    if (!hasAuth) {
+      ora('').info('ExtremeCloud IQ: setup did not complete — re-run bex init to install skills');
+    } else {
+      const xiqDomains = [
+        'extremecloudiq.networking',
+        'extremecloudiq.devices',
+        'extremecloudiq.clients',
+        'extremecloudiq.monitoring',
+        'extremecloudiq.alerts.logs',
+        'extremecloudiq.network.policy',
+      ] as const;
 
-    const xiqSkillIds: string[] = [];
-    for (const [label, domain] of xiqDomains) {
-      const skillId = await pullSkillFromRegistry(label, domain);
-      if (skillId) xiqSkillIds.push(skillId);
-    }
+      console.log('');
+      const xiqSp = ora('Installing ExtremeCloud IQ skills…').start();
+      const xiqRegistryIds = await batchInstallFromRegistry(xiqDomains);
 
-    if (xiqSkillIds.length > 0) {
-      // Registry had skills — create a simple agent with them
-      xiqReady = true;
-      await createDefaultAgent({
-        name: 'ExtremeCloud IQ',
-        description: 'Manages and monitors your ExtremeCloud IQ wireless network — devices, clients, alerts, policies, and more.',
-        systemPrompt: `You are a comprehensive ExtremeCloud IQ network assistant.
+      if (xiqRegistryIds.length > 0) {
+        xiqSp.succeed('ExtremeCloud IQ skills installed from registry');
+        xiqReady = true;
+        await createDefaultAgent({
+          name: 'ExtremeCloud IQ',
+          description: 'Manages and monitors your ExtremeCloud IQ wireless network — devices, clients, alerts, policies, and more.',
+          systemPrompt: `You are a comprehensive ExtremeCloud IQ network assistant.
 
 You can: list and monitor devices, view client connections, check alerts and logs, manage network policies, and more.
 
@@ -674,86 +685,95 @@ IMPORTANT: For any write operation (create, update, delete, push config), always
 3. Report the outcome clearly
 
 Be concise and clear in your responses.`,
-        skillIds: xiqSkillIds,
-        permissions: ['xiq:read', 'xiq:write'],
-        posture: 'SUPERVISED',
-        mandate: 'Manage and monitor ExtremeCloud IQ. Read operations are autonomous. Write operations require human approval.',
-        conductBoundaries: ['delete:*', 'push:config'],
-      });
-    } else {
-      // Registry doesn't have XIQ skills — build locally from the live OpenAPI spec
-      console.log('');
-      const buildSp = ora('Building ExtremeCloud IQ skills from OpenAPI spec (this may take ~60s)…').start();
-      const buildResult = spawnSync(
-        'npx', ['tsx', 'scripts/seed-xciq-full.ts'],
-        {
-          cwd: root,
-          env: {
-            ...subprocEnvBase,
-            XIQ_USERNAME: domainEnv['XIQ_USERNAME'] ?? '',
-            XIQ_PASSWORD: domainEnv['XIQ_PASSWORD'] ?? '',
-          },
-          stdio: ['ignore', 'pipe', 'pipe'],
-          encoding: 'utf-8',
-          timeout: 180_000,
-        },
-      );
-      if (buildResult.status === 0 && !buildResult.error) {
-        buildSp.succeed('ExtremeCloud IQ skills built and agent created');
-        xiqReady = true;
+          skillIds: xiqRegistryIds,
+          permissions: ['xiq:read', 'xiq:write'],
+          posture: 'SUPERVISED',
+          mandate: 'Manage and monitor ExtremeCloud IQ. Read operations are autonomous. Write operations require human approval.',
+          conductBoundaries: ['delete:*', 'push:config'],
+        });
       } else {
-        buildSp.warn('Could not build XIQ skills automatically — run manually: npx tsx scripts/seed-xciq-full.ts');
-        if (buildResult.stderr) console.error(chalk.dim(buildResult.stderr.slice(0, 500)));
+        xiqSp.text = 'ExtremeCloud IQ skills not in registry — building from OpenAPI spec…';
+        const buildResult = spawnSync(
+          'npx', ['tsx', 'scripts/seed-xciq-full.ts'],
+          {
+            cwd: root,
+            env: {
+              ...subprocEnvBase,
+              XIQ_USERNAME: domainEnv['XIQ_USERNAME'] ?? '',
+              XIQ_PASSWORD: domainEnv['XIQ_PASSWORD'] ?? '',
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+            encoding: 'utf-8',
+            timeout: 180_000,
+          },
+        );
+        if (buildResult.status === 0 && !buildResult.error) {
+          xiqSp.succeed('ExtremeCloud IQ skills built and agent created');
+          xiqReady = true;
+          await pushSkillsToRegistry('extremecloudiq.');
+        } else {
+          xiqSp.info('ExtremeCloud IQ skills not available — run: npx tsx scripts/seed-xciq-full.ts');
+        }
       }
     }
   }
 
   if (setupXco) {
-    const xcoMonitorId = await pullSkillFromRegistry('XCO Monitor', 'networking.extreme-xco.monitor');
-    const xcoOpsId = await pullSkillFromRegistry('XCO Operations', 'networking.extreme-xco.operations');
-    xcoReady = !!(xcoMonitorId && xcoOpsId);
+    if (!hasAuth) {
+      ora('').info('ExtremeCloud Orchestrator: setup did not complete — re-run bex init to install skills');
+    } else {
+      const xcoDomains = [
+        'networking.extreme-xco.monitor',
+        'networking.extreme-xco.operations',
+      ] as const;
 
-    if (xcoReady) {
-      const xcoSkillIds = [xcoMonitorId, xcoOpsId].filter(Boolean) as string[];
-      await createDefaultAgent({
-        name: 'ExtremeCloud Orchestrator',
-        description: 'Monitors and manages your ExtremeCloud Orchestrator fabric network — health, alarms, topology, and operations.',
-        systemPrompt: `You are an ExtremeCloud Orchestrator (XCO) network agent.
+      console.log('');
+      const xcoSp = ora('Installing ExtremeCloud Orchestrator skills…').start();
+      const xcoRegistryIds = await batchInstallFromRegistry(xcoDomains);
+
+      if (xcoRegistryIds.length > 0) {
+        xcoSp.succeed('ExtremeCloud Orchestrator skills installed from registry');
+        xcoReady = true;
+        await createDefaultAgent({
+          name: 'ExtremeCloud Orchestrator',
+          description: 'Monitors and manages your ExtremeCloud Orchestrator fabric network — health, alarms, topology, and operations.',
+          systemPrompt: `You are an ExtremeCloud Orchestrator (XCO) network agent.
 
 You can: monitor fabric health and topology, retrieve alarms, check device inventory, validate CLOS topology, detect configuration drift.
 
 Write operations (fabric creation, switch management, alarm management) require explicit approval.
 
 Be concise and technical in your responses.`,
-        skillIds: xcoSkillIds,
-        permissions: ['xco:read', 'xco:write'],
-        posture: 'SUPERVISED',
-        mandate: 'Monitor and manage ExtremeCloud Orchestrator. Read operations are autonomous. Write operations require approval.',
-        conductBoundaries: ['delete:*', 'fabric:reset', 'switch:remove'],
-      });
-    } else {
-      // Registry doesn't have XCO skills — build locally using the seed script
-      console.log('');
-      const buildSp = ora('Building ExtremeCloud Orchestrator skills (this may take ~60s)…').start();
-      const xcoHost = domainEnv['XCO_HOST'] ?? '';
-      const xcoUser = domainEnv['XCO_USERNAME'] ?? 'extreme';
-      const xcoPwd  = domainEnv['XCO_PASSWORD'] ?? '';
-      const buildResult = spawnSync(
-        'npx', ['tsx', 'scripts/seed-xco-full.ts'],
-        {
-          cwd: root,
-          env: { ...subprocEnvBase, XCO_HOST: xcoHost, XCO_USERNAME: xcoUser, XCO_PASSWORD: xcoPwd },
-          stdio: ['ignore', 'pipe', 'pipe'],
-          encoding: 'utf-8',
-          timeout: 240_000,
-        },
-      );
-      if (buildResult.status === 0 && !buildResult.error) {
-        buildSp.succeed('ExtremeCloud Orchestrator skills built and agents created');
-        xcoReady = true;
+          skillIds: xcoRegistryIds,
+          permissions: ['xco:read', 'xco:write'],
+          posture: 'SUPERVISED',
+          mandate: 'Monitor and manage ExtremeCloud Orchestrator. Read operations are autonomous. Write operations require approval.',
+          conductBoundaries: ['delete:*', 'fabric:reset', 'switch:remove'],
+        });
       } else {
-        buildSp.warn('Could not build XCO skills automatically — run manually: npx tsx scripts/seed-xco-full.ts');
-        if (buildResult.stderr) console.error(chalk.dim(buildResult.stderr.slice(0, 500)));
+        xcoSp.text = 'ExtremeCloud Orchestrator skills not in registry — building locally…';
+        const buildResult = spawnSync(
+          'npx', ['tsx', 'scripts/seed-xco-full.ts'],
+          {
+            cwd: root,
+            env: {
+              ...subprocEnvBase,
+              XCO_HOST:     domainEnv['XCO_HOST'] ?? '',
+              XCO_USERNAME: domainEnv['XCO_USERNAME'] ?? 'extreme',
+              XCO_PASSWORD: domainEnv['XCO_PASSWORD'] ?? '',
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+            encoding: 'utf-8',
+            timeout: 240_000,
+          },
+        );
+        if (buildResult.status === 0 && !buildResult.error) {
+          xcoSp.succeed('ExtremeCloud Orchestrator skills built and agent created');
+          xcoReady = true;
+          await pushSkillsToRegistry('networking.extreme-xco.');
+        } else {
+          xcoSp.info('ExtremeCloud Orchestrator skills not available — run: npx tsx scripts/seed-xco-full.ts');
+        }
       }
     }
   }
