@@ -10,6 +10,8 @@ import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import type { CredentialVaultService } from '@bex/credential-vault';
 import { SkillRegistryClient } from '@bex/skill-registry-client';
+import { KnowledgeStore } from '@bex/knowledge-store';
+import { createHash } from 'crypto';
 
 const XIQ_SKILL_DOMAINS = [
   'extremecloudiq.networking',
@@ -439,6 +441,46 @@ async function publishSkillsByDomainPrefix(prisma: PrismaClient, prefix: string)
   }
 }
 
+async function syncKnowledgeFromRegistry(): Promise<void> {
+  const knowledgeDir = process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge';
+  const store = new KnowledgeStore(knowledgeDir);
+  const client = new SkillRegistryClient();
+  if (!client.isConfigured) return;
+
+  let entries: Awaited<ReturnType<typeof client.listKnowledge>>;
+  try {
+    entries = await client.listKnowledge();
+  } catch {
+    return; // registry unreachable — skip silently
+  }
+
+  let synced = 0;
+  for (const meta of entries) {
+    // Skip agent-scoped knowledge (agent/* is local only)
+    if (meta.domain === 'agent') continue;
+
+    const existing = await store.read(meta.domain, meta.topic);
+    if (existing) {
+      // Skip if content matches checksum
+      const localChecksum = createHash('sha256').update(existing.content).digest('hex');
+      if (localChecksum === meta.checksum) continue;
+    }
+
+    try {
+      const manifest = await client.fetchKnowledge(meta.domain, meta.topic);
+      await store.write(meta.domain, meta.topic, manifest.content);
+      synced++;
+      console.info(`[provision] Synced knowledge: ${meta.domain}/${meta.topic}`);
+    } catch (e) {
+      console.warn(`[provision] Failed to sync knowledge ${meta.domain}/${meta.topic}:`, (e as Error).message);
+    }
+  }
+
+  if (synced > 0) {
+    console.info(`[provision] Knowledge sync complete — ${synced} file(s) updated`);
+  }
+}
+
 export async function provisionDefaults(prisma: PrismaClient, vault: CredentialVaultService): Promise<void> {
   try {
     await provisionDefaultLLMConfig(prisma, vault);
@@ -473,6 +515,7 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     await provisionSystemOpsSkill(prisma);
     await assignSystemOpsSkillToMonitorAgents(prisma);
     await provisionApSsidMonitorJob(prisma);
+    await syncKnowledgeFromRegistry();
   } catch (e) {
     // Provisioning failures must never block startup
     console.error('[provision] Error during default provisioning:', (e as Error).message);

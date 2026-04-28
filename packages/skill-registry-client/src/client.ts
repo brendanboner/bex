@@ -15,6 +15,21 @@ export type RegistryListResponse = {
   data: RemoteSkill[];
 };
 
+export type KnowledgeMeta = {
+  domain: string;
+  topic: string;
+  title: string;
+  checksum: string;
+  publishedAt: string;
+};
+
+export type KnowledgeManifest = KnowledgeMeta & {
+  content: string;
+};
+
+type RegistryKnowledgeListResponse = { ok: boolean; data: (Omit<KnowledgeMeta, 'publishedAt'> & { published_at: string })[] };
+type RegistryKnowledgeFetchResponse = { ok: boolean; data: Omit<KnowledgeManifest, 'publishedAt'> & { published_at: string } };
+
 export type RegistryPublishResponse = {
   ok: boolean;
   data: {
@@ -135,5 +150,33 @@ export class SkillRegistryClient {
       manifest.systemPrompt,
     );
     return expected === manifest.checksum;
+  }
+
+  /**
+   * Lists all knowledge entries available in the remote registry.
+   */
+  async listKnowledge(domain?: string): Promise<KnowledgeMeta[]> {
+    if (!this.isConfigured) return [];
+    const url = domain
+      ? `${this.baseUrl}/registry/knowledge?domain=${encodeURIComponent(domain)}`
+      : `${this.baseUrl}/registry/knowledge`;
+    const res = await fetch(url, { headers: this.readHeaders() });
+    if (!res.ok) throw new Error(`Registry knowledge list failed: ${res.status}`);
+    const body = (await res.json()) as RegistryKnowledgeListResponse;
+    return (body.data ?? []).map((k) => ({ ...k, publishedAt: k.published_at }));
+  }
+
+  /**
+   * Fetches a specific knowledge entry from the registry.
+   */
+  async fetchKnowledge(domain: string, topic: string): Promise<KnowledgeManifest> {
+    if (!this.isConfigured) throw new Error('SKILL_REGISTRY_URL is not configured.');
+    const res = await fetch(
+      `${this.baseUrl}/registry/knowledge/${encodeURIComponent(domain)}/${encodeURIComponent(topic)}`,
+      { headers: this.readHeaders() },
+    );
+    if (!res.ok) throw new Error(`Registry knowledge fetch failed: ${res.status}`);
+    const body = (await res.json()) as RegistryKnowledgeFetchResponse;
+    return { ...body.data, publishedAt: body.data.published_at };
   }
 }
