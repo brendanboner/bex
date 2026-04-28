@@ -28,7 +28,7 @@ const XCO_PASSWORD = process.env['XCO_PASSWORD'] ?? 'password';
 // If XCO_HOST is provided, it is stored in the Endpoint record; skills always
 // use the placeholder so changing the endpoint automatically applies everywhere.
 const XCO_BASE_URL = 'https://{xco-host}/rest/v1';
-const XCO_AUTH_URL = 'https://{xco-host}/rest/v1/auth/token';
+const XCO_AUTH_URL = 'https://{xco-host}/v1/auth/token/access-token';
 
 const REGISTRY_URL   = process.env['SKILL_REGISTRY_URL']   ?? 'http://localhost:5050';
 const REGISTRY_TOKEN = process.env['SKILL_REGISTRY_TOKEN'] ?? 'bex-registry-dev';

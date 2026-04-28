@@ -80,6 +80,7 @@ async function ensureSkillsInstalled(
   domainPrefix: string,
   domains: readonly string[],
   label: string,
+  createLocally?: (prisma: PrismaClient) => Promise<boolean>,
 ): Promise<boolean> {
   const existing = await prisma.skill.findFirst({
     where: { domain: { startsWith: domainPrefix } },
@@ -100,8 +101,139 @@ async function ensureSkillsInstalled(
     return true;
   }
 
+  // Registry unavailable or empty — fall back to local creation
+  if (createLocally) {
+    try {
+      const created = await createLocally(prisma);
+      if (created) {
+        console.info(`[provision] Created ${label} skill(s) locally (registry unavailable)`);
+        return true;
+      }
+    } catch (e) {
+      console.warn(`[provision] Local ${label} skill creation failed:`, (e as Error).message);
+    }
+  }
+
   console.info(`[provision] ${label} skills not available — run: bex skill build`);
   return false;
+}
+
+// ─── XCO skill definitions (local fallback) ──────────────────────────────────
+
+const XCO_BASE_URL = 'https://{xco-host}/rest/v1';
+const XCO_AUTH_URL = 'https://{xco-host}/v1/auth/token/access-token';
+
+function makeXcoTool(
+  name: string,
+  description: string,
+  method: string,
+  urlPath: string,
+  params: Record<string, { type: string; description: string }> = {},
+  isWrite = false,
+) {
+  const properties: Record<string, { type: string; description: string }> = {};
+  for (const [k, v] of Object.entries(params)) properties[k] = { type: v.type, description: v.description };
+  return {
+    name,
+    description: `[${method}] ${description}${isWrite ? ' ⚠️ WRITE — requires approval' : ''}`,
+    handlerType: 'xco_http_call',
+    config: { method, urlTemplate: `${XCO_BASE_URL}${urlPath}`, authUrl: XCO_AUTH_URL, isWrite, operationId: name },
+    parameters: { type: 'object' as const, properties, required: [] as string[] },
+  };
+}
+
+async function createXcoSkillsLocally(prisma: PrismaClient): Promise<boolean> {
+  const monitorTools = [
+    makeXcoTool('xco_get_inventory', 'List all registered devices/switches managed by XCO', 'GET', '/inventory/device',
+      { ip_address: { type: 'string', description: 'Filter by device IP address (optional)' } }),
+    makeXcoTool('xco_get_alarm_summary', 'Get alarm counts grouped by severity (Critical/Major/Minor/Warning/Info)', 'GET', '/faultmanager/alarm/summary'),
+    makeXcoTool('xco_get_alarm_history', 'Get alarm history with optional filters', 'GET', '/faultmanager/alarm/history', {
+      severity:  { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info' },
+      unacked:   { type: 'boolean', description: 'Only unacknowledged alarms' } as unknown as { type: string; description: string },
+      cleared:   { type: 'boolean', description: 'Include cleared alarms (default false)' } as unknown as { type: string; description: string },
+      page_size: { type: 'integer', description: 'Page size (default 20)' } as unknown as { type: string; description: string },
+      sort_by:   { type: 'string', description: 'Sort direction: asc or desc' },
+    }),
+    makeXcoTool('xco_get_alert_history', 'Get recent alert history', 'GET', '/faultmanager/alert/history', {
+      severity: { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info' },
+      limit:    { type: 'integer', description: 'Max results (default 50)' } as unknown as { type: string; description: string },
+    }),
+    makeXcoTool('xco_get_fabrics', 'List all IP fabrics with status', 'GET', '/fabric', {
+      name:   { type: 'string', description: 'Filter by fabric name' },
+      detail: { type: 'boolean', description: 'Return full detail including node counts' } as unknown as { type: string; description: string },
+    }),
+    makeXcoTool('xco_validate_fabric', 'Validate CLOS topology — find missing links, drift, redundant links', 'GET', '/fabric/validate',
+      { 'fabric-name': { type: 'string', description: 'Name of the fabric to validate (required)' } }),
+    makeXcoTool('xco_get_fabric_errors', 'Get all fabric errors across all fabrics (or a specific one)', 'GET', '/fabric/errors',
+      { 'fabric-name': { type: 'string', description: 'Filter to a specific fabric name (optional)' } }),
+    makeXcoTool('xco_get_system_health', 'Check XCO platform health — K8s pods, nodes, service CPU/memory', 'GET', '/monitor/system'),
+    makeXcoTool('xco_validate_token', 'Validate the current XCO Bearer token is still valid', 'GET', '/auth/validate'),
+  ];
+
+  const operationsTools = [
+    makeXcoTool('xco_ack_alarms', 'Acknowledge active alarms by instance_id range', 'PUT', '/faultmanager/alarm/acknowledge', {
+      instance_id: { type: 'string', description: 'Alarm instance IDs — comma-separated or range e.g. 2,3,5-10' },
+      resource:    { type: 'string', description: 'Resource path filter (optional)' },
+      comment:     { type: 'string', description: 'Comment explaining the acknowledgement' },
+    }, true),
+    makeXcoTool('xco_close_alarms', 'Close raised or cleared alarms by instance_id', 'PUT', '/faultmanager/alarm/close', {
+      instance_id: { type: 'string', description: 'Alarm instance IDs — comma-separated or range' },
+      resource:    { type: 'string', description: 'Resource path filter (optional)' },
+      comment:     { type: 'string', description: 'Comment explaining the closure' },
+    }, true),
+    makeXcoTool('xco_purge_alarms', 'Purge ALL closed alarms — IRREVERSIBLE', 'DELETE', '/faultmanager/alarm/purge', {}, true),
+    makeXcoTool('xco_create_fabric', 'Create a new IP Fabric (CLOS or non-CLOS)', 'POST', '/fabric', {
+      name:        { type: 'string', description: 'Fabric name (e.g. PROD-DC1)' },
+      description: { type: 'string', description: 'Fabric description' },
+      stage:       { type: 'integer', description: 'CLOS stage: 3, 5, or 7' } as unknown as { type: string; description: string },
+      type:        { type: 'string', description: 'Fabric type: clos or non-clos' },
+    }, true),
+    makeXcoTool('xco_delete_fabric', 'Delete an existing fabric', 'DELETE', '/fabric', {
+      name:  { type: 'string', description: 'Fabric name to delete' },
+      force: { type: 'boolean', description: 'Force delete even with registered devices' } as unknown as { type: string; description: string },
+    }, true),
+    makeXcoTool('xco_register_device', 'Register a new switch/device to XCO inventory', 'POST', '/inventory/device', {
+      ip_address: { type: 'string', description: 'Management IP address of the switch' },
+      username:   { type: 'string', description: 'Switch admin username' },
+      password:   { type: 'string', description: 'Switch admin password' },
+      fabric:     { type: 'string', description: 'Fabric name to register to' },
+    }, true),
+    makeXcoTool('xco_remove_device', 'Remove a device from XCO inventory', 'DELETE', '/inventory/device',
+      { ip_address: { type: 'string', description: 'IP address of the device to remove' } }, true),
+    makeXcoTool('xco_update_device_setting', 'Update a switch setting (e.g. maintenance_mode_on_reboot)', 'PUT', '/inventory/device/setting', {
+      ip_address: { type: 'string', description: 'Management IP address of the switch' },
+      key:        { type: 'string', description: 'Setting key (e.g. maintenance_mode_on_reboot)' },
+      value:      { type: 'string', description: 'Setting value (e.g. Yes or No)' },
+    }, true),
+  ];
+
+  await prisma.skill.createMany({
+    data: [
+      {
+        name: 'ExtremeCloud Orchestrator — Monitor',
+        domain: 'networking.extreme-xco.monitor',
+        version: '1.0.0',
+        description: 'Read-only monitoring for XCO: device inventory, fabric health, alarms, topology validation, platform health.',
+        capabilities: ['inventory', 'alarms', 'fabric-health', 'topology-validation', 'system-health'],
+        tools: monitorTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+        systemPrompt: 'You are a read-only XCO monitoring agent. Use the available tools to retrieve device inventory, alarm summaries, fabric health, and platform status. Never perform write operations.',
+        status: 'PUBLISHED',
+      },
+      {
+        name: 'ExtremeCloud Orchestrator — Operations',
+        domain: 'networking.extreme-xco.operations',
+        version: '1.0.0',
+        description: 'Write operations for XCO: alarm management, fabric lifecycle, device registration.',
+        capabilities: ['alarm-management', 'fabric-lifecycle', 'device-registration'],
+        tools: operationsTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+        systemPrompt: 'You are an XCO operations agent. All write operations (acknowledge/close alarms, create/delete fabrics, register devices) require explicit user approval before executing.',
+        status: 'PUBLISHED',
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  return true;
 }
 
 async function provisionXiqAgent(prisma: PrismaClient): Promise<boolean> {
@@ -168,7 +300,7 @@ Be concise and clear in your responses.`,
 }
 
 async function provisionXcoAgent(prisma: PrismaClient): Promise<boolean> {
-  const skillsReady = await ensureSkillsInstalled(prisma, 'networking.extreme-xco.', XCO_SKILL_DOMAINS, 'ExtremeCloud Orchestrator');
+  const skillsReady = await ensureSkillsInstalled(prisma, 'networking.extreme-xco.', XCO_SKILL_DOMAINS, 'ExtremeCloud Orchestrator', createXcoSkillsLocally);
   if (!skillsReady) return false;
 
   const xcoSkills = await prisma.skill.findMany({

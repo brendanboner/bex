@@ -356,13 +356,19 @@ export function buildTools(
 
           const cacheKey = `${effectiveCredId}:${authUrl}`;
 
-          const doAuth = async (): Promise<string | null> => {
+          const doAuth = async (targetAuthUrl = authUrl): Promise<string | null> => {
             const creds = await vault.resolve(effectiveCredId, agentPermissions);
-            const authResp = await xcoFetch(authUrl, {
+            const authResp = await xcoFetch(targetAuthUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
               body: JSON.stringify({ username: String(creds['username'] ?? ''), password: String(creds['password'] ?? '') }),
             });
+            // If the configured authUrl is wrong (e.g. old skill from registry), fall back to the
+            // standard XCO/EFA path /v1/auth/token/access-token automatically.
+            if (authResp.status === 404 && targetAuthUrl !== defaultAuthUrl && defaultAuthUrl) {
+              console.warn(`[xco_http_call] Auth URL ${targetAuthUrl} returned 404, retrying with ${defaultAuthUrl}`);
+              return doAuth(defaultAuthUrl);
+            }
             if (!authResp.ok) {
               const errText = await authResp.text();
               console.error(`[xco_http_call] Auth failed (${authResp.status}): ${errText.slice(0, 200)}`);
@@ -374,7 +380,7 @@ export function buildTools(
             if (!token) return null;
             const expiresIn = Number(authData['expires_in'] ?? 3600);
             setXcoToken(cacheKey, token, expiresIn);
-            console.info(`[xco_http_call] Authenticated to XCO (${authUrl}), token cached`);
+            console.info(`[xco_http_call] Authenticated to XCO (${targetAuthUrl}), token cached`);
             return token;
           };
 
