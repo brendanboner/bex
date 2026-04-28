@@ -792,17 +792,18 @@ Be concise and technical in your responses.`,
   }
 
   // ── Persist Telegram/bot env vars ─────────────────────────────────────────
-  // Look up the XIQ agent ID (created by seed script or registry pull) and save it
-  // so the Telegram bot can route messages to it automatically.
-  if (setupXiq && xiqReady) {
+  // Look up the best default agent ID and save it so the Telegram bot can route
+  // messages to it automatically. Prefers the XIQ agent; falls back to any agent.
+  if (channelEnv['TELEGRAM_BOT_TOKEN'] || channel === 'telegram') {
     try {
       const agentsRes = await fetch('http://localhost:4000/agents', { headers: registryAuthHeader });
       const agentsJson = (await agentsRes.json()) as { ok: boolean; data?: Array<{ id: string; name: string }> };
-      const xiqAgent = (agentsJson.data ?? []).find(
-        (a) => a.name === 'ExtremeCloud IQ Monitor' || a.name === 'ExtremeCloud IQ',
-      );
-      if (xiqAgent) {
-        writeEnv({ TELEGRAM_DEFAULT_AGENT_ID: xiqAgent.id });
+      const agents = agentsJson.data ?? [];
+      const bestAgent =
+        agents.find((a) => a.name === 'ExtremeCloud IQ Monitor' || a.name === 'ExtremeCloud IQ') ??
+        agents[0];
+      if (bestAgent) {
+        writeEnv({ TELEGRAM_DEFAULT_AGENT_ID: bestAgent.id });
       }
     } catch { /* non-fatal — can be set manually in .env */ }
   }
