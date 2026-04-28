@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import { loadSystemSecrets } from '@bex/credential-vault';
 
 // Load .env from repo root (two directories up from integrations/telegram/dist)
-dotenvConfig({ path: resolve(__dirname, '../../../.env') });
+dotenvConfig({ path: resolve(__dirname, '../../../.env'), override: true });
 
 const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
 

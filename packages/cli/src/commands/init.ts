@@ -463,6 +463,9 @@ export async function initCommand(): Promise<void> {
 
   // ── Store sensitive credentials in vault, remove from .env ───────────────
   if (adminToken) {
+    // Write BEX_BOT_API_KEY first so the Telegram bot picks it up on restart below.
+    writeEnv({ BEX_BOT_API_KEY: adminToken });
+
     const vaultSpinner = ora('Storing secrets in credential vault…').start();
     try {
       const { default: fetch } = await import('node-fetch');
