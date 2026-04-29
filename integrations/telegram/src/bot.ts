@@ -124,7 +124,7 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
   }
 
   const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
-  const NEXUS_AGENT_ID = process.env['NEXUS_AGENT_ID'] ?? 'cmoalym5k0009p13whqz2cref';
+  const NEXUS_AGENT_ID = process.env['NEXUS_AGENT_ID'] ?? '';
   const BOT_API_KEY = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
   if (!BOT_API_KEY) {
     console.warn('[telegram] BEX_BOT_API_KEY not set — API requests will fail. Run: bex init');
@@ -396,11 +396,11 @@ bot.on('message:text', async (ctx) => {
     return;
   }
 
-  // @bex prefix → route to Nexus system admin agent
+  // @bex prefix → route to Nexus system admin agent (falls back to DEFAULT_AGENT_ID if not configured)
   const bexPrefixMatch = input.match(/^@bex\s+(.+)/i);
   if (bexPrefixMatch) {
     const bexInput = bexPrefixMatch[1]!.trim();
-    await routeToAgent(ctx, bexInput, NEXUS_AGENT_ID);
+    await routeToAgent(ctx, bexInput, NEXUS_AGENT_ID || undefined);
     return;
   }
 

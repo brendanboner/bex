@@ -21,6 +21,7 @@ export function buildModel(
     case 'anthropic':
       if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
       return createAnthropic({ apiKey: anthropicKey })(model);
+    case 'azure':
     case 'azure-openai': {
       if (!azureKey) throw new Error('AZURE_OPENAI_API_KEY not set');
       if (!azureEndpoint) throw new Error('Azure endpoint not configured — set AZURE_OPENAI_ENDPOINT');
