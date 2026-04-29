@@ -61,7 +61,7 @@ export async function platformRoutes(app: FastifyInstance, prisma: PrismaClient)
 
         // 3. Domain knowledge playbooks count
         const domainKnowledge = await prisma.domainKnowledge.findFirst({
-          where: { domain: def.domainPrefix.split('.')[0] },
+          where: { domain: def.domainPrefix.split('.')[0] ?? def.domainPrefix },
           select: { playbooks: true },
         });
         const playbooksCount = Array.isArray(domainKnowledge?.playbooks)

@@ -32,7 +32,8 @@ export type UserDashboard = {
   cronExpr?: string;
   lastData?: Record<string, unknown>;
   lastRunAt?: string;
-  status: 'active' | 'paused' | 'archived';
+  status: 'active' | 'paused' | 'archived' | 'provisioning' | 'error';
+  meta?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 };

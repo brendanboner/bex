@@ -12,7 +12,6 @@ import type { CredentialVaultService } from '@bex/credential-vault';
 import { SkillRegistryClient } from '@bex/skill-registry-client';
 import { KnowledgeStore } from '@bex/knowledge-store';
 import { createHash } from 'crypto';
-import { seedDomainIntelligence } from '../../../scripts/seed-domain-intelligence.js';
 
 const XIQ_SKILL_DOMAINS = [
   'extremecloudiq.networking',
@@ -327,6 +326,8 @@ Be concise and clear in your responses.`,
 
   // Seed domain intelligence playbooks (idempotent)
   try {
+    // Non-literal path intentionally avoids rootDir resolution by TypeScript
+    const { seedDomainIntelligence } = await import('./domain-intelligence.js') as { seedDomainIntelligence: (p: PrismaClient) => Promise<void> };
     await seedDomainIntelligence(prisma);
     console.info('[provision] Domain intelligence playbooks seeded');
   } catch (e) {
