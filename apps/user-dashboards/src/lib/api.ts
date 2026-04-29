@@ -4,7 +4,7 @@ const API_BASE = (import.meta.env['VITE_API_URL'] as string | undefined) || '/ap
 
 export type Widget = {
   id: string;
-  type: 'headline' | 'table' | 'chart' | 'actions' | 'stat' | 'multiline' | 'markdown' | 'heatmap';
+  type: 'headline' | 'table' | 'chart' | 'actions' | 'stat' | 'multiline' | 'markdown' | 'heatmap' | 'mermaid';
   title?: string;
   dataKey?: string;
   columns?: string[];

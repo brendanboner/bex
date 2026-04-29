@@ -54,6 +54,13 @@ const WIDGET_TYPES = [
     example: `{ "id": "w6", "type": "heatmap", "title": "AP RF Quality", "dataKey": "access_points", "labelKey": "hostname", "valueKey": "snr", "unit": "dB", "thresholds": { "warn": 25, "crit": 15 }, "colSpan": 4 }`,
   },
   {
+    type: 'mermaid',
+    name: 'Diagram',
+    description: 'Renders a Mermaid diagram string. Good for network topology, Sankey flows, and flowcharts. Falls back to code block on syntax error.',
+    props: ['dataKey → Mermaid syntax string', 'colSpan (recommend 4)'],
+    example: `{ "id": "w6", "type": "mermaid", "title": "Fabric Topology", "dataKey": "topology_diagram", "colSpan": 4 }`,
+  },
+  {
     type: 'markdown',
     name: 'Text Summary',
     description: 'Prose/formatted text. Good for agent summaries and analysis.',
@@ -78,6 +85,8 @@ const EXAMPLE_PROMPTS = [
   'Show an XCO fabric health dashboard with alarm summary and BGP status',
   'Show all XCO active alarms grouped by severity with trend',
   'Show radio SNR for all APs — 2.4GHz and 5GHz on the same chart',
+  'Show the XCO network topology as a diagram — spines, leaves and fabric links',
+  'Show a Sankey diagram of clients flowing from SSID to access point',
 ];
 
 function CopyButton({ text }: { text: string }) {

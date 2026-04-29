@@ -226,7 +226,7 @@ export const SpawnPersonaSchema = z.object({
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  type: z.enum(['headline', 'table', 'chart', 'actions', 'stat', 'multiline', 'markdown', 'heatmap']),
+  type: z.enum(['headline', 'table', 'chart', 'actions', 'stat', 'multiline', 'markdown', 'heatmap', 'mermaid']),
   title: z.string().optional(),
   // For headline/table/chart: the key in lastData that holds the relevant data
   dataKey: z.string().optional(),

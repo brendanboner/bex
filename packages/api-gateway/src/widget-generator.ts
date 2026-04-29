@@ -61,7 +61,7 @@ const WidgetLayoutSchema = z.object({
   widgets: z.array(
     z.object({
       id: z.string(),
-      type: z.enum(['headline', 'table', 'chart', 'actions', 'stat', 'multiline', 'markdown', 'heatmap']),
+      type: z.enum(['headline', 'table', 'chart', 'actions', 'stat', 'multiline', 'markdown', 'heatmap', 'mermaid']),
       title: z.string().optional(),
       dataKey: z.string().optional(),
       columns: z.array(z.string()).optional(),
@@ -151,6 +151,7 @@ Generate a widget layout that best presents this data. Rules:
 - Use "chart" widgets for numeric comparisons — set chartType (bar/line/pie), xKey, yKey, and dataKey to the key of the array
 - Use "multiline" widgets when you have multiple numeric series to compare on one line chart. Set "yKeys" to an array of field names (e.g. ["band_24ghz","band_5ghz"]), "xKey" to the time/label field, "dataKey" to the array.
 - Use "markdown" widgets when data has a string field containing prose or formatted text (e.g. "summary_markdown", "analysis"). Set "dataKey" to that string field key.
+- Use "mermaid" widgets when the data contains a Mermaid diagram string (e.g. key "topology_diagram", "fabric_graph", "sankey_diagram"). The string must be valid Mermaid syntax (e.g. starts with "graph LR", "flowchart TD", "sankey-beta", "sequenceDiagram"). Set "dataKey" to that string field. Always colSpan: 4. Good for: network topology (XCO fabric spine/leaf as graph LR), client-per-SSID Sankey, VLAN chain flowcharts.
 - Use "heatmap" widgets for arrays where each item should be shown as a coloured cell (e.g. AP RF quality). Set "labelKey" (e.g. "hostname"), "valueKey" (e.g. "snr"), "thresholds": {"warn": 25, "crit": 15}, "unit" (e.g. "dB").
 - Use "actions" widget at the end with a "Refresh" action (action: "refresh", style: "primary")
 - colSpan: 1 for headlines/stat, 2-4 for tables/charts/heatmaps

@@ -11,6 +11,7 @@ import { StatWidget } from './StatWidget';
 import { MultilineChartWidget } from './MultilineChartWidget';
 import { MarkdownWidget } from './MarkdownWidget';
 import { HeatmapWidget } from './HeatmapWidget';
+import { MermaidWidget } from './MermaidWidget';
 
 interface WidgetGridProps {
   dashboard: UserDashboard;
@@ -120,6 +121,16 @@ export function WidgetGrid({ dashboard, onRefresh, isRefreshing }: WidgetGridPro
                 labelKey={widget.labelKey}
                 valueKey={widget.valueKey}
                 thresholds={widget.thresholds}
+                data={data}
+                colSpan={span}
+              />
+            );
+          case 'mermaid':
+            return (
+              <MermaidWidget
+                key={widget.id}
+                title={widget.title}
+                dataKey={widget.dataKey}
                 data={data}
                 colSpan={span}
               />

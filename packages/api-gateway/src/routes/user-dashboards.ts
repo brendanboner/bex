@@ -1,12 +1,13 @@
 /**
- * User Dashboard routes — CRUD + refresh.
+ * User Dashboard routes — CRUD + refresh + preview.
  *
  * Endpoints:
- *   GET    /user-dashboards           — list all dashboards
- *   POST   /user-dashboards           — create (triggers initial run + LLM widget gen)
- *   GET    /user-dashboards/:slug     — get config + latest data
- *   PUT    /user-dashboards/:slug     — update config
- *   DELETE /user-dashboards/:slug     — delete
+ *   GET    /user-dashboards              — list all dashboards
+ *   POST   /user-dashboards/preview      — dry-run: agent + widget gen, no DB save
+ *   POST   /user-dashboards              — create (triggers initial run + LLM widget gen)
+ *   GET    /user-dashboards/:slug        — get config + latest data
+ *   PUT    /user-dashboards/:slug        — update config
+ *   DELETE /user-dashboards/:slug        — delete
  *   POST   /user-dashboards/:slug/refresh  — re-run agent, update lastData
  */
 
@@ -285,6 +286,67 @@ export async function userDashboardRoutes(
       orderBy: { createdAt: 'desc' },
     });
     return reply.send(ok(dashboards));
+  });
+
+  // POST /user-dashboards/preview — dry-run: runs agent + generates widgets WITHOUT saving to DB.
+  // Must be registered before the :slug routes to avoid the param catching "preview".
+  app.post<{ Body: unknown }>('/user-dashboards/preview', async (request, reply) => {
+    const parsed = CreateUserDashboardSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
+    }
+
+    const externalId = (request.user as { sub: string }).sub;
+    const userId = await resolveUserId(prisma, externalId);
+    if (!userId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
+
+    const { name, prompt } = parsed.data;
+    let agentId = parsed.data.agentId ?? null;
+    if (!agentId) {
+      agentId = await resolveBestAgent(prisma, prompt);
+      if (!agentId) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No suitable agent found for this prompt'));
+    }
+
+    const enrichedPrompt = withJsonDirective(prompt);
+    let output = '';
+    let lastData: unknown = null;
+    let widgets: unknown[] = [];
+    let previewError: string | null = null;
+
+    try {
+      const result = await runAgentForDashboard(prisma, agentId, userId, enrichedPrompt);
+      output = result.output;
+      lastData = parseLastData(output);
+      widgets = await generateWidgets(output, name, prompt);
+    } catch (runErr) {
+      previewError = runErr instanceof Error ? runErr.message : String(runErr);
+      lastData = {};
+      widgets = await generateWidgets('{}', name, prompt).catch(() => []);
+    }
+
+    // Summarise what data keys were found (top-level keys + array lengths)
+    const dataKeys: Array<{ key: string; type: string; count?: number }> = [];
+    if (lastData && typeof lastData === 'object' && !Array.isArray(lastData)) {
+      for (const [k, v] of Object.entries(lastData as Record<string, unknown>)) {
+        if (k === '_text') {
+          dataKeys.push({ key: k, type: 'prose' });
+        } else if (Array.isArray(v)) {
+          dataKeys.push({ key: k, type: 'array', count: v.length });
+        } else if (v && typeof v === 'object') {
+          dataKeys.push({ key: k, type: 'object' });
+        } else {
+          dataKeys.push({ key: k, type: typeof v });
+        }
+      }
+    }
+
+    return reply.send(ok({
+      agentId,
+      widgets,
+      dataKeys,
+      dataPreview: lastData,
+      previewError,
+    }));
   });
 
   // POST /user-dashboards — create a new dashboard
