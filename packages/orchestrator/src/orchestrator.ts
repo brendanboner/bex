@@ -512,6 +512,7 @@ export class OrchestratorService {
           const cfgUpdate: Record<string, unknown> = { ...cfg };
           if (typeof cfg['urlTemplate'] === 'string') cfgUpdate['urlTemplate'] = resolveHostPlaceholders(cfg['urlTemplate']);
           if (typeof cfg['authUrl'] === 'string') cfgUpdate['authUrl'] = resolveHostPlaceholders(cfg['authUrl']);
+          if (typeof cfg['baseUrl'] === 'string') cfgUpdate['baseUrl'] = resolveHostPlaceholders(cfg['baseUrl']);
           resolved['config'] = cfgUpdate;
         }
 

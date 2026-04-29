@@ -107,9 +107,14 @@ export function getCachedReachability(baseUrl: string): boolean | undefined {
   }
 }
 
-async function checkReachable(baseUrl: string, timeoutMs = 4000): Promise<{ reachable: boolean; error?: string }> {
+async function checkReachable(baseUrl: string, timeoutMs = 6000): Promise<{ reachable: boolean; error?: string }> {
   try {
-    const origin = new URL(baseUrl).origin;
+    const parsed = new URL(baseUrl);
+    const origin = parsed.origin;
+    // Use the full URL for the probe so private servers that don't serve at / still respond
+    // (e.g. XCO EFA only has routes under /v1/). Fall back to origin if no meaningful path.
+    const probeUrl = parsed.pathname.length > 1 ? baseUrl : origin;
+
     const cached = reachabilityCache.get(origin);
     const now = Date.now();
     if (cached) {
@@ -126,15 +131,21 @@ async function checkReachable(baseUrl: string, timeoutMs = 4000): Promise<{ reac
     // falsely report as unreachable (e.g. XCO EFA uses a self-signed certificate).
     const dispatcher = origin.startsWith('https:') ? new UndiAgent({ connect: { rejectUnauthorized: false } }) : undefined;
     try {
-      await undiFetch(origin, { method: 'HEAD', signal: controller.signal, ...(dispatcher ? { dispatcher } : {}) });
+      await undiFetch(probeUrl, { method: 'HEAD', signal: controller.signal, ...(dispatcher ? { dispatcher } : {}) });
       reachabilityCache.set(origin, { reachable: true, checkedAt: now });
       return { reachable: true };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const isTimeout = msg.includes('abort') || msg.includes('timeout');
-      const hint = isTimeout
-        ? `Connection to ${origin} timed out — endpoint may require VPN or private network access`
-        : `Cannot reach ${origin} — ${msg}`;
+      if (isTimeout) {
+        // A timeout on the probe doesn't mean the endpoint is down —
+        // private-network servers (XCO, etc.) may not serve at the probe path.
+        // Cache a short TTL and let the actual API call determine reachability.
+        console.warn(`[checkReachable] Probe timeout for ${origin} — assuming reachable, will verify on actual request`);
+        reachabilityCache.set(origin, { reachable: true, checkedAt: now });
+        return { reachable: true };
+      }
+      const hint = `Cannot reach ${origin} — ${msg}`;
       reachabilityCache.set(origin, { reachable: false, checkedAt: now, error: hint });
       return { reachable: false, error: hint };
     } finally {
