@@ -685,7 +685,10 @@ model UserDashboard {
   lastData    Json?
 
   lastRunAt   DateTime?
-  status      String    @default("active")  // "active" | "paused" | "archived"
+  status      String    @default("active")  // "active" | "paused" | "archived" | "provisioning" | "error"
+
+  // Provisioning metadata: { provisioningMessage, errorDetail, skillsInstalled }
+  meta        Json?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

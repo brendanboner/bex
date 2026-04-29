@@ -27,7 +27,7 @@ const XCO_PASSWORD = process.env['XCO_PASSWORD'] ?? 'password';
 // Use {xco-host} placeholder so the Endpoint record drives the URL at runtime.
 // If XCO_HOST is provided, it is stored in the Endpoint record; skills always
 // use the placeholder so changing the endpoint automatically applies everywhere.
-const XCO_BASE_URL = 'https://{xco-host}/rest/v1';
+const XCO_BASE_URL = 'https://{xco-host}/v1';
 const XCO_AUTH_URL = 'https://{xco-host}/v1/auth/token/access-token';
 
 const REGISTRY_URL   = process.env['SKILL_REGISTRY_URL']   ?? 'http://localhost:5050';
@@ -81,15 +81,29 @@ function makeTool(
 // ─── Skill definitions ────────────────────────────────────────────────────────
 
 const MONITOR_TOOLS = [
-  makeTool('xco_get_inventory', 'List all registered devices/switches managed by XCO', 'GET',
-    '/inventory/device', {
-      ip_address: { type: 'string', description: 'Filter by device IP address (optional)' },
+  makeTool('xco_get_inventory', 'List all registered switches/devices in XCO inventory (optionally filtered by fabric)', 'GET',
+    '/inventory/switches', {
+      fabric_name: { type: 'string', description: 'Filter by fabric name (optional)' },
     }),
+
+  makeTool('xco_get_switch_config', 'Get configuration and settings for a specific switch', 'GET',
+    '/inventory/switchconfig/setting', {
+      ip_address: { type: 'string', description: 'Management IP address of the switch (required)' },
+    }),
+
+  makeTool('xco_get_rma_history', 'Get device RMA (Return Merchandise Authorization) history', 'GET',
+    '/inventory/rma-history', {}),
 
   makeTool('xco_get_alarm_summary', 'Get alarm counts grouped by severity (Critical/Major/Minor/Warning/Info)', 'GET',
     '/faultmanager/alarm/summary', {}),
 
-  makeTool('xco_get_alarm_history', 'Get alarm history with optional filters', 'GET',
+  makeTool('xco_get_alarm_inventory', 'List all currently active (uncleared) alarms', 'GET',
+    '/faultmanager/alarm/inventory', {
+      severity:  { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info' },
+      page_size: { type: 'integer', description: 'Page size (default 20)' },
+    }),
+
+  makeTool('xco_get_alarm_history', 'Get historical alarm records with optional filters', 'GET',
     '/faultmanager/alarm/history', {
       severity:  { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info' },
       unacked:   { type: 'boolean', description: 'Only unacknowledged alarms' },
@@ -99,16 +113,34 @@ const MONITOR_TOOLS = [
       sort_by:   { type: 'string', description: 'Sort direction: asc or desc' },
     }),
 
-  makeTool('xco_get_alert_history', 'Get recent alert history', 'GET',
+  makeTool('xco_get_alert_inventory', 'List all currently active alerts', 'GET',
+    '/faultmanager/alert/inventory', {
+      severity: { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info' },
+    }),
+
+  makeTool('xco_get_alert_history', 'Get historical alert records', 'GET',
     '/faultmanager/alert/history', {
       severity: { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info' },
       limit:    { type: 'integer', description: 'Max results (default 50)' },
     }),
 
-  makeTool('xco_get_fabrics', 'List all IP fabrics with status', 'GET',
-    '/fabric', {
-      name:   { type: 'string', description: 'Filter by fabric name' },
+  makeTool('xco_get_fabrics', 'List all IP fabrics with status and device counts', 'GET',
+    '/fabric/fabrics', {}),
+
+  makeTool('xco_get_fabric_detail', 'Get detailed information for a specific fabric', 'GET',
+    '/fabric/fabric', {
+      name:   { type: 'string', description: 'Name of the fabric to retrieve (required)' },
       detail: { type: 'boolean', description: 'Return full detail including node counts' },
+    }),
+
+  makeTool('xco_get_fabric_health', 'Get health status for all fabrics (or a specific one)', 'GET',
+    '/fabric/fabrics-health', {
+      'fabric-name': { type: 'string', description: 'Filter to a specific fabric (optional)' },
+    }),
+
+  makeTool('xco_get_fabric_errors', 'Get fabric configuration errors across all fabrics (or a specific one)', 'GET',
+    '/fabric/fabrics/errors', {
+      'fabric-name': { type: 'string', description: 'Filter to a specific fabric name (optional)' },
     }),
 
   makeTool('xco_validate_fabric', 'Validate CLOS topology — find missing links, drift, redundant links', 'GET',
@@ -116,16 +148,23 @@ const MONITOR_TOOLS = [
       'fabric-name': { type: 'string', description: 'Name of the fabric to validate (required)' },
     }),
 
-  makeTool('xco_get_fabric_errors', 'Get all fabric errors across all fabrics (or a specific one)', 'GET',
-    '/fabric/errors', {
-      'fabric-name': { type: 'string', description: 'Filter to a specific fabric name (optional)' },
-    }),
+  makeTool('xco_get_system_settings', 'Get XCO platform-wide system settings', 'GET',
+    '/system/settings', {}),
 
-  makeTool('xco_get_system_health', 'Check XCO platform health — K8s pods, nodes, service CPU/memory', 'GET',
-    '/monitor/system', {}),
+  makeTool('xco_get_system_feature', 'Get XCO feature flags and platform health status', 'GET',
+    '/system/feature', {}),
 
-  makeTool('xco_validate_token', 'Validate the current XCO Bearer token is still valid', 'GET',
-    '/auth/validate', {}),
+  makeTool('xco_get_rbac_roles', 'List all RBAC roles defined in XCO', 'GET',
+    '/rbac/roles', {}),
+
+  makeTool('xco_get_tenants', 'List all tenants (VRF / tenant network groupings) in XCO', 'GET',
+    '/tenant/tenants', {}),
+
+  makeTool('xco_get_notification_subscribers', 'List all notification subscribers configured in XCO', 'GET',
+    '/notification/subscribers', {}),
+
+  makeTool('xco_get_snmp_subscribers', 'List all SNMP trap subscribers configured in XCO', 'GET',
+    '/snmp/subscribers', {}),
 ];
 
 const OPERATIONS_TOOLS = [
@@ -147,21 +186,21 @@ const OPERATIONS_TOOLS = [
     '/faultmanager/alarm/purge', {}, true),
 
   makeTool('xco_create_fabric', 'Create a new IP Fabric (CLOS or non-CLOS)', 'POST',
-    '/fabric', {
+    '/fabric/fabric', {
       name:        { type: 'string', description: 'Fabric name (e.g. PROD-DC1)' },
       description: { type: 'string', description: 'Fabric description' },
       stage:       { type: 'integer', description: 'CLOS stage: 3, 5, or 7' },
       type:        { type: 'string', description: 'Fabric type: clos or non-clos' },
     }, true),
 
-  makeTool('xco_delete_fabric', 'Delete an existing fabric', 'DELETE',
-    '/fabric', {
+  makeTool('xco_delete_fabric', 'Delete an existing fabric and all its configuration', 'DELETE',
+    '/fabric/fabric', {
       name:  { type: 'string', description: 'Fabric name to delete' },
       force: { type: 'boolean', description: 'Force delete even with registered devices' },
     }, true),
 
   makeTool('xco_register_device', 'Register a new switch/device to XCO inventory', 'POST',
-    '/inventory/device', {
+    '/inventory/switch', {
       ip_address: { type: 'string', description: 'Management IP address of the switch' },
       username:   { type: 'string', description: 'Switch admin username' },
       password:   { type: 'string', description: 'Switch admin password' },
@@ -169,16 +208,49 @@ const OPERATIONS_TOOLS = [
     }, true),
 
   makeTool('xco_remove_device', 'Remove a device from XCO inventory', 'DELETE',
-    '/inventory/device', {
+    '/inventory/switch', {
       ip_address: { type: 'string', description: 'IP address of the device to remove' },
     }, true),
 
-  makeTool('xco_update_device_setting', 'Update a switch setting (e.g. maintenance_mode_on_reboot)', 'PUT',
-    '/inventory/device/setting', {
+  makeTool('xco_update_device_setting', 'Update a switch configuration setting (e.g. maintenance_mode_on_reboot)', 'PUT',
+    '/inventory/switchconfig/setting', {
       ip_address: { type: 'string', description: 'Management IP address of the switch' },
       key:        { type: 'string', description: 'Setting key (e.g. maintenance_mode_on_reboot)' },
       value:      { type: 'string', description: 'Setting value (e.g. Yes or No)' },
     }, true),
+];
+
+const DIAGNOSTIC_TOOLS = [
+  makeTool('xco_get_bgp_sessions', 'List all BGP peer sessions with their current state (ESTABLISHED/IDLE/ACTIVE)', 'GET', '/monitor/bgp'),
+  makeTool('xco_get_interface_status', 'Get current status and utilization for all interfaces on all switches (or filtered by switch IP)', 'GET', '/monitor/interface',
+    { ip_address: { type: 'string', description: 'Filter to a specific switch management IP (optional)' } }),
+  makeTool('xco_get_vtep_status', 'Get VXLAN Tunnel Endpoint (VTEP) health and reachability status', 'GET', '/monitor/vtep'),
+  makeTool('xco_get_lldp_neighbors', 'Get LLDP neighbor table — physical adjacency between all switches', 'GET', '/monitor/lldp',
+    { ip_address: { type: 'string', description: 'Filter to neighbors of a specific switch IP (optional)' } }),
+  makeTool('xco_get_event_log', 'Get system event log with optional time and severity filters', 'GET', '/event', {
+    start_time:  { type: 'string', description: 'Start timestamp in ISO 8601 format (optional)' },
+    end_time:    { type: 'string', description: 'End timestamp in ISO 8601 format (optional)' },
+    severity:    { type: 'string', description: 'Filter: Critical, Major, Minor, Warning, Info (optional)' },
+    page_size:   { type: 'integer', description: 'Results per page (default 50)' } as unknown as { type: string; description: string },
+  }),
+  makeTool('xco_get_audit_log', 'Get configuration change audit trail — who changed what and when', 'GET', '/audit', {
+    start_time:  { type: 'string', description: 'Start timestamp in ISO 8601 format (optional)' },
+    end_time:    { type: 'string', description: 'End timestamp in ISO 8601 format (optional)' },
+    page_size:   { type: 'integer', description: 'Results per page (default 50)' } as unknown as { type: string; description: string },
+  }),
+];
+
+const TELEMETRY_TOOLS = [
+  makeTool('xco_get_device_telemetry', 'Get CPU, memory, and temperature telemetry for a specific switch', 'GET', '/monitor/device/telemetry',
+    { ip_address: { type: 'string', description: 'Management IP address of the switch (required)' } }),
+  makeTool('xco_get_interface_utilization', 'Get traffic utilization rates (bytes/packets in+out) for interfaces over a time window', 'GET', '/monitor/interface/utilization', {
+    ip_address:  { type: 'string', description: 'Filter to a specific switch management IP (optional)' },
+    interface:   { type: 'string', description: 'Filter to a specific interface name, e.g. "Ethernet 0/1" (optional)' },
+    window_mins: { type: 'integer', description: 'Time window in minutes (default 5)' } as unknown as { type: string; description: string },
+  }),
+  makeTool('xco_get_fabric_utilization', 'Get aggregate east-west traffic utilization summary for all fabrics', 'GET', '/monitor/fabric/utilization', {
+    fabric_name: { type: 'string', description: 'Filter to a specific fabric (optional)' },
+  }),
 ];
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -291,6 +363,7 @@ async function main() {
   for (const a of oldAgents) {
     await prisma.agentSkill.deleteMany({ where: { agentId: a.id } });
     await prisma.scheduledJob.deleteMany({ where: { agentId: a.id } });
+    await prisma.agentRequest.deleteMany({ where: { agentId: a.id } });
     if (a.id) {
       const agent = await prisma.agent.findUnique({ where: { id: a.id }, select: { charterId: true } });
       await prisma.agent.delete({ where: { id: a.id } });
@@ -330,23 +403,35 @@ async function main() {
       systemPrompt: `You are an ExtremeCloud Orchestrator (XCO/EFA) monitoring specialist.
 
 XCO manages IP Fabrics (CLOS and non-CLOS) on Extreme Networks switches (SLX, VDX).
+All API calls go through HTTPS port 443 via Traefik to the appropriate microservice.
 Base URL: ${XCO_BASE_URL}
 
 ALWAYS start by calling xco_get_inventory to list devices.
-- Each device has: ip_address, role (Spine/Leaf), name, model, firmware, state, fabric
+- Each switch has: ip_address, name, model, firmware, discovery_status, fabric
 
 For alarm queries:
 - Use xco_get_alarm_summary for a count overview
-- Use xco_get_alarm_history with severity=Critical for active critical alarms
+- Use xco_get_alarm_inventory for the current active alarm list
+- Use xco_get_alarm_history with severity=Critical for historical critical alarms
 - "Uncleared" alarms = IsCleared: false
 
 For fabric health:
-- Use xco_get_fabrics with detail=true
-- Use xco_validate_fabric to find topology issues
-- fabric-status values: provisioned, provisioning-failed, unprovisioned
+- Use xco_get_fabrics to list all fabrics
+- Use xco_get_fabric_detail with a specific name for full configuration
+- Use xco_get_fabric_health for health status across all fabrics
+- Use xco_get_fabric_errors to identify configuration errors
+- Use xco_validate_fabric to find topology issues (CLOS fabrics only)
 
-Device state values: Provisioned, Provisioning, Not-Provisioned, Provisioning-Failed
-If any device is not in "Provisioned" state, flag it.`,
+For platform health:
+- Use xco_get_system_feature to check feature flags and service status
+- Use xco_get_system_settings for platform-wide configuration
+
+Device state values: Completed, Not-Started, In-Progress, Failed
+If any device is not in "Completed" state, flag it.
+
+OUTPUT FORMAT:
+- For conversational queries: respond in plain English with clear summaries.
+- When the request mentions "dashboard", "JSON", "structured data", or "export": respond with a single JSON object only — no markdown, no prose. Use snake_case keys. Arrays of objects should have consistent flat keys (e.g. { "devices": [...], "fabrics": [...], "alarm_summary": {...} }).`,
     },
   });
   ok(`Monitor skill: ${monitorSkill.id}`);
@@ -390,6 +475,108 @@ Fabric operations:
   ok(`Operations skill: ${opsSkill.id}`);
   info(`Tools: ${OPERATIONS_TOOLS.map(t => t.name).join(', ')}`);
 
+  log('Creating XCO Diagnostics skill (read-only)...');
+  const diagnosticsSkill = await prisma.skill.create({
+    data: {
+      name: 'ExtremeCloud Orchestrator — Diagnostics',
+      domain: 'networking.extreme-xco.diagnostics',
+      version: '1.0.0',
+      status: 'PUBLISHED',
+      description: 'Network diagnostics for XCO: BGP session state, interface status, VTEP health, LLDP adjacency, event and audit logs.',
+      capabilities: [
+        'List BGP peer sessions and their state',
+        'Get interface status and utilization per switch',
+        'Get VXLAN VTEP health and reachability',
+        'Get LLDP physical neighbor table',
+        'Query system event log with time/severity filters',
+        'Query configuration change audit trail',
+      ],
+      tools: DIAGNOSTIC_TOOLS as any,
+      requiredCredentialType: 'USERNAME_PASSWORD',
+      systemPrompt: `You are an ExtremeCloud Orchestrator (XCO/EFA) network diagnostics specialist.
+
+Use these tools to diagnose BGP, interface, and overlay (VXLAN/VTEP) issues.
+Base URL: ${XCO_BASE_URL}
+
+BGP troubleshooting workflow:
+1. xco_get_bgp_sessions → identify peers not in ESTABLISHED state
+2. xco_get_interface_status for that switch → check physical link state
+3. xco_get_lldp_neighbors → confirm physical adjacency
+4. If interface UP + BGP DOWN → likely configuration mismatch
+5. If interface DOWN → physical or optic issue
+
+For event/audit history, always include start_time/end_time in ISO 8601 format when possible.
+Correlate events with xco_get_alarm_inventory (from the monitor skill) for full picture.
+
+OUTPUT FORMAT:
+- Conversational queries: plain English summaries with clear next steps.
+- When "JSON", "dashboard", or "export" is requested: respond with a single JSON object only — no markdown, no prose.`,
+    },
+  });
+  ok(`Diagnostics skill: ${diagnosticsSkill.id}`);
+  info(`Tools: ${DIAGNOSTIC_TOOLS.map(t => t.name).join(', ')}`);
+
+  log('Creating XCO Telemetry skill (read-only)...');
+  const telemetrySkill = await prisma.skill.create({
+    data: {
+      name: 'ExtremeCloud Orchestrator — Telemetry',
+      domain: 'networking.extreme-xco.telemetry',
+      version: '1.0.0',
+      status: 'PUBLISHED',
+      description: 'Real-time telemetry for XCO: device CPU/memory/temperature, interface utilization rates, fabric east-west traffic summary.',
+      capabilities: [
+        'Get CPU, memory, and temperature telemetry per switch',
+        'Get per-interface traffic utilization over a time window',
+        'Get aggregate east-west fabric utilization summary',
+      ],
+      tools: TELEMETRY_TOOLS as any,
+      requiredCredentialType: 'USERNAME_PASSWORD',
+      systemPrompt: `You are an ExtremeCloud Orchestrator (XCO/EFA) telemetry specialist.
+
+Use these tools to surface real-time performance data from the fabric.
+Base URL: ${XCO_BASE_URL}
+
+Device telemetry requires a switch management IP — always call xco_get_inventory first to enumerate IPs.
+- xco_get_device_telemetry: per-switch CPU%, memory%, temperature
+- xco_get_interface_utilization: per-port bytes/packets in+out over window_mins (default 5 min)
+- xco_get_fabric_utilization: aggregate east-west summary across all (or one) fabric
+
+When comparing utilization across switches, iterate over each IP from inventory.
+
+OUTPUT FORMAT:
+- Conversational queries: plain English summaries with units (%, Mbps, etc.).
+- When "JSON", "dashboard", or "export" is requested: respond with a single JSON object only — no markdown, no prose.`,
+    },
+  });
+  ok(`Telemetry skill: ${telemetrySkill.id}`);
+  info(`Tools: ${TELEMETRY_TOOLS.map(t => t.name).join(', ')}`);
+
+  // ── 4b. Seed learnedNotes ───────────────────────────────────────────────────
+  log('Seeding learnedNotes for XCO skills...');
+  const learnedNotesMap: Record<string, string> = {
+    'networking.extreme-xco.monitor':
+      'API base is /v1 (NOT /rest/v1). All calls go through HTTPS port 443. Start every XCO session with xco_get_inventory to enumerate switches and fabrics. For alarm triage use xco_get_alarm_summary first (gives counts by severity), then xco_get_alarm_inventory for details.',
+    'networking.extreme-xco.diagnostics':
+      'For BGP troubleshooting: xco_get_bgp_sessions → identify DOWN peers → xco_get_interface_status for that switch → xco_get_lldp_neighbors to confirm physical connectivity. If interface UP + BGP DOWN → config mismatch. If interface DOWN → physical/optic issue. Always correlate with xco_get_alarm_inventory.',
+    'networking.extreme-xco.telemetry':
+      'Device telemetry requires the switch management IP as ip_address parameter. Get IPs from xco_get_inventory first. xco_get_interface_utilization gives per-port traffic rates; xco_get_fabric_utilization gives aggregate east-west summary across the fabric.',
+    'networking.extreme-xco.operations':
+      'All write operations (ack/close alarms, push config) require human approval per the agent charter. Always describe the change first and confirm before executing. After config push, verify with xco_get_fabric_health to confirm no new errors.',
+  };
+  try {
+    for (const [domain, note] of Object.entries(learnedNotesMap)) {
+      const skill = await prisma.skill.findFirst({ where: { domain } });
+      if (skill) {
+        await prisma.skill.update({ where: { id: skill.id }, data: { learnedNotes: note } });
+        ok(`learnedNotes set: ${domain}`);
+      } else {
+        info(`Skill not found for learnedNotes: ${domain}`);
+      }
+    }
+  } catch (e) {
+    info(`learnedNotes seeding skipped: ${(e as Error).message}`);
+  }
+
   // ── 5. Create agents ────────────────────────────────────────────────────────
   log('Creating XCO Monitor Agent (AUTONOMOUS, read-only)...');
   const monitorCharter = await prisma.agentCharter.create({
@@ -406,7 +593,7 @@ Fabric operations:
   const monitorAgent = await prisma.agent.create({
     data: {
       name: 'XCO Monitor',
-      description: 'Autonomous read-only agent for monitoring XCO fabrics, alarms, devices, and platform health.',
+      description: 'Autonomous read-only agent for monitoring XCO fabrics, alarms, devices, platform health, BGP/interface diagnostics, and telemetry.',
       llmProvider: LLM_PROVIDER,
       llmModel: LLM_MODEL,
       permissions: ['read:data', 'read:metrics'],
@@ -415,7 +602,11 @@ Fabric operations:
       charterId: monitorCharter.id,
       credentialId: agentCredId,
       agentSkills: {
-        create: [{ skillId: monitorSkill.id }],
+        create: [
+          { skillId: monitorSkill.id },
+          { skillId: diagnosticsSkill.id },
+          { skillId: telemetrySkill.id },
+        ],
       },
     },
   });
@@ -436,7 +627,7 @@ Fabric operations:
   const operatorAgent = await prisma.agent.create({
     data: {
       name: 'XCO Operator',
-      description: 'Supervised operator for XCO. Reads freely, writes require approval.',
+      description: 'Supervised operator for XCO. Reads freely (inventory, alarms, BGP/interface diagnostics, telemetry), writes require approval.',
       llmProvider: LLM_PROVIDER,
       llmModel: LLM_MODEL,
       permissions: ['read:data', 'read:metrics', 'write:alarms'],
@@ -448,6 +639,8 @@ Fabric operations:
         create: [
           { skillId: monitorSkill.id },
           { skillId: opsSkill.id },
+          { skillId: diagnosticsSkill.id },
+          { skillId: telemetrySkill.id },
         ],
       },
     },
@@ -488,7 +681,7 @@ Fabric operations:
 
   // ── 7. Push to registry ─────────────────────────────────────────────────────
   log('Pushing skills to registry...');
-  for (const skill of [monitorSkill, opsSkill]) {
+  for (const skill of [monitorSkill, opsSkill, diagnosticsSkill, telemetrySkill]) {
     try {
       const { fetch } = await import('undici');
       const res = await fetch(`${REGISTRY_URL}/registry/publish`, {
@@ -522,8 +715,10 @@ Fabric operations:
   console.log('  Auth URL:   ', XCO_AUTH_URL);
   console.log('');
   console.log('  Skills (PUBLISHED):');
-  console.log(`    networking.extreme-xco.monitor     ${monitorSkill.id}  (${MONITOR_TOOLS.length} tools)`);
-  console.log(`    networking.extreme-xco.operations  ${opsSkill.id}  (${OPERATIONS_TOOLS.length} tools)`);
+  console.log(`    networking.extreme-xco.monitor       ${monitorSkill.id}  (${MONITOR_TOOLS.length} tools)`);
+  console.log(`    networking.extreme-xco.operations    ${opsSkill.id}  (${OPERATIONS_TOOLS.length} tools)`);
+  console.log(`    networking.extreme-xco.diagnostics   ${diagnosticsSkill.id}  (${DIAGNOSTIC_TOOLS.length} tools)`);
+  console.log(`    networking.extreme-xco.telemetry     ${telemetrySkill.id}  (${TELEMETRY_TOOLS.length} tools)`);
   console.log('');
   console.log('  Agents (ACTIVE):');
   console.log(`    XCO Monitor   ${monitorAgent.id}  (AUTONOMOUS)`);
@@ -539,8 +734,10 @@ Fabric operations:
     xcoBaseUrl: XCO_BASE_URL,
     credentials: { system: credId, agent: agentCredId },
     skills: {
-      monitor: { id: monitorSkill.id, domain: monitorSkill.domain },
-      operations: { id: opsSkill.id, domain: opsSkill.domain },
+      monitor:     { id: monitorSkill.id,     domain: monitorSkill.domain },
+      operations:  { id: opsSkill.id,         domain: opsSkill.domain },
+      diagnostics: { id: diagnosticsSkill.id, domain: diagnosticsSkill.domain },
+      telemetry:   { id: telemetrySkill.id,   domain: telemetrySkill.domain },
     },
     agents: {
       monitor: monitorAgent.id,

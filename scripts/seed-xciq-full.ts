@@ -62,6 +62,8 @@ const TAG_GROUPS: Record<string, string[]> = {
   'location':           ['Location', 'Geo View'],
   'account.admin':      ['Account', 'User', 'Administration', 'Authorization'],
   'reports':            ['NG Reports (Ondemand)', 'NG Reports (Scheduled)'],
+  'wireless':           ['Radio Profile', 'Channel Plan', 'Radio'],
+  'topology':           ['Client Trail', 'Topology'],
 };
 
 async function sendTelegram(text: string): Promise<void> {
@@ -307,6 +309,159 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
   console.log(`  Credential ID:  ${credentialId}`);
   console.log(`══════════════════════════════════════════════════\n`);
 
+  // ── 5b. Composite skill ───────────────────────────────────────────────────
+  console.log('🧩 Creating composite intelligence skill...\n');
+
+  const compositeTools = [
+    {
+      name: 'xiq_clients_by_vendor',
+      description: 'List all active clients filtered by vendor/OS (apple/android/windows). Handles OUI, hostname, and os_type detection automatically. Returns hostname, IP, VLAN, SSID, AP name, signal quality per client.',
+      handlerType: 'xiq_clients_by_vendor',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_clients_by_vendor' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          vendor: { type: 'string', description: 'Vendor filter: "apple", "android", or "windows". Default: "apple"' },
+          apName: { type: 'string', description: 'Optional: filter to clients connected to APs whose name contains this string' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_radio_quality_by_ap',
+      description: 'Get radio quality metrics (SNR, RSSI, noise floor, TX/RX rates) for all APs. Automatically lists devices first and passes deviceIds to the radio-information endpoint. Returns per-AP, per-radio breakdown.',
+      handlerType: 'xiq_radio_quality_report',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_radio_quality_by_ap' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          apNameFilter: { type: 'string', description: 'Optional: only include APs whose hostname contains this string' },
+          radioType: { type: 'string', description: 'Optional: filter by radio type — "2.4GHz", "5GHz", or "6GHz"' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_topology_report',
+      description: 'Full SSID→VLAN→Client correlation map. Returns each SSID with its assigned VLAN, network policy, and list of currently connected clients. Use for SSID/VLAN audit and network topology queries.',
+      handlerType: 'xiq_topology_report',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_topology_report' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          ssidFilter: { type: 'string', description: 'Optional: only include SSIDs whose name contains this string' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_client_snapshot',
+      description: 'Full status snapshot for a specific client device — current connection, AP, SSID, IP, signal quality, VLAN, and recent events. Handles MAC randomisation and partial hostname matching.',
+      handlerType: 'xiq_client_snapshot',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_client_snapshot' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          clientName: { type: 'string', description: 'Hostname or partial name of the client device (e.g. "John-iPhone", "MacBook-Pro")' },
+          macAddress: { type: 'string', description: 'MAC address of the client (alternative to clientName)' },
+          lookbackHours: { type: 'number', description: 'Hours of history to search for disconnected clients (default: 24)' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_client_health_report',
+      description: 'Client health report for all active wireless clients — returns signal quality, retry rate, TX/RX throughput, roaming history, and health classification (good/fair/poor). Use for "show all clients with poor connectivity" queries.',
+      handlerType: 'xiq_client_health_report',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_client_health_report' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          healthFilter: { type: 'string', description: 'Optional: filter by health: "poor", "fair", or "good"' },
+          apFilter: { type: 'string', description: 'Optional: only clients connected to APs matching this name' },
+        },
+        required: [] as string[],
+      },
+    },
+  ];
+
+  const compositeDomain = 'extremecloudiq.composite';
+  const compositeSkillRecord = {
+    name: 'ExtremeCloud IQ — Composite Intelligence Tools',
+    domain: compositeDomain,
+    version: '1.0.0',
+    description: 'Multi-step composite tools that handle API chaining automatically. Use these for vendor queries, radio quality, topology, and client snapshots.',
+    capabilities: compositeTools.map(t => t.description.slice(0, 80)),
+    systemPrompt: `You have access to pre-built composite tools that handle complex multi-step XIQ queries automatically.
+
+ALWAYS prefer composite tools over raw API calls when they cover the query:
+- Apple/Android/Windows clients → xiq_clients_by_vendor
+- Radio quality, SNR, signal → xiq_radio_quality_by_ap  
+- SSID/VLAN topology → xiq_topology_report
+- Single device status → xiq_client_snapshot
+- All clients health → xiq_client_health_report
+
+These tools handle all required API chaining (e.g., getting device IDs before radio-information) automatically.`,
+    tools: compositeTools,
+  };
+
+  const existingComposite = await prisma.skill.findFirst({ where: { domain: compositeDomain }, select: { id: true } });
+  let compositeSkillId: string;
+  if (existingComposite) {
+    await prisma.skill.update({
+      where: { id: existingComposite.id },
+      data: {
+        name: compositeSkillRecord.name,
+        description: compositeSkillRecord.description,
+        version: compositeSkillRecord.version,
+        capabilities: compositeSkillRecord.capabilities,
+        systemPrompt: compositeSkillRecord.systemPrompt,
+        tools: compositeSkillRecord.tools as any,
+      },
+    });
+    compositeSkillId = existingComposite.id;
+  } else {
+    const created = await prisma.skill.create({ data: compositeSkillRecord as any });
+    compositeSkillId = created.id;
+  }
+  allSkillIds.push(compositeSkillId);
+  totalTools += compositeTools.length;
+
+  const existingCompositeLink = await prisma.agentSkill.findFirst({ where: { agentId, skillId: compositeSkillId } });
+  if (!existingCompositeLink) await prisma.agentSkill.create({ data: { agentId, skillId: compositeSkillId } });
+
+  const compositePushed = await pushToRegistry({ ...compositeSkillRecord, id: compositeSkillId });
+  if (compositePushed) pushedToRegistry++;
+
+  console.log(`  🧩 [${compositeDomain}] ${compositeTools.length} tools — DB: ${compositeSkillId.slice(-8)} Registry: ${compositePushed ? '✅' : '⚠️'}`);
+
+  // ── 5c. Seed learnedNotes for key skills ──────────────────────────────────
+  console.log('\n📝 Seeding learnedNotes for key skills...');
+  try {
+    const learnedNotesMap: Record<string, string> = {
+      'extremecloudiq.devices':
+        'Radio information endpoint (/devices/radio-information) requires deviceIds[] (integer array). ALWAYS call list_devices first to get numeric IDs. NEVER call radio-information without deviceIds — it returns 400 BAD_REQUEST. Use the xiq_radio_quality_by_ap composite tool instead which handles this automatically.',
+      'extremecloudiq.clients':
+        'searchString does NOT filter by vendor or manufacturer. For Apple/Android/Windows clients use the xiq_clients_by_vendor composite tool. For individual device lookup use xiq_client_snapshot. Do NOT use list_active_clients + filter manually when composite tools are available.',
+      'extremecloudiq.network.policy':
+        'VLAN resolution requires chain: GET /network-policies → GET /network-policies/{id}/ssids → GET /user-profiles/{up_id} → GET /network/vlan-profiles. Use xiq_topology_report to get full SSID→VLAN mapping. Do NOT guess VLAN IDs.',
+      'extremecloudiq.composite':
+        'These are pre-built intelligence tools. Use xiq_radio_quality_by_ap for all radio/signal/SNR queries. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting.',
+    };
+
+    for (const [domain, note] of Object.entries(learnedNotesMap)) {
+      const skill = await prisma.skill.findFirst({ where: { domain }, select: { id: true } });
+      if (skill) {
+        await prisma.skill.update({ where: { id: skill.id }, data: { learnedNotes: note } });
+        console.log(`  📝 learnedNotes set for [${domain}]`);
+      } else {
+        console.log(`  ⚠️  Skill [${domain}] not found — skipping learnedNotes`);
+      }
+    }
+  } catch (e) {
+    console.warn('  ⚠️  learnedNotes seeding failed (non-fatal):', (e as Error).message);
+  }
+
   // ── 6. Notify Telegram ─────────────────────────────────────────────────────
   const summary = `✅ ExtremeCloud IQ full skill set ready!
 
@@ -320,10 +475,13 @@ Skills cover:
 - Alerts, Logs, Notifications
 - Monitoring dashboards & Copilot
 - Location, Reports, Admin
+- Wireless (Radio Profiles, Channel Plans)
+- Topology (Client Trail, Topology views)
+- 🧩 Composite tools: vendor queries, radio quality, SSID/VLAN topology, client snapshots
 
 Write operations require your approval before executing.
 
-Try: "List all devices" or "Show alerts" or "Create a VLAN"`;
+Try: "List all Apple clients" or "Show radio quality" or "SSID to VLAN map"`;
 
   await sendTelegram(summary);
   console.log('📱 Telegram notification sent');

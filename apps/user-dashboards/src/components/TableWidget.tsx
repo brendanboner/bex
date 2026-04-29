@@ -73,6 +73,16 @@ export function TableWidget({ title, dataKey, columns, data, colSpan = 2 }: Tabl
       span === 4 && 'col-span-4',
     );
 
+  // When the agent returned prose/markdown (stored as _text string), render it as text
+  if (rows.length === 0 && typeof raw === 'string' && raw.length > 0) {
+    return (
+      <div className={cn('rounded-xl border border-slate-700/60 bg-slate-800/50 p-4 overflow-auto max-h-[600px]', colClass(colSpan))}>
+        {title && <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">{title}</p>}
+        <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words font-sans leading-relaxed">{raw}</pre>
+      </div>
+    );
+  }
+
   if (rows.length === 0) {
     return (
       <div className={cn('rounded-xl border border-slate-700/60 bg-slate-800/50 p-4', colClass(colSpan))}>

@@ -7,12 +7,13 @@
 import { useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, ArrowLeft, Clock, AlertCircle } from 'lucide-react';
+import { RefreshCw, ArrowLeft, Clock, AlertCircle, Loader2 } from 'lucide-react';
 import { dashboardApi } from '@/lib/api';
 import { relativeTime } from '@/lib/utils';
 import { WidgetGrid } from '@/components/WidgetGrid';
 
-const REALTIME_INTERVAL_MS = 30_000; // 30 s polling for "realtime" dashboards
+const REALTIME_INTERVAL_MS = 30_000;
+const PROVISIONING_POLL_MS = 10_000;
 
 export function DashboardPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -37,18 +38,29 @@ export function DashboardPage() {
     },
   });
 
-  // Auto-refresh for realtime dashboards
+  const isProvisioning = dashboard?.status === 'provisioning';
+  const isError = dashboard?.status === 'error';
+
+  // Auto-poll while provisioning, or auto-refresh for realtime dashboards
   useEffect(() => {
-    if (dashboard?.refreshMode === 'realtime') {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+
+    if (isProvisioning) {
+      // Poll the GET endpoint (not a full refresh) so we detect status transition cheaply
+      intervalRef.current = setInterval(() => {
+        void queryClient.invalidateQueries({ queryKey: ['dashboard', slug] });
+      }, PROVISIONING_POLL_MS);
+    } else if (dashboard?.refreshMode === 'realtime') {
       intervalRef.current = setInterval(() => {
         refreshMutation.mutate();
       }, REALTIME_INTERVAL_MS);
     }
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashboard?.refreshMode]);
+  }, [dashboard?.refreshMode, isProvisioning, slug]);
 
   if (isLoading) {
     return (
@@ -75,6 +87,9 @@ export function DashboardPage() {
       </div>
     );
   }
+
+  const provisioningMessage = (dashboard.meta as Record<string, unknown> | null)?.provisioningMessage as string | undefined;
+  const errorDetail = (dashboard.meta as Record<string, unknown> | null)?.provisioningMessage as string | undefined;
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -107,7 +122,7 @@ export function DashboardPage() {
           {/* Manual refresh button */}
           <button
             onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
+            disabled={refreshMutation.isPending || isProvisioning}
             className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-slate-100 transition-all disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
@@ -116,7 +131,37 @@ export function DashboardPage() {
         </div>
       </header>
 
+      {/* Provisioning banner */}
+      {isProvisioning && (
+        <div className="max-w-screen-xl mx-auto px-6 pt-4">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+            <Loader2 className="h-4 w-4 text-amber-400 animate-spin mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-amber-300">Preparing your dashboard…</p>
+              <p className="text-xs text-amber-400/80 mt-0.5">
+                {provisioningMessage ?? 'Required skills are being acquired or generated. This may take up to 60 seconds. This page will update automatically.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Error banner */}
+      {isError && (
+        <div className="max-w-screen-xl mx-auto px-6 pt-4">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-start gap-3">
+            <AlertCircle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-red-300">Dashboard provisioning failed</p>
+              <p className="text-xs text-red-400/80 mt-0.5">
+                {errorDetail ?? 'Skill acquisition failed. Click Refresh to try again, or check that your credentials are configured.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refresh error banner */}
       {refreshMutation.error && (
         <div className="max-w-screen-xl mx-auto px-6 pt-4">
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400">

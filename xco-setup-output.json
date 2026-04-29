@@ -1,22 +1,30 @@
 {
-  "xcoHost": "10.64.160.109",
-  "xcoBaseUrl": "https://10.64.160.109/rest/v1",
+  "xcoHost": "",
+  "xcoBaseUrl": "https://{xco-host}/v1",
   "credentials": {
-    "system": "cmo8gk9st000djwjk9jl6bepm",
-    "agent": "cmo8gpsyq0001466cmuozgow0"
+    "system": "cmoiozblz000nbx10lc0e0gur",
+    "agent": "cmojxfxho0001t9mz29owqhiz"
   },
   "skills": {
     "monitor": {
-      "id": "cmo8grfo80000105zhhq4xh9w",
+      "id": "cmojxg7uk000011rax6xqt70h",
       "domain": "networking.extreme-xco.monitor"
     },
     "operations": {
-      "id": "cmo8grfoa0001105z1e5qq4rj",
+      "id": "cmojxg7un000111rabvovoirh",
       "domain": "networking.extreme-xco.operations"
+    },
+    "diagnostics": {
+      "id": "cmojxg7up000211rabwhoal18",
+      "domain": "networking.extreme-xco.diagnostics"
+    },
+    "telemetry": {
+      "id": "cmojxg7ur000311rajj3w46t3",
+      "domain": "networking.extreme-xco.telemetry"
     }
   },
   "agents": {
-    "monitor": "cmo8grfoe0004105zqddyskm5",
-    "operator": "cmo8grfoi0007105z3xynu9b9"
+    "monitor": "cmojxg7v3000611rai7q9gcg6",
+    "operator": "cmojxg7v9000911raur7lyf4s"
   }
 }

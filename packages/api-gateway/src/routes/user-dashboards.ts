@@ -185,6 +185,79 @@ function withJsonDirective(prompt: string): string {
   return `${prompt.trimEnd()}\n\nReturn your response as a JSON object only — no markdown, no prose, no headers. Use clear snake_case field names. Arrays of objects should be flat with consistent keys.`;
 }
 
+// ─── Background provisioning ──────────────────────────────────────────────────
+
+/**
+ * Fire-and-forget: waits briefly for registry skill acquisition, then retries
+ * the agent run. Updates dashboard status to 'active' on success or 'error' after
+ * exhausting retries.
+ */
+async function backgroundProvision(
+  prisma: PrismaClient,
+  dashboardId: string,
+  agentId: string,
+  userId: string,
+  prompt: string,
+  name: string,
+): Promise<void> {
+  const MAX_ATTEMPTS = 3;
+  const DELAY_MS = 15_000; // 15 s between attempts — gives registry time to respond
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    await new Promise((r) => setTimeout(r, DELAY_MS));
+
+    try {
+      const orchestrator = new OrchestratorService(prisma);
+      const agentRequest = await prisma.agentRequest.create({
+        data: { agentId, userId, status: 'RUNNING', input: prompt, channel: 'dashboard', startedAt: new Date() },
+        select: { id: true },
+      });
+
+      const result = await orchestrator.execute({
+        requestId: agentRequest.id,
+        agentId,
+        userId,
+        input: prompt,
+        channel: 'dashboard',
+      });
+
+      const lastData = parseLastData(result.output);
+      const widgets = await generateWidgets(result.output, name, prompt).catch(() => [] as unknown[]);
+
+      await prisma.userDashboard.update({
+        where: { id: dashboardId },
+        data: {
+          status: 'active',
+          lastData: lastData as Prisma.InputJsonValue,
+          lastRunAt: new Date(),
+          widgets: widgets as Prisma.InputJsonValue,
+          meta: { provisioningMessage: null, completedAt: new Date().toISOString() } as Prisma.InputJsonValue,
+        },
+      });
+
+      console.info(`[user-dashboards] Background provisioning succeeded (attempt ${attempt}): dashboard ${dashboardId}`);
+      return;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[user-dashboards] Provisioning attempt ${attempt}/${MAX_ATTEMPTS} failed: ${msg}`);
+
+      if (attempt === MAX_ATTEMPTS) {
+        await prisma.userDashboard.update({
+          where: { id: dashboardId },
+          data: {
+            status: 'error',
+            meta: {
+              provisioningMessage: `Failed after ${MAX_ATTEMPTS} attempts. Last error: ${msg}`,
+              errorDetail: msg,
+              failedAt: new Date().toISOString(),
+            } as Prisma.InputJsonValue,
+          },
+        }).catch(() => {});
+      }
+    }
+  }
+}
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 export async function userDashboardRoutes(
@@ -204,6 +277,7 @@ export async function userDashboardRoutes(
         refreshMode: true,
         cronExpr: true,
         status: true,
+        meta: true,
         lastRunAt: true,
         createdAt: true,
         updatedAt: true,
@@ -243,6 +317,8 @@ export async function userDashboardRoutes(
     let lastData: unknown = null;
     let widgets = parsed.data.widgets ?? [];
     let lastRunAt: Date | null = null;
+    let dashboardStatus = 'active';
+    let meta: Record<string, unknown> | null = null;
     const enrichedPrompt = withJsonDirective(prompt);
 
     try {
@@ -260,8 +336,15 @@ export async function userDashboardRoutes(
         widgets = await generateWidgets(output, name, prompt);
       }
     } catch (runErr) {
-      // Non-fatal: create dashboard with empty data + fallback widgets
-      console.error('[user-dashboards] Initial agent run failed:', runErr);
+      // Non-fatal: create dashboard in provisioning state, then acquire skills + retry in background
+      const msg = runErr instanceof Error ? runErr.message : String(runErr);
+      console.warn('[user-dashboards] Initial agent run failed — entering provisioning state:', msg);
+      dashboardStatus = 'provisioning';
+      meta = {
+        provisioningMessage: 'Required skills are being acquired. Data will appear once provisioning completes.',
+        errorDetail: msg,
+        startedAt: new Date().toISOString(),
+      };
       widgets = await generateWidgets('{}', name, prompt).catch(() => [
         { id: 'w1', type: 'table' as const, title: 'Data', dataKey: '_text', columns: ['value'], colSpan: 4 },
         { id: 'w2', type: 'actions' as const, actions: [{ label: 'Refresh', action: 'refresh' as const, style: 'primary' as const }], colSpan: 1 },
@@ -280,9 +363,15 @@ export async function userDashboardRoutes(
         cronExpr: cronExpr ?? null,
         lastData: lastData != null ? (lastData as Prisma.InputJsonValue) : Prisma.JsonNull,
         lastRunAt: lastRunAt ?? null,
-        status: 'active',
+        status: dashboardStatus,
+        meta: meta != null ? (meta as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
     });
+
+    // Fire-and-forget background provisioning when initial run failed
+    if (dashboardStatus === 'provisioning') {
+      void backgroundProvision(prisma, dashboard.id, agentId, userId, enrichedPrompt, name);
+    }
 
     return reply.status(201).send(ok(dashboard));
   });

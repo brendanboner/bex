@@ -28,6 +28,7 @@ import { charterRoutes } from './routes/charter.js';
 import { scheduledJobRoutes } from './routes/scheduled-jobs.js';
 import { llmConfigRoutes } from './routes/llm-configs.js';
 import { userDashboardRoutes } from './routes/user-dashboards.js';
+import { platformRoutes } from './routes/platforms.js';
 import { validateEnv } from './env.js';
 
 declare module 'fastify' {
@@ -118,6 +119,7 @@ async function buildApp() {
   await scheduledJobRoutes(app, prisma);
   await llmConfigRoutes(app, prisma);
   await userDashboardRoutes(app, prisma);
+  await platformRoutes(app, prisma);
 
   // ─── Graceful shutdown ────────────────────────────────────────────────────
   const shutdown = async () => {

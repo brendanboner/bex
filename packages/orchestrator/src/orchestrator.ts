@@ -225,56 +225,61 @@ export class OrchestratorService {
       return { skill: s, score };
     });
 
-    const best = scored.sort((a, b) => b.score - a.score)[0];
-    if (!best || best.score < 2) return null; // threshold: meaningful match required
+    const qualifying = scored.filter(s => s.score >= 2).sort((a, b) => b.score - a.score);
+    if (qualifying.length === 0) return null;
 
-    try {
-      const manifest = await client.fetch(best.skill.domain, best.skill.version);
-      if (!client.verify(manifest)) return null;
+    // Install ALL qualifying skills from registry (not just the best match)
+    let bestInstalled: { id: string; name: string; domain: string; description: string | null; capabilities: string[]; tools: unknown; systemPrompt: string | null } | null = null;
 
-      // Install locally
-      const installed = await this.prisma.skill.upsert({
-        where: { domain_version: { domain: manifest.domain, version: manifest.version } },
-        create: {
-          name: manifest.name,
-          domain: manifest.domain,
-          version: manifest.version,
-          description: manifest.description ?? null,
-          capabilities: manifest.capabilities,
-          tools: manifest.tools as Prisma.InputJsonValue,
-          systemPrompt: manifest.systemPrompt ?? null,
-          status: 'PUBLISHED',
-        },
-        update: {
-          name: manifest.name,
-          description: manifest.description ?? null,
-          tools: manifest.tools as Prisma.InputJsonValue,
-          systemPrompt: manifest.systemPrompt ?? null,
-          capabilities: manifest.capabilities,
-          status: 'PUBLISHED',
-        },
-        select: { id: true, name: true, domain: true, description: true, capabilities: true, tools: true, systemPrompt: true },
-      });
+    for (const candidate of qualifying) {
+      try {
+        const manifest = await client.fetch(candidate.skill.domain, candidate.skill.version);
+        if (!client.verify(manifest)) continue;
 
-      // Record in registry entries so it shows as "In Sync" locally
-      await this.prisma.skillRegistryEntry.upsert({
-        where: { domain_version: { domain: manifest.domain, version: manifest.version } },
-        create: {
-          domain: manifest.domain,
-          version: manifest.version,
-          name: manifest.name,
-          description: manifest.description ?? null,
-          manifest: manifest as Prisma.InputJsonValue,
-          registryUrl: process.env['SKILL_REGISTRY_URL'] ?? '',
-        },
-        update: { manifest: manifest as Prisma.InputJsonValue },
-      });
+        const installed = await this.prisma.skill.upsert({
+          where: { domain_version: { domain: manifest.domain, version: manifest.version } },
+          create: {
+            name: manifest.name,
+            domain: manifest.domain,
+            version: manifest.version,
+            description: manifest.description ?? null,
+            capabilities: manifest.capabilities,
+            tools: manifest.tools as Prisma.InputJsonValue,
+            systemPrompt: manifest.systemPrompt ?? null,
+            status: 'PUBLISHED',
+          },
+          update: {
+            name: manifest.name,
+            description: manifest.description ?? null,
+            tools: manifest.tools as Prisma.InputJsonValue,
+            systemPrompt: manifest.systemPrompt ?? null,
+            capabilities: manifest.capabilities,
+            status: 'PUBLISHED',
+          },
+          select: { id: true, name: true, domain: true, description: true, capabilities: true, tools: true, systemPrompt: true },
+        });
 
-      console.info(`[orchestrator] Installed skill from registry: ${manifest.domain} v${manifest.version} (score: ${best.score})`);
-      return installed;
-    } catch {
-      return null;
+        await this.prisma.skillRegistryEntry.upsert({
+          where: { domain_version: { domain: manifest.domain, version: manifest.version } },
+          create: {
+            domain: manifest.domain,
+            version: manifest.version,
+            name: manifest.name,
+            description: manifest.description ?? null,
+            manifest: manifest as Prisma.InputJsonValue,
+            registryUrl: process.env['SKILL_REGISTRY_URL'] ?? '',
+          },
+          update: { manifest: manifest as Prisma.InputJsonValue },
+        });
+
+        console.info(`[orchestrator] Installed skill from registry: ${manifest.domain} v${manifest.version} (score: ${candidate.score})`);
+        if (!bestInstalled) bestInstalled = installed; // first = highest score
+      } catch {
+        // Non-fatal — continue with next candidate
+      }
     }
+
+    return bestInstalled;
   }
 
   /**
@@ -651,6 +656,9 @@ export class OrchestratorService {
       // Load agent workspace docs (instructions, context, memory) from KnowledgeStore
       const workspaceDocs = await loadWorkspaceDocs(agent.id);
 
+      // Auto-import registry knowledge for active skill domains (fire-and-forget, non-blocking)
+      void this.tryAutoImportRegistryKnowledge(linkedSkills.map(s => s.domain));
+
       // Load domain intelligence: entity graphs + matching playbooks
       const domainIntelParts = await this.loadDomainIntelligence(linkedSkills, ctx.input);
 
@@ -718,6 +726,44 @@ export class OrchestratorService {
   }
 
   /**
+   * Silently syncs knowledge docs from the remote registry for skill root domains
+   * that have no local KnowledgeStore files yet.
+   * Non-blocking — errors are ignored; results are cached per domain for the process lifetime.
+   */
+  private static readonly _importedKnowledgeDomains = new Set<string>();
+
+  private async tryAutoImportRegistryKnowledge(skillDomains: string[]): Promise<void> {
+    const client = new SkillRegistryClient();
+    if (!client.isConfigured) return;
+
+    const rootDomains = [...new Set(skillDomains.map(d => d.split('.')[0]!))].filter(d => d !== 'agent');
+    const toCheck = rootDomains.filter(d => !OrchestratorService._importedKnowledgeDomains.has(d));
+    if (toCheck.length === 0) return;
+
+    try {
+      const remoteEntries = await client.listKnowledge();
+      for (const domain of toCheck) {
+        OrchestratorService._importedKnowledgeDomains.add(domain);
+        const matching = remoteEntries.filter(k => k.domain === domain || k.domain.startsWith(`${domain}/`));
+        for (const meta of matching) {
+          const existing = await knowledgeStore.read(meta.domain, meta.topic).catch(() => null);
+          if (existing) continue; // already have it locally
+          try {
+            const manifest = await client.fetchKnowledge(meta.domain, meta.topic);
+            await knowledgeStore.write(meta.domain, meta.topic, manifest.content);
+            console.info(`[orchestrator] Auto-imported registry knowledge: ${meta.domain}/${meta.topic}`);
+          } catch {
+            // Non-fatal
+          }
+        }
+      }
+    } catch {
+      // Registry unavailable — mark domains as checked so we don't retry every run
+      for (const d of toCheck) OrchestratorService._importedKnowledgeDomains.add(d);
+    }
+  }
+
+  /**
    * Loads domain knowledge (entity graphs + playbooks) for the active skill domains
    * and returns a formatted system prompt section. Playbooks are filtered to those
    * whose triggerPatterns have ≥2 words matching the user's query.
@@ -733,7 +779,7 @@ export class OrchestratorService {
       where: { domain: { in: topDomains } },
     });
 
-    if (records.length === 0) return '';
+    // Continue even if no DB records — KnowledgeStore may have docs
 
     const queryWords = new Set(
       userInput.toLowerCase().match(/\b\w{3,}\b/g) ?? [],
@@ -774,6 +820,30 @@ export class OrchestratorService {
             parts.push(`## Analysis Playbook: ${pb['name']}\n${JSON.stringify(pb, null, 2)}`);
           }
         }
+      }
+    }
+
+    // Also load knowledge docs from the filesystem KnowledgeStore for active domains.
+    // This injects critical domain context (e.g. knowledge/extremecloudiq/context.md)
+    // that may not yet be in the DomainKnowledge DB table.
+    const knowledgeTopics = await Promise.all(
+      topDomains
+        .filter(d => d !== 'agent')
+        .map(async (domain) => {
+          const topics = await knowledgeStore.list(domain).catch(() => [] as Awaited<ReturnType<typeof knowledgeStore.list>>);
+          return { domain, topics };
+        }),
+    );
+
+    for (const { domain, topics } of knowledgeTopics) {
+      for (const topicMeta of topics) {
+        // Skip agent-scoped topics — those are loaded via loadWorkspaceDocs()
+        if (topicMeta.domain.startsWith('agent/')) continue;
+        const entry = await knowledgeStore.read(topicMeta.domain, topicMeta.topic).catch(() => null);
+        if (!entry?.content) continue;
+        const header = `## Domain Knowledge: ${topicMeta.domain}/${topicMeta.topic}`;
+        const content = entry.content.length > 6000 ? entry.content.slice(0, 6000) + '\n... (truncated)' : entry.content;
+        parts.push(`${header}\n${content}`);
       }
     }
 

@@ -288,3 +288,56 @@ The response always includes `status_message` — a ready-to-report plain-Englis
 - Offline no history: "BonePhone not found in active clients. Provide macAddress to retrieve connection history."
 
 Always report the `status_message` to the user. Also include `last_seen_at` when relevant.
+
+---
+
+## ⚠️ CRITICAL: Query Strategy — NEVER Use Scheduled Jobs as Data Source
+
+**Scheduled jobs are automation tools, NOT data sources.** When a user asks a question about network data, ALWAYS call the appropriate XIQ query tool directly. Never use `list_scheduled_jobs`, `enable_scheduled_job`, `trigger_scheduled_job`, or any job management tool to answer a data question.
+
+### Rule: Direct Query First
+
+| User asks | CORRECT approach | WRONG approach |
+|---|---|---|
+| "Are there clients with bad radio?" | `xiq_radio_quality_report()` or `xiq_client_health_report()` | ~~Check if a monitoring job exists~~ |
+| "What is the IP of my MacBook?" | `xiq_client_snapshot(clientName="MacBookPro")` | ~~List scheduled jobs~~ |
+| "Show me all Apple clients" | `xiq_clients_by_vendor(vendor="apple")` | ~~Trigger a monitoring job~~ |
+| "How is the network doing?" | `xiq_network_overview()` | ~~Enable a monitoring job~~ |
+| "Who is connected to AP X?" | `list_active_clients(connectedAp="AP X")` | ~~Check job status~~ |
+
+### When TO Use Scheduled Jobs
+
+Only call `list_scheduled_jobs` / `enable_scheduled_job` / `trigger_scheduled_job` when the user **explicitly** says one of:
+- "set up a scheduled job"
+- "automate this check"
+- "run this on a schedule"
+- "enable the monitoring job"
+- "what scheduled jobs are there?"
+
+If the user says "don't enable a job, just show the data" — stop any job-related actions immediately and call the direct XIQ data tool.
+
+### Handling "Bad Radio Quality" Queries
+
+For any question about poor signal, bad RSSI/SNR, weak connection:
+1. Call `xiq_radio_quality_report()` → returns clients grouped by health (poor/fair/good)
+2. OR call `xiq_client_health_report()` → returns health breakdown with signal stats
+3. Filter for clients where `snr < 20` (bad) or `rssi < -72` (bad)
+4. Report the count and list the worst offenders
+
+Do NOT look for a job to run. Do NOT wait for scheduled data. Query directly.
+
+### Response Completion Rule
+
+**Never say "The data is still being queried" or "I will update you when I have the data."**
+You have direct access to XIQ via tool calls. If a tool call fails, say what failed and why.
+If the tool returns data, report it immediately. You are synchronous — there is no background process.
+
+---
+
+## Radio Quality Thresholds (for bad radio classification)
+
+| Metric | Good | Fair | Poor (Bad) |
+|---|---|---|---|
+| SNR | ≥ 25 dB | 15–24 dB | < 15 dB |
+| RSSI | ≥ -67 dBm | -68 to -80 dBm | < -80 dBm |
+| Health Score | ≥ 70 | 40–69 | < 40 |
