@@ -594,6 +594,26 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
   try {
     await provisionDefaultLLMConfig(prisma, vault);
 
+    // Load registry token from vault into process.env if not already set
+    if (!process.env['SKILL_REGISTRY_TOKEN']) {
+      try {
+        const regCred = await prisma.credential.findFirst({
+          where: { name: 'system.skill_registry_token' },
+          select: { id: true },
+        });
+        if (regCred) {
+          const decrypted = await vault.resolve(regCred.id, ['*']);
+          const token = (decrypted as Record<string, string>)['skill_registry_token'];
+          if (token) {
+            process.env['SKILL_REGISTRY_TOKEN'] = token;
+            console.info('[provision] Registry token loaded from vault');
+          }
+        }
+      } catch {
+        // Non-fatal — registry push will simply be skipped if token unavailable
+      }
+    }
+
     const hasXiq = await credentialExists(prisma, 'system.xiq_credentials');
     const hasXco = await credentialExists(prisma, 'system.xco_credentials');
 

@@ -20,6 +20,7 @@
     "db:generate": "turbo run db:generate --filter=@bex/shared",
     "db:migrate": "turbo run db:migrate --filter=@bex/shared",
     "db:seed": "turbo run db:seed --filter=@bex/shared",
+    "registry:push": "npx tsx scripts/push-skills-to-registry.ts",
     "db:studio": "cd packages/shared && npx prisma studio",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore",

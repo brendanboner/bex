@@ -516,6 +516,11 @@ export async function initCommand(): Promise<void> {
           whatsapp_approval_to: channelEnv['WHATSAPP_APPROVAL_TO'] ?? '',
         });
       }
+      if (skillRegistryToken) {
+        await storeSystemCred('system.skill_registry_token', 'API_TOKEN', {
+          skill_registry_token: skillRegistryToken,
+        });
+      }
 
       vaultSpinner.succeed('Secrets stored in credential vault');
 
