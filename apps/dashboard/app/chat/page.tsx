@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, ChevronLeft, ChevronRight, MessageSquare, Plus, Send, Sparkles, Zap } from 'lucide-react';
+import { AlertCircle, Bot, ChevronLeft, ChevronRight, MessageSquare, Plus, Send, Sparkles, Zap } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { toast } from '@/hooks/use-toast';
 
 type Agent = { id: string; name: string; description?: string; status: string };
 type ChatMode = 'coordinator' | 'direct';
@@ -15,6 +16,7 @@ type ChatMessage = {
   content: string;
   agentName?: string;
   routed?: boolean; // true = came from coordinator (auto-routed)
+  error?: boolean;  // true = this message is an inline error
 };
 type RequestRecord = { id: string; status: string; output?: string; errorMsg?: string };
 
@@ -106,16 +108,24 @@ export default function NexusPage() {
         });
         setCoordinatorSessionId(result.sessionId);
         setSending(false);
+        const output = result.output?.trim() || '*(No response — the agent completed its task without producing text output.)*';
         setMessages(prev => [...prev, {
           id: `coord-${Date.now()}`,
           role: 'agent',
-          content: result.output,
+          content: output,
           agentName: 'Nexus',
           routed: true,
         }]);
       } catch (e) {
         setSending(false);
-        toast({ title: 'Failed to send', description: (e as Error).message, variant: 'destructive' });
+        setMessages(prev => [...prev, {
+          id: `err-${Date.now()}`,
+          role: 'agent',
+          content: (e as Error).message ?? 'An unexpected error occurred.',
+          agentName: 'Nexus',
+          routed: true,
+          error: true,
+        }]);
       }
     } else {
       // Direct mode — send straight to pinned agent, poll for result
@@ -127,7 +137,14 @@ export default function NexusPage() {
         setPollingId(record.id ?? record.requestId ?? null);
       } catch (e) {
         setSending(false);
-        toast({ title: 'Failed to send', description: (e as Error).message, variant: 'destructive' });
+        setMessages(prev => [...prev, {
+          id: `err-${Date.now()}`,
+          role: 'agent',
+          content: (e as Error).message ?? 'Failed to send request.',
+          agentName: pinnedAgent.name,
+          routed: false,
+          error: true,
+        }]);
       }
     }
   }
@@ -264,33 +281,78 @@ export default function NexusPage() {
               {messages.map(msg => (
                 <div key={msg.id} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
                   {msg.role === 'agent' && (
-                    <div className="mr-3 mt-1 h-7 w-7 rounded-xl bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] flex items-center justify-center shrink-0">
-                      {msg.routed
-                        ? <Zap className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />
-                        : <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />}
+                    <div className={cn(
+                      'mr-3 mt-1 h-7 w-7 rounded-xl flex items-center justify-center shrink-0',
+                      msg.error
+                        ? 'bg-[rgba(239,68,68,0.08)] border border-[rgba(239,68,68,0.2)]'
+                        : 'bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)]',
+                    )}>
+                      {msg.error
+                        ? <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                        : msg.routed
+                          ? <Zap className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />
+                          : <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />}
                     </div>
                   )}
                   <div className="max-w-[72%]">
                     {msg.role === 'agent' && (
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className="text-xs font-semibold text-[rgb(var(--text-primary))]">{msg.agentName ?? 'Agent'}</span>
-                        <span className={cn(
-                          'text-[10px] rounded-full border px-2 py-0.5 font-medium',
-                          msg.routed
-                            ? 'border-[rgba(130,100,200,0.2)] bg-[rgba(130,100,200,0.07)] text-[rgb(var(--text-secondary))]'
-                            : 'border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-muted))]',
-                        )}>
-                          {msg.routed ? 'Routed' : 'Direct'}
-                        </span>
+                        {!msg.error && (
+                          <span className={cn(
+                            'text-[10px] rounded-full border px-2 py-0.5 font-medium',
+                            msg.routed
+                              ? 'border-[rgba(130,100,200,0.2)] bg-[rgba(130,100,200,0.07)] text-[rgb(var(--text-secondary))]'
+                              : 'border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-muted))]',
+                          )}>
+                            {msg.routed ? 'Routed' : 'Direct'}
+                          </span>
+                        )}
+                        {msg.error && (
+                          <span className="text-[10px] rounded-full border border-red-500/20 bg-red-500/08 px-2 py-0.5 font-medium text-red-400">
+                            Error
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className={cn(
-                      'rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap',
+                      'rounded-2xl px-4 py-3 text-sm leading-relaxed',
                       msg.role === 'user'
-                        ? 'bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] text-[rgb(var(--text-primary))] rounded-tr-sm'
-                        : 'bg-[rgb(var(--bg-surface))] border border-[rgb(var(--border))] text-[rgb(var(--text-primary))] rounded-tl-sm',
+                        ? 'bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] text-[rgb(var(--text-primary))] rounded-tr-sm whitespace-pre-wrap'
+                        : msg.error
+                          ? 'bg-red-500/05 border border-red-500/15 text-red-400 rounded-tl-sm whitespace-pre-wrap'
+                          : 'bg-[rgb(var(--bg-surface))] border border-[rgb(var(--border))] text-[rgb(var(--text-primary))] rounded-tl-sm',
                     )}>
-                      {msg.content}
+                      {msg.role === 'user' || msg.error
+                        ? msg.content
+                        : (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                              h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-1">{children}</h1>,
+                              h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-1">{children}</h2>,
+                              h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-1">{children}</h3>,
+                              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                              li: ({ children }) => <li className="text-sm">{children}</li>,
+                              code: ({ inline, children, ...props }: { inline?: boolean; children?: React.ReactNode; [key: string]: unknown }) => inline
+                                ? <code className="bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] rounded px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>
+                                : <code className="block bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] rounded-lg p-3 text-xs font-mono overflow-x-auto mb-2 whitespace-pre" {...props}>{children}</code>,
+                              pre: ({ children }) => <div className="mb-2">{children}</div>,
+                              blockquote: ({ children }) => <blockquote className="border-l-2 border-[rgba(130,100,200,0.3)] pl-3 italic text-[rgb(var(--text-secondary))] mb-2">{children}</blockquote>,
+                              strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                              a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[rgba(130,100,200,0.9)] underline hover:text-[rgba(130,100,200,1)] transition-colors">{children}</a>,
+                              table: ({ children }) => <div className="overflow-x-auto mb-2"><table className="text-xs border-collapse w-full">{children}</table></div>,
+                              th: ({ children }) => <th className="border border-[rgb(var(--border))] px-2 py-1 bg-[rgb(var(--bg-elevated))] font-semibold text-left">{children}</th>,
+                              td: ({ children }) => <td className="border border-[rgb(var(--border))] px-2 py-1">{children}</td>,
+                              hr: () => <hr className="border-[rgb(var(--border))] my-2" />,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        )
+                      }
                     </div>
                   </div>
                 </div>
