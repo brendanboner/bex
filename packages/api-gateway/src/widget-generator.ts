@@ -124,6 +124,34 @@ export async function generateWidgets(
 
   const dataDescription = `The agent returned structured JSON data:\n\`\`\`json\n${JSON.stringify(parsedData, null, 2).slice(0, 3000)}\n\`\`\``;
 
+  // ── Fast-path: if the data has well-known mermaid/diagram fields, return a mermaid widget directly
+  // without burning LLM tokens — the LLM nearly always chooses mermaid anyway.
+  if (parsedData && typeof parsedData === 'object' && !Array.isArray(parsedData)) {
+    const data = parsedData as Record<string, unknown>;
+    const mermaidKey = ['topology_diagram', 'sankey_diagram', 'fabric_graph', 'mermaid_diagram', 'diagram']
+      .find((k) => typeof data[k] === 'string' && (data[k] as string).length > 10);
+    if (mermaidKey) {
+      const widgets: Widget[] = [
+        { id: 'w1', type: 'mermaid', title: dashboardName, dataKey: mermaidKey, colSpan: 4 } as Widget,
+      ];
+      // Add summary stats if present
+      const summaryKeys = Object.keys(data).filter((k) => k !== mermaidKey && typeof data[k] !== 'object');
+      for (let i = 0; i < Math.min(summaryKeys.length, 4); i++) {
+        widgets.push({ id: `ws${i + 1}`, type: 'headline', title: summaryKeys[i]!, dataKey: summaryKeys[i]!, colSpan: 1 } as Widget);
+      }
+      // Add a table for the first array key if present
+      const arrayKey = Object.keys(data).find((k) => Array.isArray(data[k]) && (data[k] as unknown[]).length > 0);
+      if (arrayKey) {
+        const arr = data[arrayKey] as Array<Record<string, unknown>>;
+        const columns = typeof arr[0] === 'object' && arr[0] !== null ? Object.keys(arr[0]).slice(0, 8) : ['value'];
+        widgets.push({ id: `wt1`, type: 'table', title: arrayKey, dataKey: arrayKey, columns, colSpan: 4 } as Widget);
+      }
+      widgets.push({ id: 'wz1', type: 'actions', actions: [{ label: 'Refresh', action: 'refresh', style: 'primary' }], colSpan: 1 } as Widget);
+      console.info(`[widget-generator] Fast-path mermaid widget for "${dashboardName}" (key: ${mermaidKey})`);
+      return widgets;
+    }
+  }
+
   const provider = (process.env['LLM_PROVIDER'] ?? 'openai') as 'openai' | 'anthropic' | 'azure-openai';
   const model = process.env['LLM_MODEL'] ?? 'gpt-4o-mini';
 

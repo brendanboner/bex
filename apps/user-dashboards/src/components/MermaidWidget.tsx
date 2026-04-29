@@ -66,6 +66,8 @@ export function MermaidWidget({ title, dataKey, data, colSpan = 4 }: MermaidWidg
       .then(async (mermaid) => {
         if (cancelled || !containerRef.current) return;
         try {
+          // Validate syntax before rendering — avoids async render errors
+          await mermaid.parse(diagramText);
           const { svg } = await mermaid.render(id, diagramText);
           if (cancelled || !containerRef.current) return;
           containerRef.current.innerHTML = svg;
@@ -77,7 +79,11 @@ export function MermaidWidget({ title, dataKey, data, colSpan = 4 }: MermaidWidg
           }
           setRendered(true);
         } catch (e) {
-          if (!cancelled) setError(e instanceof Error ? e.message : 'Diagram syntax error');
+          if (!cancelled) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // Trim Mermaid's verbose error — show only the first line
+            setError(msg.split('\n')[0]?.slice(0, 200) ?? 'Diagram syntax error');
+          }
         }
       })
       .catch((e) => {

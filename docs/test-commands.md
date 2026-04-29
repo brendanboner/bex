@@ -216,6 +216,15 @@ Show an XCO alarm dashboard. Display active alarms grouped by severity (critical
 Create a network operations dashboard: show XCO device inventory with config state, fabric health summary, active alarm count, and BGP session status across all leaf and spine nodes.
 ```
 
+```
+Show the XCO network topology as a Mermaid diagram — spines, leaves and fabric links. Include a table of all switches with their role, management IP, fabric and config state.
+```
+
+### XIQ Mermaid / Sankey Dashboards
+```
+Show a Sankey diagram of Policies → SSID → AP → Client distribution on the XIQ account. Include a summary table showing total clients per policy and per AP.
+```
+
 ### Combined / Cross-Platform Dashboards
 ```
 Create a full network health dashboard: in section 1 show all XIQ APs with client count and radio quality; in section 2 show XCO fabric health and alarm summary; in section 3 show top 10 clients by bandwidth usage.

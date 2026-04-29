@@ -85,8 +85,8 @@ const EXAMPLE_PROMPTS = [
   'Show an XCO fabric health dashboard with alarm summary and BGP status',
   'Show all XCO active alarms grouped by severity with trend',
   'Show radio SNR for all APs — 2.4GHz and 5GHz on the same chart',
-  'Show the XCO network topology as a diagram — spines, leaves and fabric links',
-  'Show a Sankey diagram of clients flowing from SSID to access point',
+  'Show the XCO network topology as a Mermaid diagram — spines, leaves and fabric links',
+  'Show a Sankey diagram of Policies → SSID → AP → Client distribution on the XIQ account',
 ];
 
 function CopyButton({ text }: { text: string }) {

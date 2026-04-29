@@ -1458,6 +1458,388 @@ export function buildTools(
           }
         }
 
+        // ── xco_topology_mermaid: composite — auth → list switches → LLDP → Mermaid graph LR ──
+        // Returns { topology_diagram: "graph LR\n...", fabrics: [...], switches: [...] }
+        if (handlerType === 'xco_topology_mermaid') {
+          const effectiveCredIdXco = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
+          if (!effectiveCredIdXco) return { error: 'xco_topology_mermaid requires an XCO credential. Configure an xco-admin credential in the dashboard.' };
+
+          // Base URL and auth URL are resolved from {xco-host} by the orchestrator before we get here
+          const rawAuthUrl = (config['authUrl'] as string | undefined) ?? '';
+          const rawBaseUrl = (config['baseUrl'] as string | undefined) ?? (() => {
+            try { const u = new URL(rawAuthUrl); return `${u.protocol}//${u.host}/v1`; } catch { return ''; }
+          })();
+          if (!rawBaseUrl) return { error: 'xco_topology_mermaid: cannot determine XCO base URL — check Endpoint record has correct baseUrl' };
+
+          const authUrlXco = rawAuthUrl || `${rawBaseUrl}/auth/token/access-token`;
+          const baseUrlXco = rawBaseUrl;
+
+          const { fetch: xcoFetch2, Agent: XcoAgent } = await import('undici');
+          const tlsAgent2 = new (XcoAgent)({ connect: { rejectUnauthorized: false } });
+          const xcoFetch = (u: Parameters<typeof xcoFetch2>[0], opts?: Parameters<typeof xcoFetch2>[1]) =>
+            xcoFetch2(u, { ...opts, dispatcher: tlsAgent2 });
+
+          const reach = await checkReachable(authUrlXco || baseUrlXco);
+          if (!reach.reachable) {
+            return { error: reach.error ?? 'Cannot reach XCO endpoint', hint: 'XCO is on a private network — ensure VPN or network access is available' };
+          }
+
+          const cacheKeyXco = `${effectiveCredIdXco}:${authUrlXco}`;
+          const doXcoAuth = async (): Promise<string | null> => {
+            const creds = await vault.resolve(effectiveCredIdXco, agentPermissions);
+            const resp = await xcoFetch(authUrlXco, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({ username: String(creds['username'] ?? ''), password: String(creds['password'] ?? '') }),
+            });
+            if (!resp.ok) {
+              console.error(`[xco_topology_mermaid] Auth failed (${resp.status})`);
+              return null;
+            }
+            const d = await resp.json() as Record<string, unknown>;
+            const tok = String(d['access-token'] ?? d['token'] ?? d['access_token'] ?? '');
+            if (!tok) return null;
+            setXcoToken(cacheKeyXco, tok, Number(d['expires_in'] ?? 3600));
+            return tok;
+          };
+
+          const xcoToken = getXcoToken(cacheKeyXco) ?? await doXcoAuth();
+          if (!xcoToken) return { error: 'XCO authentication failed — check credentials in vault' };
+
+          const xcoGet = async (path: string): Promise<unknown[]> => {
+            const url = `${baseUrlXco}${path}`;
+            const resp = await xcoFetch(url, { headers: { Authorization: `Bearer ${xcoToken}`, Accept: 'application/json' } });
+            console.info(`[xco_topology_mermaid] GET ${url} → ${resp.status}`);
+            if (!resp.ok) { console.warn(`[xco_topology_mermaid] ${path} failed: ${resp.status}`); return []; }
+            const body = await resp.json() as unknown;
+            if (Array.isArray(body)) return body;
+            if (body && typeof body === 'object') {
+              const b = body as Record<string, unknown>;
+              for (const k of ['switches', 'result', 'data', 'items', 'neighbors']) {
+                if (Array.isArray(b[k])) return b[k] as unknown[];
+              }
+            }
+            return [];
+          };
+
+          try {
+            const [switchData, lldpData, fabricData] = await Promise.all([
+              xcoGet('/inventory/switches'),
+              xcoGet('/monitor/lldp').catch(() => [] as unknown[]),
+              xcoGet('/fabric/fabrics').catch(() => [] as unknown[]),
+            ]);
+
+            type Switch = { ip: string; name: string; fabric: string; role: string; state: string; model: string };
+            const switches: Switch[] = (switchData as Array<Record<string, unknown>>).map((s) => ({
+              ip: String(s['ip_address'] ?? s['management_ip'] ?? s['ip'] ?? ''),
+              name: String(s['name'] ?? s['host_name'] ?? s['hostname'] ?? s['ip_address'] ?? 'unknown'),
+              fabric: String(s['fabric'] ?? s['fabric_name'] ?? s['tenantName'] ?? 'unknown'),
+              role: String(s['role'] ?? s['node_role'] ?? '').toLowerCase(),
+              state: String(s['app_state'] ?? s['status'] ?? s['state'] ?? ''),
+              model: String(s['model'] ?? s['chassis_type'] ?? ''),
+            }));
+
+            const fabrics = (fabricData as Array<Record<string, unknown>>).map((f) => ({
+              name: String(f['name'] ?? ''),
+              status: String(f['status'] ?? f['health'] ?? ''),
+              type: String(f['type'] ?? ''),
+              stage: f['stage'] ?? null,
+            }));
+
+            // Build IP → Switch map for LLDP lookup
+            const switchByIp = new Map<string, Switch>();
+            for (const sw of switches) if (sw.ip) switchByIp.set(sw.ip, sw);
+
+            type LldpLink = { local: string; neighbor: string; localPort: string; neighborPort: string };
+            const lldpLinks: LldpLink[] = (lldpData as Array<Record<string, unknown>>).map((l) => ({
+              local: String(l['local_ip_address'] ?? l['local_ip'] ?? l['ip_address'] ?? ''),
+              neighbor: String(l['neighbor_ip_address'] ?? l['neighbor_ip'] ?? l['remote_ip'] ?? ''),
+              localPort: String(l['local_port'] ?? l['local_interface'] ?? ''),
+              neighborPort: String(l['neighbor_port'] ?? l['remote_port'] ?? l['remote_interface'] ?? ''),
+            })).filter((l) => l.local && l.neighbor && l.local !== l.neighbor);
+
+            // Deduplicate links — treat A→B and B→A as the same edge
+            const seenLinks = new Set<string>();
+            const uniqueLinks: LldpLink[] = [];
+            for (const link of lldpLinks) {
+              const key = [link.local, link.neighbor].sort().join('|');
+              if (!seenLinks.has(key)) { seenLinks.add(key); uniqueLinks.push(link); }
+            }
+
+            // Build a safe Mermaid node ID from a switch name or IP
+            const nodeId = (s: Switch) =>
+              `sw_${(s.name || s.ip).replace(/[^a-zA-Z0-9]/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '')}`;
+
+            // Determine shape by role: spine = stadium, leaf/border-leaf = box, super-spine = hexagon, unknown = box
+            const nodeShape = (sw: Switch, id: string, label: string): string => {
+              const r = sw.role;
+              if (r.includes('super')) return `${id}{{${label}}}`;
+              if (r.includes('spine')) return `${id}([${label}])`;
+              if (r.includes('border') || r.includes('gateway')) return `${id}[/${label}/]`;
+              if (r.includes('leaf')) return `${id}[${label}]`;
+              return `${id}[${label}]`;
+            };
+
+            const escapeMermaid = (s: string) => s.replace(/["\n\r]/g, ' ').trim();
+
+            // Build mermaid graph LR
+            const lines: string[] = ['graph LR'];
+
+            // Group switches by fabric into subgraphs
+            const fabricGroups = new Map<string, Switch[]>();
+            for (const sw of switches) {
+              if (!fabricGroups.has(sw.fabric)) fabricGroups.set(sw.fabric, []);
+              fabricGroups.get(sw.fabric)!.push(sw);
+            }
+
+            for (const [fabricName, fSwitches] of fabricGroups) {
+              const subName = escapeMermaid(fabricName).replace(/\s+/g, '-');
+              lines.push(`  subgraph ${subName}["${escapeMermaid(fabricName)}"]`);
+              for (const sw of fSwitches) {
+                const id = nodeId(sw);
+                const label = escapeMermaid(`${sw.name}\\n${sw.role || 'switch'}\\n${sw.model || sw.ip}`);
+                lines.push(`    ${nodeShape(sw, id, label)}`);
+              }
+              lines.push('  end');
+            }
+
+            // Add LLDP edges
+            if (uniqueLinks.length > 0) {
+              lines.push('');
+              for (const link of uniqueLinks) {
+                const localSw = switchByIp.get(link.local);
+                const neighborSw = switchByIp.get(link.neighbor);
+                // Only draw edges where both endpoints are known
+                if (localSw && neighborSw) {
+                  lines.push(`  ${nodeId(localSw)} -- "${escapeMermaid(link.localPort)}" --> ${nodeId(neighborSw)}`);
+                }
+              }
+            } else if (switches.length > 1) {
+              // No LLDP data — draw inferred spine→leaf edges based on roles
+              lines.push('');
+              const spines = switches.filter((s) => s.role.includes('spine') && !s.role.includes('super'));
+              const leaves = switches.filter((s) => s.role.includes('leaf'));
+              if (spines.length > 0 && leaves.length > 0) {
+                lines.push('  %% Inferred topology (no LLDP data)');
+                for (const spine of spines) {
+                  for (const leaf of leaves) {
+                    lines.push(`  ${nodeId(spine)} --> ${nodeId(leaf)}`);
+                  }
+                }
+              }
+            }
+
+            // Style nodes by state
+            lines.push('');
+            lines.push('  classDef healthy fill:#065f46,color:#d1fae5,stroke:#34d399');
+            lines.push('  classDef warn fill:#78350f,color:#fef3c7,stroke:#f59e0b');
+            lines.push('  classDef error fill:#7f1d1d,color:#fee2e2,stroke:#f87171');
+            for (const sw of switches) {
+              const id = nodeId(sw);
+              const state = sw.state.toLowerCase();
+              if (state.includes('in-sync') || state.includes('insync') || state === 'provisioned') {
+                lines.push(`  class ${id} healthy`);
+              } else if (state.includes('error') || state.includes('failed') || state.includes('unreachable')) {
+                lines.push(`  class ${id} error`);
+              } else if (state.includes('refresh') || state.includes('maintenance')) {
+                lines.push(`  class ${id} warn`);
+              }
+            }
+
+            const topology_diagram = lines.join('\n');
+
+            return {
+              topology_diagram,
+              summary: {
+                total_switches: switches.length,
+                total_fabrics: fabricGroups.size,
+                lldp_links: uniqueLinks.length,
+                spines: switches.filter((s) => s.role.includes('spine')).length,
+                leaves: switches.filter((s) => s.role.includes('leaf')).length,
+                timestamp: new Date().toISOString(),
+              },
+              fabrics,
+              switches: switches.map((s) => ({ name: s.name, ip: s.ip, fabric: s.fabric, role: s.role, state: s.state, model: s.model })),
+            };
+          } catch (e) {
+            return { error: `XCO topology mermaid failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── xiq_policy_sankey: composite — login → policies → SSIDs → clients → sankey-beta ──
+        // Returns { sankey_diagram: "sankey-beta\n...", summary: {...}, flows: [...] }
+        if (handlerType === 'xiq_policy_sankey') {
+          if (!credentialId) return { error: 'xiq_policy_sankey requires a credentialId' };
+
+          const loginUrlSk = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBaseSk = 'https://api.extremecloudiq.com';
+
+          const reachSk = await checkReachable(loginUrlSk);
+          if (!reachSk.reachable) {
+            return { error: reachSk.error ?? `Cannot reach ${loginUrlSk}`, hint: 'Check network connectivity — XIQ requires internet access' };
+          }
+
+          const { fetch: skFetch } = await import('undici');
+
+          const getSkToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await skFetch(loginUrlSk, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const skGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown[]> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${apiBaseSk}${path}${qs ? '?' + qs : ''}`;
+            const resp = await skFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_policy_sankey] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const txt = await resp.text().catch(() => '');
+              console.warn(`[xiq_policy_sankey] ${path} failed: ${resp.status} ${txt.slice(0, 200)}`);
+              return [];
+            }
+            const body = await resp.json() as { data?: unknown[] } | unknown[];
+            if (Array.isArray(body)) return body;
+            return (body as { data?: unknown[] }).data ?? [];
+          };
+
+          // Paginated helper — fetches up to maxPages pages
+          const skGetAll = async (token: string, path: string, maxPages = 5): Promise<unknown[]> => {
+            const all: unknown[] = [];
+            for (let page = 1; page <= maxPages; page++) {
+              const batch = await skGet(token, path, { page, limit: 100 });
+              all.push(...batch);
+              if (batch.length < 100) break;
+            }
+            return all;
+          };
+
+          try {
+            const token = await getSkToken();
+            if (!token) return { error: 'XIQ login failed — check credentials in vault' };
+
+            // Step 1: Network policies
+            const policies = await skGet(token, '/network-policies', { page: 1, limit: 50 });
+
+            // Step 2: SSIDs per policy — build policyId → name and SSID → policyName maps
+            type PolicyInfo = { id: number; name: string; ssids: string[] };
+            const policyList: PolicyInfo[] = [];
+            for (const p of policies as Array<Record<string, unknown>>) {
+              const pid = p['id'] as number;
+              const pname = String(p['name'] ?? `Policy ${pid}`);
+              const ssids = await skGet(token, `/network-policies/${pid}/ssids`, { page: 1, limit: 100 });
+              const ssidNames = (ssids as Array<Record<string, unknown>>).map((s) =>
+                String(s['name'] ?? s['ssid'] ?? s['ssid_name'] ?? '')
+              ).filter(Boolean);
+              policyList.push({ id: pid, name: pname, ssids: ssidNames });
+            }
+
+            // Reverse map: SSID name → policy name (for client lookup)
+            const ssidToPolicy = new Map<string, string>();
+            for (const pol of policyList) {
+              for (const ssid of pol.ssids) {
+                if (!ssidToPolicy.has(ssid)) ssidToPolicy.set(ssid, pol.name);
+              }
+            }
+
+            // Step 3: All active clients (paginated)
+            const allClients = await skGetAll(token, '/clients/active', 5);
+
+            // Step 4: Build flow counts
+            // Policy → SSID edges
+            const policyToSsid = new Map<string, Map<string, number>>();   // policy → ssid → count
+            // SSID → AP edges
+            const ssidToAp = new Map<string, Map<string, number>>();       // ssid → ap → count
+            // AP → Clients (sink)
+            const apClientCount = new Map<string, number>();
+
+            for (const client of allClients as Array<Record<string, unknown>>) {
+              const ssid = String(client['ssid'] ?? '').trim();
+              const ap = String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '').trim();
+              if (!ssid) continue;
+
+              const policyName = ssidToPolicy.get(ssid) ?? 'Unknown Policy';
+
+              // Policy → SSID
+              if (!policyToSsid.has(policyName)) policyToSsid.set(policyName, new Map());
+              policyToSsid.get(policyName)!.set(ssid, (policyToSsid.get(policyName)!.get(ssid) ?? 0) + 1);
+
+              // SSID → AP
+              const apLabel = ap || 'Unknown AP';
+              if (!ssidToAp.has(ssid)) ssidToAp.set(ssid, new Map());
+              ssidToAp.get(ssid)!.set(apLabel, (ssidToAp.get(ssid)!.get(apLabel) ?? 0) + 1);
+
+              // AP count (for sink)
+              apClientCount.set(apLabel, (apClientCount.get(apLabel) ?? 0) + 1);
+            }
+
+            // Step 5: Build sankey-beta lines
+            // Format: "Source","Target",value
+            const sankeyLines: string[] = ['sankey-beta', ''];
+            const flows: Array<{ source: string; target: string; value: number }> = [];
+
+            const sanitize = (s: string) => `"${s.replace(/"/g, "'").replace(/[\n\r]/g, ' ').trim()}"`;
+
+            for (const [policyName, ssidMap] of policyToSsid) {
+              for (const [ssidName, count] of ssidMap) {
+                if (count > 0) {
+                  sankeyLines.push(`${sanitize(policyName)},${sanitize(ssidName)},${count}`);
+                  flows.push({ source: policyName, target: ssidName, value: count });
+                }
+              }
+            }
+
+            for (const [ssidName, apMap] of ssidToAp) {
+              for (const [apName, count] of apMap) {
+                if (count > 0) {
+                  sankeyLines.push(`${sanitize(ssidName)},${sanitize(apName)},${count}`);
+                  flows.push({ source: ssidName, target: apName, value: count });
+                }
+              }
+            }
+
+            // If no clients were active, build a structural Sankey from policy/SSID definitions only
+            if (flows.length === 0 && policyList.length > 0) {
+              sankeyLines.push('%% No active clients — showing policy/SSID structure');
+              for (const pol of policyList) {
+                for (const ssid of pol.ssids) {
+                  sankeyLines.push(`${sanitize(pol.name)},${sanitize(ssid)},1`);
+                  flows.push({ source: pol.name, target: ssid, value: 1 });
+                }
+              }
+            }
+
+            const sankey_diagram = sankeyLines.join('\n');
+
+            return {
+              sankey_diagram,
+              summary: {
+                total_clients: allClients.length,
+                total_policies: policyList.length,
+                total_ssids: ssidToPolicy.size,
+                total_aps: apClientCount.size,
+                timestamp: new Date().toISOString(),
+              },
+              policies: policyList.map((p) => ({ name: p.name, ssid_count: p.ssids.length, ssids: p.ssids })),
+              flows,
+            };
+          } catch (e) {
+            return { error: `XIQ policy sankey failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
         // ── BEX system admin handlers ─────────────────────────────────────
 
         if (handlerType === 'bex_list_scheduled_jobs') {

@@ -383,6 +383,19 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
         required: [] as string[],
       },
     },
+    {
+      name: 'xiq_policy_sankey',
+      description: 'Build a Mermaid sankey-beta diagram showing the flow Policies → SSIDs → Access Points → Client counts. Returns sankey_diagram (Mermaid string), flows array, and summary counts. Use for "show policy/SSID/AP client distribution" or any Sankey/flow visualisation request.',
+      handlerType: 'xiq_policy_sankey',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_policy_sankey' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          policyFilter: { type: 'string', description: 'Optional: only include policies whose name contains this string' },
+        },
+        required: [] as string[],
+      },
+    },
   ];
 
   const compositeDomain = 'extremecloudiq.composite';
@@ -400,8 +413,11 @@ ALWAYS prefer composite tools over raw API calls when they cover the query:
 - SSID/VLAN topology → xiq_topology_report
 - Single device status → xiq_client_snapshot
 - All clients health → xiq_client_health_report
+- Policy/SSID/AP/Client flow diagram → xiq_policy_sankey
 
-These tools handle all required API chaining (e.g., getting device IDs before radio-information) automatically.`,
+These tools handle all required API chaining (e.g., getting device IDs before radio-information) automatically.
+
+OUTPUT FORMAT FOR DIAGRAMS: When xiq_policy_sankey returns a result, the "sankey_diagram" field contains valid Mermaid sankey-beta syntax. Return this field as-is in your response JSON so the dashboard can render it as a Mermaid widget.`,
     tools: compositeTools,
   };
 
@@ -446,7 +462,7 @@ These tools handle all required API chaining (e.g., getting device IDs before ra
       'extremecloudiq.network.policy':
         'VLAN resolution requires chain: GET /network-policies → GET /network-policies/{id}/ssids → GET /user-profiles/{up_id} → GET /network/vlan-profiles. Use xiq_topology_report to get full SSID→VLAN mapping. Do NOT guess VLAN IDs.',
       'extremecloudiq.composite':
-        'These are pre-built intelligence tools. Use xiq_radio_quality_by_ap for all radio/signal/SNR queries. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting.',
+        'These are pre-built intelligence tools. Use xiq_radio_quality_by_ap for all radio/signal/SNR queries. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_policy_sankey for any Sankey/flow chart of Policies→SSIDs→APs→Clients — it returns "sankey_diagram" (Mermaid sankey-beta string) which the dashboard renders as a mermaid widget.',
     };
 
     for (const [domain, note] of Object.entries(learnedNotesMap)) {

@@ -142,6 +142,32 @@ RIGHT: Call the direct XIQ tool immediately
 
 Only use scheduled job tools when user EXPLICITLY says "set up a scheduled job" or "automate this check".`,
   },
+  {
+    name: 'policy-sankey-diagram',
+    triggerPatterns: ['sankey', 'flow chart', 'policy ssid', 'ssid ap client', 'client distribution', 'client flow', 'policy flow', 'client breakdown'],
+    content: `## Policy → SSID → AP → Client Sankey Diagram
+
+ALWAYS use the \`xiq_policy_sankey\` composite tool for this type of query.
+
+xiq_policy_sankey()
+  → sankey_diagram: Mermaid sankey-beta string showing the client flow
+  → summary: { total_clients, total_policies, total_ssids, total_aps }
+  → policies: [{ name, ssid_count, ssids }]
+  → flows: [{ source, target, value }]
+
+OUTPUT FORMAT for dashboard:
+\`\`\`json
+{
+  "sankey_diagram": "sankey-beta\\n\\"Corp Policy\\",\\"SSID-Corp\\",5\\n...",
+  "summary": { "total_clients": 47 },
+  "policies": [...],
+  "flows": [...]
+}
+\`\`\`
+
+IMPORTANT: return sankey_diagram as a plain string in JSON — NOT wrapped in markdown fences.
+The dashboard renders it as a mermaid widget automatically when it sees a field named sankey_diagram.`,
+  },
 ];
 
 // ─── Networking (XCO) ─────────────────────────────────────────────────────────
@@ -217,6 +243,34 @@ Step 3: Correlate:
   - BGP IDLE               → local routing config issue
 
 XCO API note: GET /v1/monitor/bgp — returns peer list with state field.`,
+  },
+  {
+    name: 'topology-mermaid-diagram',
+    triggerPatterns: ['topology diagram', 'network diagram', 'topology overview', 'fabric topology', 'spine leaf diagram', 'network map', 'fabric map'],
+    content: `## XCO Topology Mermaid Diagram
+
+ALWAYS use the \`xco_topology_mermaid\` composite tool for topology diagram requests.
+
+xco_topology_mermaid()
+  → topology_diagram: Mermaid "graph LR" string (spines, leaves, LLDP edges, health colour)
+  → summary: { total_switches, total_fabrics, lldp_links, spines, leaves }
+  → switches: [{ name, ip, fabric, role, state, model }]
+  → fabrics: [{ name, status, type, stage }]
+
+Node colours: green = cfg in-sync | amber = cfg drift | red = error/unreachable
+
+OUTPUT FORMAT for dashboard:
+\`\`\`json
+{
+  "topology_diagram": "graph LR\\n  subgraph PROD-DC1[...]...",
+  "summary": { "total_switches": 6, "spines": 2, "leaves": 4 },
+  "switches": [...],
+  "fabrics": [...]
+}
+\`\`\`
+
+IMPORTANT: return topology_diagram as a plain string in JSON — NOT wrapped in markdown fences.
+The dashboard renders it as a mermaid widget automatically.`,
   },
 ];
 

@@ -551,7 +551,75 @@ OUTPUT FORMAT:
   ok(`Telemetry skill: ${telemetrySkill.id}`);
   info(`Tools: ${TELEMETRY_TOOLS.map(t => t.name).join(', ')}`);
 
-  // ── 4b. Seed learnedNotes ───────────────────────────────────────────────────
+  // ── 4c. Topology composite skill ───────────────────────────────────────────
+  log('Creating XCO Topology Mermaid composite skill...');
+  const topoCompositeTool = {
+    name: 'xco_topology_mermaid',
+    description: 'Build a Mermaid graph LR topology diagram of the XCO fabric. Returns topology_diagram (Mermaid string showing spines, leaves, and LLDP links with health colouring), plus switches and fabrics arrays for table display.',
+    handlerType: 'xco_topology_mermaid',
+    config: {
+      authUrl: XCO_AUTH_URL,
+      baseUrl: XCO_BASE_URL,
+      isWrite: false,
+      operationId: 'xco_topology_mermaid',
+    },
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        fabricFilter: { type: 'string', description: 'Optional: only include switches belonging to this fabric name' },
+      },
+      required: [] as string[],
+    },
+  };
+
+  const topoCompositeDomain = 'networking.extreme-xco.composite';
+  const existingTopoComposite = await prisma.skill.findFirst({ where: { domain: topoCompositeDomain }, select: { id: true } });
+  let topoCompositeId: string;
+  const topoCompositeRecord = {
+    name: 'ExtremeCloud Orchestrator — Composite Intelligence Tools',
+    domain: topoCompositeDomain,
+    version: '1.0.0',
+    status: 'PUBLISHED' as const,
+    description: 'Composite tools for XCO that perform multi-step operations. Includes topology diagram generation using Mermaid graph LR.',
+    capabilities: [topoCompositeTool.description.slice(0, 80)],
+    tools: [topoCompositeTool],
+    requiredCredentialType: 'USERNAME_PASSWORD',
+    systemPrompt: `You have access to pre-built composite tools for ExtremeCloud Orchestrator.
+
+ALWAYS use composite tools when they cover the query:
+- Fabric topology diagram, network map, spine/leaf view → xco_topology_mermaid
+
+xco_topology_mermaid returns:
+  - "topology_diagram": a Mermaid "graph LR" string showing each switch as a node (spines as stadium, leaves as box), grouped into fabric subgraphs, with LLDP edges showing physical links. Nodes are health-coloured (green=in-sync, amber=drift, red=error/unreachable).
+  - "switches": array of { name, ip, fabric, role, state, model } for table display
+  - "fabrics": array of { name, status, type, stage }
+
+OUTPUT FORMAT: When generating a topology diagram dashboard, return a JSON object with exactly these top-level keys:
+  { "topology_diagram": "<mermaid string>", "summary": {...}, "switches": [...], "fabrics": [...] }
+Do NOT wrap the diagram string in markdown fences — return it as a plain string value in the JSON.`,
+    learnedNotes: 'xco_topology_mermaid fetches /inventory/switches + /monitor/lldp + /fabric/fabrics in parallel and builds a Mermaid graph LR. The topology_diagram field contains valid Mermaid syntax starting with "graph LR". Always include this field in your JSON response — the dashboard will render it as a mermaid widget.',
+  };
+
+  if (existingTopoComposite) {
+    await prisma.skill.update({
+      where: { id: existingTopoComposite.id },
+      data: {
+        name: topoCompositeRecord.name,
+        description: topoCompositeRecord.description,
+        capabilities: topoCompositeRecord.capabilities,
+        systemPrompt: topoCompositeRecord.systemPrompt,
+        tools: topoCompositeRecord.tools as any,
+        learnedNotes: topoCompositeRecord.learnedNotes,
+      },
+    });
+    topoCompositeId = existingTopoComposite.id;
+  } else {
+    const created = await prisma.skill.create({ data: topoCompositeRecord as any });
+    topoCompositeId = created.id;
+  }
+  ok(`XCO Composite skill: ${topoCompositeId}`);
+
+
   log('Seeding learnedNotes for XCO skills...');
   const learnedNotesMap: Record<string, string> = {
     'networking.extreme-xco.monitor':
@@ -606,6 +674,7 @@ OUTPUT FORMAT:
           { skillId: monitorSkill.id },
           { skillId: diagnosticsSkill.id },
           { skillId: telemetrySkill.id },
+          { skillId: topoCompositeId },
         ],
       },
     },
@@ -641,6 +710,7 @@ OUTPUT FORMAT:
           { skillId: opsSkill.id },
           { skillId: diagnosticsSkill.id },
           { skillId: telemetrySkill.id },
+          { skillId: topoCompositeId },
         ],
       },
     },
@@ -681,8 +751,7 @@ OUTPUT FORMAT:
 
   // ── 7. Push to registry ─────────────────────────────────────────────────────
   log('Pushing skills to registry...');
-  for (const skill of [monitorSkill, opsSkill, diagnosticsSkill, telemetrySkill]) {
-    try {
+  for (const skill of [monitorSkill, opsSkill, diagnosticsSkill, telemetrySkill, { ...topoCompositeRecord, id: topoCompositeId }]) {    try {
       const { fetch } = await import('undici');
       const res = await fetch(`${REGISTRY_URL}/registry/publish`, {
         method: 'POST',
