@@ -1733,18 +1733,19 @@ export function buildTools(
             // Step 1: Network policies
             const policies = await skGet(token, '/network-policies', { page: 1, limit: 50 });
 
-            // Step 2: SSIDs per policy — build policyId → name and SSID → policyName maps
+            // Step 2: SSIDs per policy — fetch all policies in parallel
             type PolicyInfo = { id: number; name: string; ssids: string[] };
-            const policyList: PolicyInfo[] = [];
-            for (const p of policies as Array<Record<string, unknown>>) {
-              const pid = p['id'] as number;
-              const pname = String(p['name'] ?? `Policy ${pid}`);
-              const ssids = await skGet(token, `/network-policies/${pid}/ssids`, { page: 1, limit: 100 });
-              const ssidNames = (ssids as Array<Record<string, unknown>>).map((s) =>
-                String(s['name'] ?? s['ssid'] ?? s['ssid_name'] ?? '')
-              ).filter(Boolean);
-              policyList.push({ id: pid, name: pname, ssids: ssidNames });
-            }
+            const policyList: PolicyInfo[] = await Promise.all(
+              (policies as Array<Record<string, unknown>>).map(async (p) => {
+                const pid = p['id'] as number;
+                const pname = String(p['name'] ?? `Policy ${pid}`);
+                const ssids = await skGet(token, `/network-policies/${pid}/ssids`, { page: 1, limit: 100 });
+                const ssidNames = (ssids as Array<Record<string, unknown>>).map((s) =>
+                  String(s['name'] ?? s['ssid'] ?? s['ssid_name'] ?? '')
+                ).filter(Boolean);
+                return { id: pid, name: pname, ssids: ssidNames };
+              }),
+            );
 
             // Reverse map: SSID name → policy name (for client lookup)
             const ssidToPolicy = new Map<string, string>();

@@ -22,6 +22,16 @@ import { generateWidgets } from '../widget-generator.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** How long to wait for a synchronous agent run before switching to background mode. */
+const SYNC_TIMEOUT_MS = 25_000;
+
+/** Rejects after ms with a sentinel error so the caller can switch to provisioning mode. */
+function syncTimeout(ms: number): Promise<never> {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(Object.assign(new Error('Agent run is taking longer than expected — completing in background'), { isTimeout: true })), ms),
+  );
+}
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -314,7 +324,10 @@ export async function userDashboardRoutes(
     let previewError: string | null = null;
 
     try {
-      const result = await runAgentForDashboard(prisma, agentId, userId, enrichedPrompt);
+      const result = await Promise.race([
+        runAgentForDashboard(prisma, agentId, userId, enrichedPrompt),
+        syncTimeout(SYNC_TIMEOUT_MS),
+      ]);
       output = result.output;
       lastData = parseLastData(output);
       widgets = await generateWidgets(output, name, prompt);
@@ -384,7 +397,10 @@ export async function userDashboardRoutes(
     const enrichedPrompt = withJsonDirective(prompt);
 
     try {
-      const { output } = await runAgentForDashboard(prisma, agentId, userId, enrichedPrompt);
+      const { output } = await Promise.race([
+        runAgentForDashboard(prisma, agentId, userId, enrichedPrompt),
+        syncTimeout(SYNC_TIMEOUT_MS),
+      ]);
       lastData = parseLastData(output);
       lastRunAt = new Date();
 
@@ -400,10 +416,13 @@ export async function userDashboardRoutes(
     } catch (runErr) {
       // Non-fatal: create dashboard in provisioning state, then acquire skills + retry in background
       const msg = runErr instanceof Error ? runErr.message : String(runErr);
+      const isTimeout = (runErr as { isTimeout?: boolean }).isTimeout === true;
       console.warn('[user-dashboards] Initial agent run failed — entering provisioning state:', msg);
       dashboardStatus = 'provisioning';
       meta = {
-        provisioningMessage: 'Required skills are being acquired. Data will appear once provisioning completes.',
+        provisioningMessage: isTimeout
+          ? 'This dashboard is fetching live data — it will update automatically in a few moments.'
+          : 'Required skills are being acquired. Data will appear once provisioning completes.',
         errorDetail: msg,
         startedAt: new Date().toISOString(),
       };

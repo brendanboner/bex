@@ -301,6 +301,8 @@ export default function NewDashboardPage() {
         <span>
           On creation the selected agent will run immediately, and the LLM will auto-generate a widget layout
           from the response. Enable <strong>Confirm Build</strong> below to preview the layout before saving.
+          Complex queries (Sankey diagrams, topology views, large client lists) may take up to 30 seconds —
+          the dashboard will show <strong>provisioning</strong> status and update automatically when ready.
         </span>
       </div>
 
