@@ -124,11 +124,47 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
   }
 
   const API_GATEWAY_URL = requireEnv('API_GATEWAY_URL');
-  const DEFAULT_AGENT_ID = process.env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '';
   const NEXUS_AGENT_ID = process.env['NEXUS_AGENT_ID'] ?? 'cmoalym5k0009p13whqz2cref';
   const BOT_API_KEY = process.env['BEX_BOT_API_KEY'] ?? process.env['BEX_ADMIN_TOKEN'] ?? '';
   if (!BOT_API_KEY) {
     console.warn('[telegram] BEX_BOT_API_KEY not set — API requests will fail. Run: bex init');
+  }
+
+  // A Telegram bot token looks like "1234567890:ABCdef..." — detect if someone
+  // accidentally stored the bot token in TELEGRAM_DEFAULT_AGENT_ID.
+  const looksLikeBotToken = (s: string) => /^\d{8,12}:[A-Za-z0-9_-]{30,}$/.test(s);
+
+  let DEFAULT_AGENT_ID = process.env['TELEGRAM_DEFAULT_AGENT_ID'] ?? '';
+
+  if (!DEFAULT_AGENT_ID || looksLikeBotToken(DEFAULT_AGENT_ID)) {
+    if (DEFAULT_AGENT_ID) {
+      console.warn(
+        '[telegram] TELEGRAM_DEFAULT_AGENT_ID looks like a bot token, not a BEX agent ID. ' +
+        'Auto-discovering the default agent…',
+      );
+    }
+    // Auto-discover the best agent from the api-gateway so the bot works even
+    // when TELEGRAM_DEFAULT_AGENT_ID was never set or was set to the wrong value.
+    try {
+      const res = await fetch(`${API_GATEWAY_URL}/agents`, {
+        headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+      });
+      const json = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; status?: string }> };
+      const agents = (json.data ?? []).filter((a) => a.status !== 'INACTIVE');
+      const best =
+        agents.find((a) => /extremecloud\s*iq/i.test(a.name)) ??
+        agents.find((a) => /monitor|agent/i.test(a.name)) ??
+        agents[0];
+      if (best) {
+        DEFAULT_AGENT_ID = best.id;
+        console.info(`[telegram] Auto-discovered default agent: "${best.name}" (${best.id})`);
+        console.info(`[telegram] To avoid this lookup on restart, set TELEGRAM_DEFAULT_AGENT_ID=${best.id} in .env`);
+      } else {
+        console.warn('[telegram] No agents found in api-gateway. Create an agent via bex init or the dashboard.');
+      }
+    } catch (err) {
+      console.warn(`[telegram] Could not auto-discover agents: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   const bot = new Bot<BotContext>(botToken);
@@ -377,7 +413,14 @@ bot.on('message:text', async (ctx) => {
 async function routeToAgent(ctx: BotContext, input: string, agentId?: string): Promise<void> {
   const targetAgentId = agentId ?? DEFAULT_AGENT_ID;
   if (!targetAgentId) {
-    await ctx.reply('⚠️ Bot not fully configured: set TELEGRAM_DEFAULT_AGENT_ID in .env and restart.');
+    await ctx.reply(
+      '⚠️ No BEX agent is configured yet.\n\n' +
+      'An agent is being looked up automatically — please try again in a moment.\n\n' +
+      'If this persists, create an agent via the dashboard and set:\n' +
+      '`TELEGRAM_DEFAULT_AGENT_ID=<agent-uuid>` in `.env`\n\n' +
+      '(This is a BEX agent UUID — *not* your Telegram bot token.)',
+      { parse_mode: 'Markdown' },
+    );
     return;
   }
   const telegramUserId = String(ctx.from?.id ?? 'unknown');

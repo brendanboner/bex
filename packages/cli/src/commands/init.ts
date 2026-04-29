@@ -804,8 +804,19 @@ Be concise and technical in your responses.`,
         agents[0];
       if (bestAgent) {
         writeEnv({ TELEGRAM_DEFAULT_AGENT_ID: bestAgent.id });
+        printSuccess(`TELEGRAM_DEFAULT_AGENT_ID set to "${bestAgent.name}" (${bestAgent.id})`);
+      } else {
+        // Agents are seeded by the domain setup steps (seed-xciq-full.ts etc.) which
+        // run after init.  The Telegram bot will auto-discover the agent on first use.
+        // The user can also set it manually once they know the agent ID.
+        console.log(
+          chalk.yellow('\n  ⚠ No agents found yet — the Telegram bot will auto-discover the default agent on startup.\n') +
+          chalk.dim('    Once your agent is created, you can pin it by adding to .env:\n') +
+          chalk.dim('      TELEGRAM_DEFAULT_AGENT_ID=<agent-uuid from /agents API or dashboard>\n') +
+          chalk.dim('    Do NOT paste the Telegram bot token here — this must be a BEX agent ID.\n'),
+        );
       }
-    } catch { /* non-fatal — can be set manually in .env */ }
+    } catch { /* non-fatal */ }
   }
 
   // ── Done ──────────────────────────────────────────────────────────────────
