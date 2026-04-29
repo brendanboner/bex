@@ -676,6 +676,12 @@ export async function initCommand(): Promise<void> {
         'extremecloudiq.monitoring',
         'extremecloudiq.alerts.logs',
         'extremecloudiq.network.policy',
+        'extremecloudiq.network.config',
+        'extremecloudiq.network.auth',
+        'extremecloudiq.location',
+        'extremecloudiq.wireless',
+        'extremecloudiq.topology',
+        'extremecloudiq.composite',
       ] as const;
 
       console.log('');
@@ -738,6 +744,9 @@ Be concise and clear in your responses.`,
       const xcoDomains = [
         'networking.extreme-xco.monitor',
         'networking.extreme-xco.operations',
+        'networking.extreme-xco.diagnostics',
+        'networking.extreme-xco.telemetry',
+        'networking.extreme-xco.composite',
       ] as const;
 
       console.log('');
