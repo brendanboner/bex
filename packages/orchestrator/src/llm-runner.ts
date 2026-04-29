@@ -81,80 +81,68 @@ function setXcoToken(cacheKey: string, token: string, expiresInSeconds = 3600): 
 
 /**
  * Endpoint reachability cache.
- * Caches whether a base URL is reachable so we don't block every tool call
- * when the endpoint is on a private network or VPN (XCO, etc.).
- * OK results cached 60s; failures cached 15s (retry sooner after network change).
+ * Only populated by SUCCESSFUL probes. Used by tool-router.ts for domain-level
+ * routing decisions (skip a domain that has never successfully been reached).
+ * Positive results cached 60s.
  */
-const reachabilityCache = new Map<string, { reachable: boolean; checkedAt: number; error?: string }>();
+const reachabilityCache = new Map<string, { reachable: boolean; checkedAt: number }>();
 
 /**
  * Returns the current cached reachability status for a base URL.
  * Used by tool-router.ts to skip entire skill domains that are unreachable.
  *  - `true`      — endpoint confirmed reachable (within TTL)
- *  - `false`     — endpoint confirmed unreachable (within TTL)
- *  - `undefined` — not yet checked (allow through — will be checked at first call)
+ *  - `undefined` — not yet confirmed (allow through — will be attempted at first call)
+ *
+ * Note: never returns `false` — a failed probe is not enough evidence to block a
+ * domain. Only actual API call failures (network-level) update the cache negatively.
  */
 export function getCachedReachability(baseUrl: string): boolean | undefined {
   try {
     const origin = new URL(baseUrl).origin;
     const cached = reachabilityCache.get(origin);
     if (!cached) return undefined;
-    const ttl = cached.reachable ? 60_000 : 15_000;
-    if (Date.now() - cached.checkedAt > ttl) return undefined;  // stale
-    return cached.reachable;
+    if (Date.now() - cached.checkedAt > 60_000) return undefined;  // stale
+    return cached.reachable ? true : undefined;
   } catch {
     return undefined;
   }
 }
 
-async function checkReachable(baseUrl: string, timeoutMs = 6000): Promise<{ reachable: boolean; error?: string }> {
-  try {
-    const parsed = new URL(baseUrl);
-    const origin = parsed.origin;
-    // Use the full URL for the probe so private servers that don't serve at / still respond
-    // (e.g. XCO EFA only has routes under /v1/). Fall back to origin if no meaningful path.
-    const probeUrl = parsed.pathname.length > 1 ? baseUrl : origin;
-
-    const cached = reachabilityCache.get(origin);
-    const now = Date.now();
-    if (cached) {
-      const ttl = cached.reachable ? 60_000 : 15_000;
-      if (now - cached.checkedAt < ttl) return cached.error !== undefined
-        ? { reachable: cached.reachable, error: cached.error }
-        : { reachable: cached.reachable };
-    }
-
-    const { fetch: undiFetch, Agent: UndiAgent } = await import('undici');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    // Use a TLS-permissive agent so HTTPS endpoints with self-signed certs don't
-    // falsely report as unreachable (e.g. XCO EFA uses a self-signed certificate).
-    const dispatcher = origin.startsWith('https:') ? new UndiAgent({ connect: { rejectUnauthorized: false } }) : undefined;
+/**
+ * Fire-and-forget background probe — populates the reachability cache so the
+ * tool-router can make smarter domain-selection decisions on subsequent requests.
+ * NEVER blocks handler execution and NEVER causes a request to fail.
+ */
+function probeReachabilityBackground(baseUrl: string): void {
+  void (async () => {
     try {
-      await undiFetch(probeUrl, { method: 'HEAD', signal: controller.signal, ...(dispatcher ? { dispatcher } : {}) });
-      reachabilityCache.set(origin, { reachable: true, checkedAt: now });
-      return { reachable: true };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const isTimeout = msg.includes('abort') || msg.includes('timeout');
-      if (isTimeout) {
-        // A timeout on the probe doesn't mean the endpoint is down —
-        // private-network servers (XCO, etc.) may not serve at the probe path.
-        // Cache a short TTL and let the actual API call determine reachability.
-        console.warn(`[checkReachable] Probe timeout for ${origin} — assuming reachable, will verify on actual request`);
+      const parsed = new URL(baseUrl);
+      const origin = parsed.origin;
+      const now = Date.now();
+      const cached = reachabilityCache.get(origin);
+      if (cached && now - cached.checkedAt < 60_000) return; // already fresh
+
+      const { fetch: undiFetch, Agent: UndiAgent } = await import('undici');
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      const dispatcher = origin.startsWith('https:')
+        ? new UndiAgent({ connect: { rejectUnauthorized: false } }) : undefined;
+      try {
+        await undiFetch(origin, { method: 'HEAD', signal: controller.signal, ...(dispatcher ? { dispatcher } : {}) });
         reachabilityCache.set(origin, { reachable: true, checkedAt: now });
-        return { reachable: true };
+      } catch {
+        // Probe failure is not evidence of unreachability — do not cache negative results
+      } finally {
+        clearTimeout(timer);
       }
-      const hint = `Cannot reach ${origin} — ${msg}`;
-      reachabilityCache.set(origin, { reachable: false, checkedAt: now, error: hint });
-      return { reachable: false, error: hint };
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    // Invalid URL — let the actual call fail naturally
-    return { reachable: true };
-  }
+    } catch { /* invalid URL — ignore */ }
+  })();
+}
+
+/** @deprecated Use probeReachabilityBackground — kept for call-site compatibility */
+async function checkReachable(baseUrl: string, _timeoutMs?: number): Promise<{ reachable: boolean; error?: string }> {
+  probeReachabilityBackground(baseUrl);
+  return { reachable: true };
 }
 
 /**
