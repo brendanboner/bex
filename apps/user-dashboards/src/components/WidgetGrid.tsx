@@ -7,6 +7,10 @@ import { HeadlineWidget } from './HeadlineWidget';
 import { TableWidget } from './TableWidget';
 import { ChartWidget } from './ChartWidget';
 import { ActionsWidget } from './ActionsWidget';
+import { StatWidget } from './StatWidget';
+import { MultilineChartWidget } from './MultilineChartWidget';
+import { MarkdownWidget } from './MarkdownWidget';
+import { HeatmapWidget } from './HeatmapWidget';
 
 interface WidgetGridProps {
   dashboard: UserDashboard;
@@ -73,6 +77,50 @@ export function WidgetGrid({ dashboard, onRefresh, isRefreshing }: WidgetGridPro
                 widget={widget}
                 onRefresh={onRefresh}
                 isLoading={isRefreshing}
+                colSpan={span}
+              />
+            );
+          case 'stat':
+            return (
+              <StatWidget
+                key={widget.id}
+                widget={widget}
+                data={data}
+                colSpan={span}
+              />
+            );
+          case 'multiline':
+            return (
+              <MultilineChartWidget
+                key={widget.id}
+                title={widget.title}
+                dataKey={widget.dataKey}
+                xKey={widget.xKey}
+                yKeys={widget.yKeys}
+                data={data}
+                colSpan={span}
+              />
+            );
+          case 'markdown':
+            return (
+              <MarkdownWidget
+                key={widget.id}
+                title={widget.title}
+                dataKey={widget.dataKey}
+                data={data}
+                colSpan={span}
+              />
+            );
+          case 'heatmap':
+            return (
+              <HeatmapWidget
+                key={widget.id}
+                title={widget.title}
+                dataKey={widget.dataKey}
+                labelKey={widget.labelKey}
+                valueKey={widget.valueKey}
+                thresholds={widget.thresholds}
+                data={data}
                 colSpan={span}
               />
             );

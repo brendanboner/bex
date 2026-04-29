@@ -3,13 +3,16 @@
  */
 
 import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, ArrowRight, Clock, AlertCircle } from 'lucide-react';
+import { LayoutDashboard, ArrowRight, Clock, AlertCircle, HelpCircle } from 'lucide-react';
 import { dashboardApi } from '@/lib/api';
 import { relativeTime, statusColor } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { HelpModal } from '@/components/HelpModal';
 
 export function HomePage() {
+  const [showHelp, setShowHelp] = useState(false);
   const { data: dashboards, isLoading, error } = useQuery({
     queryKey: ['dashboards'],
     queryFn: () => dashboardApi.list(),
@@ -19,6 +22,7 @@ export function HomePage() {
 
   return (
     <div className="min-h-screen bg-slate-950">
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       <header className="border-b border-slate-800">
         <div className="max-w-screen-xl mx-auto px-6 py-4 flex items-center gap-3">
           <LayoutDashboard className="h-5 w-5 text-cyan-400" />
@@ -26,11 +30,18 @@ export function HomePage() {
             <h1 className="text-lg font-bold text-slate-100">BEX Dashboards</h1>
             <p className="text-xs text-slate-500">Live data views powered by autonomous agents</p>
           </div>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="ml-auto rounded-lg border border-slate-700 bg-slate-800 p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-all"
+            title="Help & widget guide"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </button>
           <a
             href="http://localhost:3000/dashboards/new"
             target="_blank"
             rel="noreferrer"
-            className="ml-auto rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-400 hover:bg-cyan-500/20 transition-all"
+            className="rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-400 hover:bg-cyan-500/20 transition-all"
           >
             + New Dashboard
           </a>

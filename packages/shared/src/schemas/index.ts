@@ -226,7 +226,7 @@ export const SpawnPersonaSchema = z.object({
 
 export const WidgetSchema = z.object({
   id: z.string(),
-  type: z.enum(['headline', 'table', 'chart', 'actions']),
+  type: z.enum(['headline', 'table', 'chart', 'actions', 'stat', 'multiline', 'markdown', 'heatmap']),
   title: z.string().optional(),
   // For headline/table/chart: the key in lastData that holds the relevant data
   dataKey: z.string().optional(),
@@ -236,6 +236,16 @@ export const WidgetSchema = z.object({
   chartType: z.enum(['bar', 'line', 'pie']).optional(),
   xKey: z.string().optional(),
   yKey: z.string().optional(),
+  // For multiline chart: multiple series
+  yKeys: z.array(z.string()).optional(),
+  // For stat widget
+  unit: z.string().optional(),
+  deltaKey: z.string().optional(),
+  statusKey: z.string().optional(),
+  thresholds: z.object({ warn: z.number(), crit: z.number() }).optional(),
+  // For heatmap widget
+  labelKey: z.string().optional(),
+  valueKey: z.string().optional(),
   // For actions
   actions: z
     .array(

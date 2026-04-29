@@ -61,13 +61,20 @@ const WidgetLayoutSchema = z.object({
   widgets: z.array(
     z.object({
       id: z.string(),
-      type: z.enum(['headline', 'table', 'chart', 'actions']),
+      type: z.enum(['headline', 'table', 'chart', 'actions', 'stat', 'multiline', 'markdown', 'heatmap']),
       title: z.string().optional(),
       dataKey: z.string().optional(),
       columns: z.array(z.string()).optional(),
       chartType: z.enum(['bar', 'line', 'pie']).optional(),
       xKey: z.string().optional(),
       yKey: z.string().optional(),
+      yKeys: z.array(z.string()).optional(),
+      unit: z.string().optional(),
+      deltaKey: z.string().optional(),
+      statusKey: z.string().optional(),
+      thresholds: z.object({ warn: z.number(), crit: z.number() }).optional(),
+      labelKey: z.string().optional(),
+      valueKey: z.string().optional(),
       colSpan: z.number().int().min(1).max(4).optional(),
       actions: z
         .array(
@@ -139,10 +146,14 @@ Generate a widget layout that best presents this data. Rules:
 - For arrays at the top level, use the key name directly: e.g. "topology" for data.topology[]
 - IMPORTANT: When the data has an array of objects where each object itself contains a sub-array (e.g. access_points[].clients), do NOT use bracket-indexed paths like "access_points[0].clients". Instead create ONE table widget per unique sub-array using the top-level key (e.g. "access_points") with columns including fields from the nested objects flattened. Alternatively, if the data is already structured with named top-level arrays (e.g. "apple_clients"), use that key directly.
 - Use "headline" widgets for single numeric or short-text values. Set "dataKey" to the exact dot-path to the value (e.g. "summary.total_ssids")
+- Use "stat" widgets for a single metric that benefits from health colouring (green/amber/red). Add "unit" (e.g. "dB"), "thresholds": {"warn": N, "crit": M} for auto-colour. Good for SNR, uptime, counts.
 - Use "table" widgets for arrays of objects — set "dataKey" to the key of the array, and "columns" to the field names to show
 - Use "chart" widgets for numeric comparisons — set chartType (bar/line/pie), xKey, yKey, and dataKey to the key of the array
+- Use "multiline" widgets when you have multiple numeric series to compare on one line chart. Set "yKeys" to an array of field names (e.g. ["band_24ghz","band_5ghz"]), "xKey" to the time/label field, "dataKey" to the array.
+- Use "markdown" widgets when data has a string field containing prose or formatted text (e.g. "summary_markdown", "analysis"). Set "dataKey" to that string field key.
+- Use "heatmap" widgets for arrays where each item should be shown as a coloured cell (e.g. AP RF quality). Set "labelKey" (e.g. "hostname"), "valueKey" (e.g. "snr"), "thresholds": {"warn": 25, "crit": 15}, "unit" (e.g. "dB").
 - Use "actions" widget at the end with a "Refresh" action (action: "refresh", style: "primary")
-- colSpan: 1 for headlines, 2-4 for tables/charts
+- colSpan: 1 for headlines/stat, 2-4 for tables/charts/heatmaps
 - Keep it clean: 3–8 widgets max
 - Each widget id should be a short unique string like "w1", "w2", etc.
 

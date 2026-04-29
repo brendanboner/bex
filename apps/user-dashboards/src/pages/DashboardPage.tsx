@@ -4,13 +4,14 @@
  * Supports manual refresh, auto-refresh (realtime mode), and schedule display.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, ArrowLeft, Clock, AlertCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, ArrowLeft, Clock, AlertCircle, Loader2, HelpCircle } from 'lucide-react';
 import { dashboardApi } from '@/lib/api';
 import { relativeTime } from '@/lib/utils';
 import { WidgetGrid } from '@/components/WidgetGrid';
+import { HelpModal } from '@/components/HelpModal';
 
 const REALTIME_INTERVAL_MS = 30_000;
 const PROVISIONING_POLL_MS = 10_000;
@@ -19,6 +20,7 @@ export function DashboardPage() {
   const { slug } = useParams<{ slug: string }>();
   const queryClient = useQueryClient();
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   const {
     data: dashboard,
@@ -93,6 +95,7 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950">
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {/* Header */}
       <header className="sticky top-0 z-10 border-b border-slate-800 bg-slate-950/90 backdrop-blur">
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center gap-4">
@@ -118,6 +121,15 @@ export function DashboardPage() {
               {dashboard.refreshMode === 'realtime' ? '⏱ Live' : `⏰ ${dashboard.cronExpr ?? 'Scheduled'}`}
             </span>
           )}
+
+          {/* Help button */}
+          <button
+            onClick={() => setShowHelp(true)}
+            className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-700 transition-all"
+            title="Help & widget guide"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+          </button>
 
           {/* Manual refresh button */}
           <button

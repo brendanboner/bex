@@ -4,13 +4,20 @@ const API_BASE = (import.meta.env['VITE_API_URL'] as string | undefined) || '/ap
 
 export type Widget = {
   id: string;
-  type: 'headline' | 'table' | 'chart' | 'actions';
+  type: 'headline' | 'table' | 'chart' | 'actions' | 'stat' | 'multiline' | 'markdown' | 'heatmap';
   title?: string;
   dataKey?: string;
   columns?: string[];
   chartType?: 'bar' | 'line' | 'pie';
   xKey?: string;
   yKey?: string;
+  yKeys?: string[];       // multiline chart
+  unit?: string;          // stat widget
+  deltaKey?: string;      // stat widget
+  statusKey?: string;     // stat widget
+  thresholds?: { warn: number; crit: number };  // stat + heatmap
+  labelKey?: string;      // heatmap
+  valueKey?: string;      // heatmap
   colSpan?: number;
   actions?: Array<{
     label: string;
