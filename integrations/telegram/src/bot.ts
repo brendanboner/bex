@@ -259,24 +259,25 @@ bot.command('agents', async (ctx) => {
   }
 });
 
-// /skills — list skills from skill registry
+// /skills — list loaded skills from the local api-gateway
 bot.command('skills', async (ctx) => {
   trackChatId(ctx.chat.id);
   try {
-    const REGISTRY_URL = process.env['SKILL_REGISTRY_URL'] ?? 'http://localhost:5050';
-    const res = await fetch(`${REGISTRY_URL}/skills`, {
-      headers: { Authorization: `Bearer ${process.env['REGISTRY_AUTH_TOKEN'] ?? ''}` },
+    const res = await fetch(`${API_GATEWAY_URL}/skills`, {
+      headers: { Authorization: `Bearer ${BOT_API_KEY}` },
     });
-    const data = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; domain: string; tools?: unknown[] }> };
+    const data = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; domain: string; version: string; status: string; capabilities?: string[] }> };
     if (!data.ok || !data.data?.length) {
-      await ctx.reply('No skills loaded.');
+      await ctx.reply('No skills loaded.\n\nRun the seed script or use the dashboard to install skills.');
       return;
     }
-    const lines = data.data.map((s) => `• *${s.name}* (\`${s.domain}\`) — ${(s.tools as unknown[])?.length ?? 0} tools`);
-    await safeSend(ctx, `🧩 *Skills (${data.data.length})*\n\n${lines.join('\n')}`);
+    const published = data.data.filter(s => s.status === 'PUBLISHED');
+    const lines = published.map((s) => `• *${s.name}* (\`${s.domain}\`)`);
+    const summary = `🧩 *Skills (${published.length} published)*\n\n${lines.join('\n')}\n\nUse /tools to see individual tools, or /tools xiq for XIQ tools.`;
+    await safeSend(ctx, summary);
   } catch (err) {
     console.error('[telegram] /skills error:', err);
-    await ctx.reply('❌ Could not fetch skills.');
+    await ctx.reply('❌ Could not fetch skills. Is the API gateway running?');
   }
 });
 
