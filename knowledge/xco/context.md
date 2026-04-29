@@ -36,31 +36,6 @@ Key endpoints:
 - **XCO Monitor** (read-only): `xco_get_inventory`, `xco_get_fabrics`, `xco_validate_fabric`, `xco_get_alarm_*`, `xco_get_system_health`
 - **XCO Operator** (writes require approval): `xco_register_device`, `xco_create_fabric`, `xco_ack_alarms`, `xco_close_alarms`, `xco_update_device_setting`
 
-### ✅ Composite Topology Tool
-
-For network topology diagrams use the **`xco_topology_mermaid`** composite tool instead of separate API calls.
-
-```
-xco_topology_mermaid()
-  → topology_diagram: Mermaid "graph LR" string (spine/leaf nodes with LLDP edges, health-coloured)
-  → summary: { total_switches, total_fabrics, lldp_links, spines, leaves }
-  → switches: [{ name, ip, fabric, role, state, model }]
-  → fabrics: [{ name, status, type, stage }]
-```
-
-**Dashboard prompt that works:** *"Show me a network topology diagram of the XCO fabric"*
-
-**OUTPUT FORMAT for dashboards:** Always return a JSON object with `topology_diagram` as a plain Mermaid string:
-```json
-{
-  "topology_diagram": "graph LR\n  subgraph PROD-DC1...",
-  "summary": { "total_switches": 6, "spines": 2, "leaves": 4 },
-  "switches": [...],
-  "fabrics": [...]
-}
-```
-Do NOT wrap the diagram in markdown fences.
-
 All write operations follow the pattern: **Read current state → Describe change → Get approval → Execute**.
 
 ## Device States

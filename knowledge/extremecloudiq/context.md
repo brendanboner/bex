@@ -183,37 +183,6 @@ xiq_clients_by_vendor(vendor="apple", apName="Beverly")  → Apple clients on AP
 **Why os_type alone fails:** iOS devices with MAC randomisation have unknown OUIs so XIQ fingerprints them as 'Undetermined'. A device named "BonePhone" is an iPhone but its `os_type` may be blank.
 **Why searchString fails:** It only matches display name/alias, never `os_type` or vendor info.
 
----
-
-## ✅ Composite Sankey Tool — Policy/SSID/AP/Client Flow
-
-For client flow visualisations (Sankey diagrams) use the **`xiq_policy_sankey`** composite tool.
-
-```
-xiq_policy_sankey()
-  → sankey_diagram: Mermaid "sankey-beta" string (Policies → SSIDs → APs → Clients)
-  → summary: { total_clients, total_policies, total_ssids, total_aps }
-  → policies: [{ name, ssid_count, ssids }]
-  → flows: [{ source, target, value }]
-```
-
-**Dashboard prompts that work:**
-- *"Show a Sankey diagram of Policies → SSID → AP → Client distribution"*
-- *"Show client flow across policies and access points"*
-
-**OUTPUT FORMAT for dashboards:** Return a JSON object with `sankey_diagram` as a plain Mermaid string:
-```json
-{
-  "sankey_diagram": "sankey-beta\n\"Corp Policy\",\"SSID-Corp\",5\n...",
-  "summary": { "total_clients": 47, "total_policies": 3, "total_ssids": 8, "total_aps": 12 },
-  "policies": [...],
-  "flows": [...]
-}
-```
-Do NOT wrap the diagram in markdown fences — return it as a plain string value in the JSON.
-
-**IMPORTANT:** The `sankey-beta` diagram values represent COUNTS of currently connected clients flowing through each hop. If zero clients are currently connected, the diagram shows the Policy→SSID structure with value=1 per link to illustrate the configuration.
-
 ### Finding a Client by Name or Alias
 
 Use `xiq_client_snapshot` (composite handler — preferred) or `list_active_clients` with `searchString`:
