@@ -1529,14 +1529,21 @@ export function buildTools(
             ]);
 
             type Switch = { ip: string; name: string; fabric: string; role: string; state: string; model: string };
-            const switches: Switch[] = (switchData as Array<Record<string, unknown>>).map((s) => ({
-              ip: String(s['ip_address'] ?? s['management_ip'] ?? s['ip'] ?? ''),
-              name: String(s['name'] ?? s['host_name'] ?? s['hostname'] ?? s['ip_address'] ?? 'unknown'),
-              fabric: String(s['fabric'] ?? s['fabric_name'] ?? s['tenantName'] ?? 'unknown'),
-              role: String(s['role'] ?? s['node_role'] ?? '').toLowerCase(),
-              state: String(s['app_state'] ?? s['status'] ?? s['state'] ?? ''),
-              model: String(s['model'] ?? s['chassis_type'] ?? ''),
-            }));
+            const switches: Switch[] = (switchData as Array<Record<string, unknown>>).map((s) => {
+              // fabric may be an object {name, id} from some XCO API versions — extract string safely
+              const rawFabric = s['fabric'] ?? s['fabric_name'] ?? s['tenantName'];
+              const fabricStr = rawFabric && typeof rawFabric === 'object'
+                ? String((rawFabric as Record<string, unknown>)['name'] ?? (rawFabric as Record<string, unknown>)['id'] ?? 'unknown')
+                : (rawFabric ? String(rawFabric) : 'unknown');
+              return {
+                ip: String(s['ip_address'] ?? s['management_ip'] ?? s['ip'] ?? ''),
+                name: String(s['name'] ?? s['host_name'] ?? s['hostname'] ?? s['ip_address'] ?? 'unknown'),
+                fabric: fabricStr,
+                role: String(s['role'] ?? s['node_role'] ?? '').toLowerCase(),
+                state: String(s['app_state'] ?? s['status'] ?? s['state'] ?? ''),
+                model: String(s['model'] ?? s['chassis_type'] ?? ''),
+              };
+            });
 
             const fabrics = (fabricData as Array<Record<string, unknown>>).map((f) => ({
               name: String(f['name'] ?? ''),
@@ -1592,7 +1599,8 @@ export function buildTools(
             }
 
             for (const [fabricName, fSwitches] of fabricGroups) {
-              const subName = escapeMermaid(fabricName).replace(/\s+/g, '-');
+              // subgraph ID must be alphanumeric+underscore; label is quoted
+              const subName = fabricName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '') || 'fabric';
               lines.push(`  subgraph ${subName}["${escapeMermaid(fabricName)}"]`);
               for (const sw of fSwitches) {
                 const id = nodeId(sw);
@@ -1714,11 +1722,11 @@ export function buildTools(
             return (body as { data?: unknown[] }).data ?? [];
           };
 
-          // Paginated helper — fetches up to maxPages pages
-          const skGetAll = async (token: string, path: string, maxPages = 5): Promise<unknown[]> => {
+          // Paginated helper — fetches up to maxPages pages, with optional extra query params
+          const skGetAll = async (token: string, path: string, maxPages = 5, extraParams: Record<string, string | number> = {}): Promise<unknown[]> => {
             const all: unknown[] = [];
             for (let page = 1; page <= maxPages; page++) {
-              const batch = await skGet(token, path, { page, limit: 100 });
+              const batch = await skGet(token, path, { page, limit: 100, ...extraParams });
               all.push(...batch);
               if (batch.length < 100) break;
             }
@@ -1728,6 +1736,16 @@ export function buildTools(
           try {
             const token = await getSkToken();
             if (!token) return { error: 'XIQ login failed — check credentials in vault' };
+
+            // Fetch device list to resolve connected_ap_id → AP hostname
+            // CLIENT_DETAILS view adds connected_ap_id (integer) to each client record
+            const deviceData = await skGet(token, '/devices', { page: 1, limit: 500 });
+            const deviceMap = new Map<number, string>();
+            for (const d of deviceData as Array<Record<string, unknown>>) {
+              const id = d['id'] as number | undefined;
+              const hostname = String(d['hostname'] ?? d['host_name'] ?? d['name'] ?? '');
+              if (id && hostname) deviceMap.set(id, hostname);
+            }
 
             // Step 1: Network policies
             const policies = await skGet(token, '/network-policies', { page: 1, limit: 50 });
@@ -1754,8 +1772,8 @@ export function buildTools(
               }
             }
 
-            // Step 3: All active clients (paginated)
-            const allClients = await skGetAll(token, '/clients/active', 5);
+            // Step 3: All active clients (paginated) — CLIENT_DETAILS view adds connected_ap_id
+            const allClients = await skGetAll(token, '/clients/active', 5, { views: 'CLIENT_DETAILS' });
 
             // Step 4: Build flow counts
             // Policy → SSID edges
@@ -1767,7 +1785,10 @@ export function buildTools(
 
             for (const client of allClients as Array<Record<string, unknown>>) {
               const ssid = String(client['ssid'] ?? '').trim();
-              const ap = String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '').trim();
+              // Resolve AP name: connected_ap_id (from CLIENT_DETAILS view) → deviceMap → hostname
+              const connectedApId = client['connected_ap_id'] as number | undefined;
+              const apFromMap = connectedApId ? (deviceMap.get(connectedApId) ?? '') : '';
+              const ap = (apFromMap || String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '')).trim();
               if (!ssid) continue;
 
               const policyName = ssidToPolicy.get(ssid) ?? 'Unknown Policy';
@@ -1929,11 +1950,23 @@ export function buildTools(
             const token = await getAcsToken();
             if (!token) return { error: 'XIQ login failed — check credentials in vault' };
 
-            // Fetch all active clients (paginated)
+            // Fetch device list once to resolve connected_ap_id → AP hostname
+            const deviceResp = await acsGet(token, '/devices', { page: 1, limit: 500 });
+            const deviceList: AcsClient[] = Array.isArray(deviceResp)
+              ? (deviceResp as AcsClient[])
+              : ((deviceResp as { data?: AcsClient[] })?.data ?? []);
+            const deviceMap = new Map<number, string>();
+            for (const d of deviceList) {
+              const id = d['id'] as number | undefined;
+              const hostname = String(d['hostname'] ?? d['host_name'] ?? d['name'] ?? '');
+              if (id && hostname) deviceMap.set(id, hostname);
+            }
+
+            // Fetch all active clients (paginated) with CLIENT_DETAILS view for connected_ap_id
             let allClients: AcsClient[] = [];
             let page = 1;
             while (allClients.length < 2000) {
-              const resp = await acsGet(token, '/clients/active', { page, limit: 100 }) as { data?: AcsClient[] } | AcsClient[] | null;
+              const resp = await acsGet(token, '/clients/active', { page, limit: 100, views: 'CLIENT_DETAILS' }) as { data?: AcsClient[] } | AcsClient[] | null;
               if (!resp) break;
               const batch: AcsClient[] = Array.isArray(resp) ? resp : ((resp as { data?: AcsClient[] }).data ?? []);
               if (batch.length === 0) break;
@@ -1953,7 +1986,10 @@ export function buildTools(
 
             for (const client of allClients) {
               const ssid = String(client['ssid'] ?? '').trim();
-              const ap = String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '').trim() || 'Unknown AP';
+              // Resolve AP name: connected_ap_id (CLIENT_DETAILS view) → deviceMap → hostname
+              const connectedApId = client['connected_ap_id'] as number | undefined;
+              const apFromMap = connectedApId ? (deviceMap.get(connectedApId) ?? '') : '';
+              const ap = (apFromMap || String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '')).trim() || 'Unknown AP';
               if (!ssid) continue;
               if (apFilter && !ap.toLowerCase().includes(apFilter)) continue;
 

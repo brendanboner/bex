@@ -377,23 +377,38 @@ export default function NewDashboardPage() {
               type="button"
               onClick={() => setShowEntityHints((v) => !v)}
               className="inline-flex items-center gap-1 rounded-md border border-[rgb(var(--border))] px-1.5 py-0.5 text-[11px] text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-primary))]"
-              title="Show supported entity types"
+              title="Show available display types"
             >
               <Info className="h-3 w-3" />
-              Entities
+              Display Types
             </button>
           </div>
           {showEntityHints && (
-            <div className="rounded-lg border border-cyan-500/30 bg-[rgb(var(--bg-elevated))] p-3 text-xs text-[rgb(var(--text-secondary))]">
-              <p className="font-semibold text-cyan-300 mb-1">Entity types you can reference</p>
-              <p className="leading-relaxed">
-                <code>clients</code>, <code>devices</code>, <code>access_points</code>, <code>ssids</code>, <code>vlans</code>,
-                <code>alarms</code>, <code>events</code>, <code>fabrics</code>, <code>switches</code>, <code>bgp_sessions</code>,
-                <code>interfaces</code>, <code>topology_links</code>, <code>sites</code>, <code>policies</code>, <code>radios</code>.
-              </p>
-              <p className="mt-1 text-[rgb(var(--text-muted))]">
-                Tip: ask for explicit fields and JSON output, e.g. <code>clients[]: client_id, ap_name, ssid, vlan, rssi</code>.
-              </p>
+            <div className="rounded-lg border border-cyan-500/30 bg-[rgb(var(--bg-elevated))] p-3 text-xs text-[rgb(var(--text-secondary))] space-y-3">
+              <div>
+                <p className="font-semibold text-cyan-300 mb-1.5">Available display types</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div><code className="text-cyan-400">headline</code> — single number or short value (totals, counts)</div>
+                  <div><code className="text-cyan-400">stat</code> — metric with trend + health colour (SNR, uptime)</div>
+                  <div><code className="text-cyan-400">table</code> — sortable rows with columns (client lists, device lists)</div>
+                  <div><code className="text-cyan-400">chart</code> — bar / line / pie (comparisons, distributions)</div>
+                  <div><code className="text-cyan-400">multiline</code> — multiple lines on one chart (band/trend comparison)</div>
+                  <div><code className="text-cyan-400">heatmap</code> — coloured grid by value (AP RF quality, density)</div>
+                  <div><code className="text-cyan-400">mermaid</code> — Mermaid diagram string (topology, Sankey, flowchart)</div>
+                  <div><code className="text-cyan-400">markdown</code> — prose / formatted text (summaries, analysis)</div>
+                  <div><code className="text-cyan-400">actions</code> — refresh / quick-action buttons</div>
+                </div>
+              </div>
+              <div>
+                <p className="font-semibold text-cyan-300 mb-1">Tips</p>
+                <ul className="space-y-0.5 text-[rgb(var(--text-muted))] list-disc list-inside">
+                  <li>Ask for <strong>JSON output</strong> with clear snake_case keys — it makes widget generation much more accurate.</li>
+                  <li>For tables: <code>clients[]: hostname, ssid, ap, vlan, rssi</code></li>
+                  <li>For charts: <code>by_ap[]: &#123;ap_name, client_count&#125;</code></li>
+                  <li>For Sankey / topology: ask for a <code>sankey_diagram</code> or <code>topology_diagram</code> field (Mermaid string).</li>
+                  <li>For headlines/stats: ask for a summary object, e.g. <code>summary.total_clients</code></li>
+                </ul>
+              </div>
             </div>
           )}
           <Textarea
