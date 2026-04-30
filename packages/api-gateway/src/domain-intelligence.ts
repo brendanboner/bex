@@ -193,6 +193,74 @@ OUTPUT FORMAT for dashboard:
 IMPORTANT: return sankey_diagram as a plain string in JSON — NOT wrapped in markdown fences.
 The dashboard renders it as a mermaid widget automatically when it sees a field named sankey_diagram.`,
   },
+  {
+    name: 'network-device-client-health',
+    triggerPatterns: [
+      'network health', 'device health', 'client health score', 'health score', 'network score',
+      'scorecard', 'health dashboard', 'show health', 'check health', 'health status',
+    ],
+    content: `## Network / Device / Client Health Scorecards
+
+ALWAYS use the composite health tools — NEVER call raw scorecard endpoints with guessed IDs.
+
+Tools:
+  xiq_network_health({ locationName?: string, locationId?: number })   → overall network health score
+  xiq_device_health({ locationName?: string, locationId?: number })    → device health at a location
+  xiq_client_health_score({ locationName?: string, locationId?: number }) → client health score
+
+These tools:
+1. Use the locationName you provide (or "Beverly" from agent facts if default_xiq_location is set)
+2. Auto-resolve the name to a real integer locationId via the XIQ locations API
+3. Fall back to the first root location if no name is available
+
+IMPORTANT: If the user has previously said "my default XIQ location is X", that was saved as
+the fact default_xiq_location. Pass it as locationName.
+
+Example: xiq_network_health(locationName="Beverly")`,
+  },
+  {
+    name: 'client-radio-quality-named',
+    triggerPatterns: [
+      'radio quality of', 'radio stats for', 'signal of', 'snr rssi for', 'radio parameters for',
+      'radio quality fridge', 'radio quality ipad', 'radio of the', 'signal strength of',
+    ],
+    content: `## Radio Quality for a Named Client
+
+When the user asks for radio quality of a specific named client device ("fridge", "iPad", "MacBook"):
+
+ALWAYS use: xiq_client_radio_quality({ hostname: "fridge" })
+
+This composite:
+1. Searches /clients/active for a client whose hostname matches the name fragment
+2. Gets their connected AP name
+3. Resolves the AP to its device integer ID via /devices
+4. Calls /devices/radio-information for that AP
+5. Returns: client signal data (SNR/RSSI from client record) + AP radio stats (channel/power/noise)
+
+Do NOT use xiq_radio_quality_by_ap for named client queries — it searches APs, not clients.`,
+  },
+  {
+    name: 'client-connection-history',
+    triggerPatterns: [
+      'radio history', 'connection history', 'roaming history', 'connection trail',
+      'show history of', 'history of the ipad', 'history of the fridge', 'last connected',
+      'where has', 'client trail', 'roaming trail', 'connection log',
+    ],
+    content: `## Client Connection / Roaming History
+
+When the user asks for connection history or radio history of a named client:
+
+ALWAYS use: xiq_client_connection_history({ hostname: "ipad", hours: 4 })
+
+This composite:
+1. Finds the client by hostname fragment (or uses mac if provided from conversation context)
+2. Calls connection_trail to get AP-to-AP roaming events with timestamps
+3. Calls roaming_trail for detailed per-roam metrics
+4. Returns combined history for the requested time window (default: last 4 hours)
+
+If you already know the MAC from a previous turn in the conversation, pass it directly:
+  xiq_client_connection_history({ mac: "22D8103E2A2E", hours: 4 })`,
+  },
 ];
 
 // ─── Networking (XCO) ─────────────────────────────────────────────────────────

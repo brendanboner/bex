@@ -663,17 +663,61 @@ export class OrchestratorService {
       // Load domain intelligence: entity graphs + matching playbooks
       const domainIntelParts = await this.loadDomainIntelligence(linkedSkills, ctx.input);
 
+      // XCO vs XIQ disambiguation — injected when both skill families are active
+      // Prevents "show xco devices" from routing to XIQ list_devices (cloud) instead of
+      // XCO xco_get_inventory (on-premise Orchestrator).
+      const hasXco = linkedSkills.some(s => s.domain.startsWith('networking.extreme-xco'));
+      const hasXiq = linkedSkills.some(s => s.domain.startsWith('extremecloudiq'));
+      let disambiguationNote = '';
+      if (hasXco && hasXiq) {
+        const inputLower = ctx.input.toLowerCase();
+        const xcoSignals = ['xco', 'orchestrator', 'fabric', 'spine', 'leaf', 'clos', 'bgp', 'lldp'];
+        const xiqSignals = ['xiq', 'extremecloud iq', 'wireless', 'ssid', 'ap ', 'access point', 'client', 'radio'];
+        const xcoScore = xcoSignals.filter(s => inputLower.includes(s)).length;
+        const xiqScore = xiqSignals.filter(s => inputLower.includes(s)).length;
+        if (xcoScore > xiqScore) {
+          disambiguationNote = `## System Routing Note\nThis query mentions XCO/Orchestrator signals. USE ExtremeCloud Orchestrator (XCO) skills (networking.extreme-xco.*) — NOT XIQ cloud skills. XCO API base is /v1. Use xco_get_inventory for devices, xco_get_fabric_health for fabric.`;
+        } else if (xiqScore > xcoScore) {
+          disambiguationNote = `## System Routing Note\nThis query mentions XIQ/wireless signals. USE ExtremeCloud IQ (XIQ) cloud skills (extremecloudiq.*) — NOT XCO on-premise skills. XIQ API base is https://api.extremecloudiq.com.`;
+        } else {
+          disambiguationNote = `## System Routing Note\nTwo platform skills are active:\n- XCO (ExtremeCloud Orchestrator, on-premise fabric/switches): use for xco/orchestrator/fabric/bgp queries\n- XIQ (ExtremeCloud IQ, cloud WiFi management): use for wireless/ssid/client/ap queries\nRoute to the correct platform based on what the user is asking about.`;
+        }
+      }
+
       const systemParts = [
         charterPrompt,
         personaPrompt,
         enrichedSkillPrompt,
         domainIntelParts,
+        disambiguationNote,
         workspaceDocs,
       ].filter(Boolean);
 
 
       const systemPrompt = systemParts.join('\n\n');
-      const messages: CoreMessage[] = [{ role: 'user', content: ctx.input }];
+
+      // Build messages: inject last 3 completed turns as conversation context so
+      // follow-up queries ("show radio history of the ipad") can reference prior results.
+      const priorRequests = await this.prisma.agentRequest.findMany({
+        where: {
+          agentId: ctx.agentId,
+          userId: ctx.userId,
+          status: 'COMPLETED',
+          id: { not: ctx.requestId },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+        select: { input: true, output: true },
+      });
+      const historyMessages: CoreMessage[] = [];
+      for (const prior of priorRequests.reverse()) {
+        if (!prior.output) continue;
+        // Trim long outputs to keep context window manageable
+        const trimmedOutput = prior.output.length > 1200 ? prior.output.slice(0, 1200) + '\n…(truncated)' : prior.output;
+        historyMessages.push({ role: 'user', content: prior.input });
+        historyMessages.push({ role: 'assistant', content: trimmedOutput });
+      }
+      const messages: CoreMessage[] = [...historyMessages, { role: 'user', content: ctx.input }];
 
       // 9. Run LLM — always add write_memory and read_memory tools
       const writeMemoryTool = buildWriteMemoryTool(agent.id);

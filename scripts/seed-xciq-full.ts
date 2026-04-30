@@ -410,6 +410,63 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
         required: [] as string[],
       },
     },
+    {
+      name: 'xiq_network_health',
+      description: 'Get the overall network health score for a location. Accepts locationName (resolved automatically) or locationId. ALWAYS use this instead of raw scorecard endpoints — it auto-discovers the location ID from a name and never guesses.',
+      handlerType: 'xiq_network_health',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_network_health' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          locationName: { type: 'string', description: 'Location name to search for (e.g. "Beverly", "HQ"). Uses agent default_xiq_location fact if omitted.' },
+          locationId: { type: 'number', description: 'Integer location ID (use if you already have it)' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_device_health',
+      description: 'Get device health score for APs/switches at a location. Accepts locationName (resolved automatically) or locationId. ALWAYS use this instead of raw device health endpoints — it auto-discovers the location ID.',
+      handlerType: 'xiq_device_health',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_device_health' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          locationName: { type: 'string', description: 'Location name (e.g. "Beverly"). Uses agent default_xiq_location fact if omitted.' },
+          locationId: { type: 'number', description: 'Integer location ID (use if you already have it)' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_client_radio_quality',
+      description: 'Get radio quality metrics for a specific named client device ("fridge", "iPad", "MacBook-Pro"). Finds the client by hostname, gets its connected AP, then returns combined client signal data (SNR/RSSI) + AP radio stats (channel/power/noise). Use when user asks for radio quality of a specific device.',
+      handlerType: 'xiq_client_radio_quality',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_client_radio_quality' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          hostname: { type: 'string', description: 'Partial hostname or display name of the client device (e.g. "fridge", "iPad", "MacBook")' },
+          mac: { type: 'string', description: 'MAC address of the client (alternative to hostname)' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_client_connection_history',
+      description: 'Get connection trail and roaming history for a specific client device over a time window. Finds the client by hostname or MAC address, then returns AP-to-AP roaming events with timestamps. Use for "show history of the iPad", "connection log for the fridge", "where has X been connected".',
+      handlerType: 'xiq_client_connection_history',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_client_connection_history' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          hostname: { type: 'string', description: 'Partial hostname to find client (e.g. "ipad", "fridge")' },
+          mac: { type: 'string', description: 'MAC address of the client (use if known from conversation)' },
+          hours: { type: 'number', description: 'Time window in hours to look back (default: 4, max: 168)' },
+        },
+        required: [] as string[],
+      },
+    },
   ];
 
   const compositeDomain = 'extremecloudiq.composite';
@@ -429,6 +486,10 @@ ALWAYS prefer composite tools over raw API calls when they cover the query:
 - All clients health → xiq_client_health_report
 - Policy/SSID/AP flow diagram → xiq_policy_sankey
 - AP/SSID/Maker/DeviceType flow diagram → xiq_ap_client_sankey (USE THIS for "what devices are connected", vendor/maker breakdown, device type Sankey)
+- Network health score → xiq_network_health (NEVER guess locationId — use this tool, it resolves names automatically)
+- Device health score → xiq_device_health (same — resolves locationName to ID automatically)
+- Radio quality for a named client device → xiq_client_radio_quality (e.g. "fridge", "iPad")
+- Connection/roaming history for a named client → xiq_client_connection_history (e.g. "history of the iPad")
 
 These tools handle all required API chaining automatically.
 
@@ -477,7 +538,9 @@ OUTPUT FORMAT FOR DIAGRAMS: When either sankey tool returns a result, the "sanke
       'extremecloudiq.network.policy':
         'VLAN resolution requires chain: GET /network-policies → GET /network-policies/{id}/ssids → GET /user-profiles/{up_id} → GET /network/vlan-profiles. Use xiq_topology_report to get full SSID→VLAN mapping. Do NOT guess VLAN IDs.',
       'extremecloudiq.composite':
-        'These are pre-built intelligence tools. Use xiq_radio_quality_by_ap for radio/signal/SNR. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_ap_client_sankey for ANY Sankey showing APs, SSIDs, device makers (Apple/Android/Windows), or device types — it returns "sankey_diagram" (Mermaid sankey-beta) which the dashboard renders as a mermaid widget. Use xiq_policy_sankey only for policy/SSID/AP distribution (not vendor breakdown).',
+        'NEVER guess locationId. Use xiq_network_health or xiq_device_health — they auto-resolve locationName to a real integer ID by searching the XIQ locations API. Use xiq_radio_quality_by_ap for radio/signal/SNR for APs. Use xiq_client_radio_quality for radio quality of a specific named client (e.g. "fridge", "iPad"). Use xiq_client_connection_history for connection/roaming history of a named client. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_ap_client_sankey for ANY Sankey showing APs, SSIDs, device makers (Apple/Android/Windows), or device types. Use xiq_policy_sankey only for policy/SSID/AP distribution.',
+      'extremecloudiq.monitoring':
+        'NEVER guess locationId. The correct pattern is: 1) Check if agent facts contain default_xiq_location. 2) ALWAYS use the xiq_network_health or xiq_device_health composite tools — they resolve location names to IDs automatically. 3) If no location is known, call get_location_tree to discover valid location IDs. NEVER pass locationId: 1, locationId: 0, or any guessed ID.',
     };
 
     for (const [domain, note] of Object.entries(learnedNotesMap)) {

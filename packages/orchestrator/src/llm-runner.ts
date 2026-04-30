@@ -2043,6 +2043,320 @@ export function buildTools(
           }
         }
 
+        // ── xiq_network_health: location-aware network health scorecard ──
+        // Auto-discovers locationId from stored facts, then calls /network-scorecard/networkHealth/{id}
+        if (handlerType === 'xiq_network_health' || handlerType === 'xiq_device_health' || handlerType === 'xiq_client_health_score') {
+          if (!credentialId) return { error: `${handlerType} requires a credentialId` };
+
+          const nhLoginUrl = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const nhApiBase = 'https://api.extremecloudiq.com';
+
+          const reachNh = await checkReachable(nhLoginUrl);
+          if (!reachNh.reachable) return { error: reachNh.error ?? `Cannot reach ${nhLoginUrl}` };
+
+          const { fetch: nhFetch } = await import('undici');
+
+          const getNhToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await nhFetch(nhLoginUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const nhGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${nhApiBase}${path}${qs ? '?' + qs : ''}`;
+            const resp = await nhFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[${handlerType}] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const txt = await resp.text().catch(() => '');
+              return { error: `XIQ API ${resp.status}`, detail: txt.slice(0, 300) };
+            }
+            return resp.json();
+          };
+
+          try {
+            const token = await getNhToken();
+            if (!token) return { error: 'XIQ login failed — check credentials in vault' };
+
+            // Resolve locationId: prefer explicit numeric arg, then resolve name to ID
+            // The LLM already has default_xiq_location from agent facts in the system prompt,
+            // so it will pass locationName when the user hasn't specified one.
+            let locationId = typeof args['locationId'] === 'number' ? (args['locationId'] as number) : null;
+            const locationName = String(args['locationName'] ?? args['location'] ?? '').trim();
+
+            if (!locationId && locationName) {
+              // Resolve name → ID: try sites, buildings, floors in order
+              for (const endpoint of ['/locations/sites', '/locations/buildings', '/locations/floors']) {
+                const res = await nhGet(token, endpoint, { name: locationName, limit: 10 }) as { data?: Array<{id: number; name: string}> } | null;
+                const items = (res as { data?: Array<{id: number; name: string}> })?.data ?? [];
+                const match = items.find((i) => i.name.toLowerCase().includes(locationName.toLowerCase()));
+                if (match) { locationId = match.id; break; }
+              }
+            }
+
+            if (!locationId) {
+              // Last resort: use location tree root, pick first folder
+              const tree = await nhGet(token, '/locations', {}) as { data?: Array<{id: number; name: string}> } | null;
+              const treeItems = (tree as { data?: Array<{id: number; name: string}> })?.data ?? [];
+              if (treeItems.length > 0) locationId = treeItems[0]!.id;
+            }
+
+            if (!locationId) {
+              return { error: 'Could not resolve a locationId. Pass locationName or set your default XIQ location with set_fact("default_xiq_location", "SiteName").' };
+            }
+
+            const now = Date.now();
+            const timeParams = { startTime: now - 24 * 60 * 60 * 1000, endTime: now };
+
+            if (handlerType === 'xiq_network_health') {
+              const health = await nhGet(token, `/network-scorecard/networkHealth/${locationId}`, timeParams);
+              return { locationId, health };
+            } else if (handlerType === 'xiq_device_health') {
+              const health = await nhGet(token, `/network-scorecard/deviceHealth/${locationId}`, timeParams);
+              return { locationId, health };
+            } else {
+              const health = await nhGet(token, `/network-scorecard/clientHealth/${locationId}`, timeParams);
+              return { locationId, health };
+            }
+          } catch (e) {
+            return { error: `${handlerType} failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── xiq_client_radio_quality: find named client → AP device ID → radio-information ──
+        // Use for: "show radio quality of the fridge", "what are the radio stats for the iPad"
+        if (handlerType === 'xiq_client_radio_quality') {
+          if (!credentialId) return { error: 'xiq_client_radio_quality requires a credentialId' };
+
+          const crqLogin = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const crqBase = 'https://api.extremecloudiq.com';
+          const reachCrq = await checkReachable(crqLogin);
+          if (!reachCrq.reachable) return { error: reachCrq.error ?? `Cannot reach ${crqLogin}` };
+
+          const { fetch: crqFetch } = await import('undici');
+
+          const getCrqToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await crqFetch(crqLogin, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const crqGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${crqBase}${path}${qs ? '?' + qs : ''}`;
+            const resp = await crqFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_client_radio_quality] GET ${url} → ${resp.status}`);
+            if (!resp.ok) return null;
+            return resp.json();
+          };
+
+          try {
+            const token = await getCrqToken();
+            if (!token) return { error: 'XIQ login failed' };
+
+            const hostname = String(args['hostname'] ?? args['clientName'] ?? args['name'] ?? '').toLowerCase();
+            if (!hostname) return { error: 'hostname is required (e.g. "fridge", "ipad")' };
+
+            // Step 1: Find the client
+            let page = 1;
+            type CrqClient = Record<string, unknown>;
+            let foundClient: CrqClient | null = null;
+            while (page <= 5 && !foundClient) {
+              const resp = await crqGet(token, '/clients/active', { page, limit: 100 }) as { data?: CrqClient[] } | CrqClient[] | null;
+              const batch: CrqClient[] = Array.isArray(resp) ? resp : ((resp as { data?: CrqClient[] })?.data ?? []);
+              if (batch.length === 0) break;
+              foundClient = batch.find((c) =>
+                String(c['hostname'] ?? c['name'] ?? '').toLowerCase().includes(hostname)
+              ) ?? null;
+              if (batch.length < 100) break;
+              page++;
+            }
+
+            if (!foundClient) return { error: `No active client found matching "${hostname}"` };
+
+            const clientMac = String(foundClient['mac_address'] ?? '');
+            const connectedAp = String(foundClient['connected_ap'] ?? foundClient['ap_name'] ?? '').trim();
+            const clientSignal = {
+              hostname: foundClient['hostname'],
+              mac: clientMac,
+              ssid: foundClient['ssid'],
+              connected_ap: connectedAp,
+              snr: foundClient['snr'],
+              rssi: foundClient['rssi'],
+              channel: foundClient['channel'],
+              os_type: foundClient['os_type'],
+              health_category: foundClient['health_category'],
+            };
+
+            if (!connectedAp) {
+              return { client: clientSignal, ap_radio: null, note: 'Client has no connected AP recorded — may be disconnected' };
+            }
+
+            // Step 2: Resolve connected AP → device integer ID
+            const devResp = await crqGet(token, '/devices', { page: 1, limit: 100 }) as { data?: Array<Record<string, unknown>> } | null;
+            const devices: Array<Record<string, unknown>> = (devResp as { data?: Array<Record<string, unknown>> })?.data ?? [];
+            const apDevice = devices.find((d) =>
+              String(d['hostname'] ?? '').toLowerCase().includes(connectedAp.toLowerCase()) ||
+              connectedAp.toLowerCase().includes(String(d['hostname'] ?? '').toLowerCase())
+            );
+
+            if (!apDevice) {
+              return { client: clientSignal, ap_radio: null, note: `AP "${connectedAp}" not found in device inventory — radio-information unavailable` };
+            }
+
+            const apDeviceId = apDevice['id'] as number;
+
+            // Step 3: Get radio-information for the AP (deviceIds[] as query param)
+            const radioUrl = `${crqBase}/devices/radio-information?deviceIds=${apDeviceId}`;
+            const radioRespDirect = await crqFetch(radioUrl, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_client_radio_quality] GET ${radioUrl} → ${radioRespDirect.status}`);
+            let apRadio: unknown = null;
+            if (radioRespDirect.ok) {
+              const radioData = await radioRespDirect.json() as { data?: unknown[] } | unknown[];
+              apRadio = Array.isArray(radioData) ? radioData : (radioData as { data?: unknown[] }).data ?? null;
+            }
+
+            return {
+              client: clientSignal,
+              ap_device: { id: apDeviceId, hostname: apDevice['hostname'], ip: apDevice['ip_address'], model: apDevice['product_type'] },
+              ap_radio: apRadio,
+              note: apRadio ? undefined : 'Radio-information not available for this AP',
+            };
+          } catch (e) {
+            return { error: `xiq_client_radio_quality failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+        // ── xiq_client_connection_history: client connection trail + roaming history ──
+        // Use for: "show radio history of the ipad", "show connection history of the fridge"
+        if (handlerType === 'xiq_client_connection_history') {
+          if (!credentialId) return { error: 'xiq_client_connection_history requires a credentialId' };
+
+          const cchLogin = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const cchBase = 'https://api.extremecloudiq.com';
+          const reachCch = await checkReachable(cchLogin);
+          if (!reachCch.reachable) return { error: reachCch.error ?? `Cannot reach ${cchLogin}` };
+
+          const { fetch: cchFetch } = await import('undici');
+
+          const getCchToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await cchFetch(cchLogin, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const cchGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${cchBase}${path}${qs ? '?' + qs : ''}`;
+            const resp = await cchFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_client_connection_history] GET ${url} → ${resp.status}`);
+            if (!resp.ok) return null;
+            return resp.json();
+          };
+
+          try {
+            const token = await getCchToken();
+            if (!token) return { error: 'XIQ login failed' };
+
+            const hostname = String(args['hostname'] ?? args['clientName'] ?? args['name'] ?? '').toLowerCase();
+            // MAC can be passed directly (from conversation context) or resolved by hostname
+            let macAddress = String(args['mac'] ?? args['macAddress'] ?? args['mac_address'] ?? '').trim();
+            const hours = Math.max(1, Math.min(168, Number(args['hours'] ?? 4)));
+
+            if (!hostname && !macAddress) return { error: 'hostname or mac is required' };
+
+            // Resolve MAC from hostname if not provided
+            if (!macAddress && hostname) {
+              let page = 1;
+              type CchClient = Record<string, unknown>;
+              let foundClient: CchClient | null = null;
+              while (page <= 5 && !foundClient) {
+                const resp = await cchGet(token, '/clients/active', { page, limit: 100 }) as { data?: CchClient[] } | CchClient[] | null;
+                const batch: CchClient[] = Array.isArray(resp) ? resp : ((resp as { data?: CchClient[] })?.data ?? []);
+                if (batch.length === 0) break;
+                foundClient = batch.find((c) =>
+                  String(c['hostname'] ?? c['name'] ?? '').toLowerCase().includes(hostname)
+                ) ?? null;
+                if (batch.length < 100) break;
+                page++;
+              }
+              if (!foundClient) {
+                // Try historical clients too
+                const histResp = await cchGet(token, '/clients', { page: 1, limit: 100, searchString: hostname }) as { data?: CchClient[] } | null;
+                const histBatch = (histResp as { data?: CchClient[] })?.data ?? [];
+                foundClient = histBatch.find((c) =>
+                  String(c['hostname'] ?? c['name'] ?? '').toLowerCase().includes(hostname)
+                ) ?? null;
+              }
+              if (!foundClient) return { error: `No client found matching "${hostname}"` };
+              macAddress = String(foundClient['mac_address'] ?? '');
+            }
+
+            if (!macAddress) return { error: 'Could not resolve a MAC address for this client' };
+
+            const now = Date.now();
+            const startTime = now - hours * 60 * 60 * 1000;
+
+            // Fetch connection trail + roaming trail in parallel
+            const [connectionTrail, roamingTrail, roamingCount] = await Promise.all([
+              cchGet(token, `/client-details/topology/client-trail/${macAddress}`, { startTime, endTime: now }),
+              cchGet(token, `/client-details/topology/roaming-trail`, { macAddress, startTime, endTime: now, page: 1, limit: 50 }),
+              cchGet(token, `/client-details/topology/roaming-count`, { macAddress, startTime, endTime: now }),
+            ]);
+
+            return {
+              mac: macAddress,
+              hostname,
+              hours_requested: hours,
+              time_range: { from: new Date(startTime).toISOString(), to: new Date(now).toISOString() },
+              connection_trail: connectionTrail,
+              roaming_trail: roamingTrail,
+              roaming_count: roamingCount,
+            };
+          } catch (e) {
+            return { error: `xiq_client_connection_history failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
         // ── BEX system admin handlers ─────────────────────────────────────
 
         if (handlerType === 'bex_list_scheduled_jobs') {
