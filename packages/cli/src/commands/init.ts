@@ -504,32 +504,48 @@ export async function initCommand(): Promise<void> {
         credentialType: 'API_TOKEN' | 'USERNAME_PASSWORD',
         value: Record<string, string>,
       ): Promise<void> {
-        await fetch('http://localhost:4000/credentials', {
+        const response = await fetch('http://localhost:4000/credentials', {
           method: 'POST',
           headers: authHeader,
           body: JSON.stringify({ name, scope: 'SYSTEM', credentialType, value }),
         });
+
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Failed to store credential '${name}': ${response.status} ${response.statusText} — ${text}`);
+        }
+
+        const body = await response.json() as { ok?: boolean; error?: { message?: string } };
+        if (!body.ok) {
+          throw new Error(`Failed to store credential '${name}': ${body.error?.message ?? 'unknown error'}`);
+        }
       }
 
       // Store LLM settings under well-known system names so loadSystemSecrets
       // can inject them into process.env on subsequent service restarts.
       if (llmProvider === 'openai' && llmApiKey) {
         await storeSystemCred('system.openai_api_key', 'API_TOKEN', { openai_api_key: llmApiKey });
+        console.info('[init] ✓ Stored OpenAI API key');
       } else if (llmProvider === 'anthropic' && llmApiKey) {
         await storeSystemCred('system.anthropic_api_key', 'API_TOKEN', { anthropic_api_key: llmApiKey });
+        console.info('[init] ✓ Stored Anthropic API key');
       } else if (llmProvider === 'azure-openai' && llmApiKey) {
         await storeSystemCred('system.azure_openai_api_key', 'API_TOKEN', { azure_openai_api_key: llmApiKey });
+        console.info('[init] ✓ Stored Azure OpenAI API key');
       } else if (llmProvider === 'ollama' && ollamaBaseUrl) {
         await storeSystemCred('system.ollama_base_url', 'API_TOKEN', { ollama_base_url: ollamaBaseUrl });
+        console.info('[init] ✓ Stored Ollama base URL');
       }
       if (channelEnv['TELEGRAM_BOT_TOKEN']) {
         await storeSystemCred('system.telegram_bot_token', 'API_TOKEN', { telegram_bot_token: channelEnv['TELEGRAM_BOT_TOKEN'] });
+        console.info('[init] ✓ Stored Telegram bot token');
       }
       if (domainEnv['XIQ_USERNAME']) {
         await storeSystemCred('system.xiq_credentials', 'USERNAME_PASSWORD', {
           xiq_username: domainEnv['XIQ_USERNAME'] ?? '',
           xiq_password: domainEnv['XIQ_PASSWORD'] ?? '',
         });
+        console.info('[init] ✓ Stored XIQ credentials');
       }
       if (domainEnv['XCO_HOST']) {
         await storeSystemCred('system.xco_credentials', 'USERNAME_PASSWORD', {
@@ -537,6 +553,7 @@ export async function initCommand(): Promise<void> {
           xco_username: domainEnv['XCO_USERNAME'] ?? '',
           xco_password: domainEnv['XCO_PASSWORD'] ?? '',
         });
+        console.info('[init] ✓ Stored XCO credentials');
       }
       if (channelEnv['TWILIO_ACCOUNT_SID']) {
         await storeSystemCred('system.twilio_credentials', 'API_TOKEN', {
@@ -545,11 +562,13 @@ export async function initCommand(): Promise<void> {
           twilio_whatsapp_from: channelEnv['TWILIO_WHATSAPP_FROM'] ?? '',
           whatsapp_approval_to: channelEnv['WHATSAPP_APPROVAL_TO'] ?? '',
         });
+        console.info('[init] ✓ Stored Twilio/WhatsApp credentials');
       }
       if (skillRegistryToken) {
         await storeSystemCred('system.skill_registry_token', 'API_TOKEN', {
           skill_registry_token: skillRegistryToken,
         });
+        console.info('[init] ✓ Stored skill registry token');
       }
 
       vaultSpinner.succeed('Secrets stored in credential vault');

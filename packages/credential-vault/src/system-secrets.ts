@@ -38,22 +38,48 @@ export async function loadSystemSecrets(prisma: PrismaClient): Promise<void> {
     return;
   }
 
+  const injected = new Set<string>();
+  const missing = new Set<string>();
+  
   for (const cred of credentials) {
     const envKeys = SYSTEM_CREDENTIAL_MAP[cred.name];
     if (!envKeys) continue;
     try {
       const values = decrypt({ encryptedValue: cred.encryptedValue, iv: cred.iv, authTag: cred.authTag });
+      let found = false;
       for (const envKey of envKeys) {
         const lower = values[envKey.toLowerCase()];
         const exact = values[envKey];
-        if (!process.env[envKey] && lower !== undefined) {
-          process.env[envKey] = String(lower);
-        } else if (!process.env[envKey] && exact !== undefined) {
-          process.env[envKey] = String(exact);
+        if (!process.env[envKey]) {
+          if (lower !== undefined) {
+            process.env[envKey] = String(lower);
+            injected.add(envKey);
+            found = true;
+          } else if (exact !== undefined) {
+            process.env[envKey] = String(exact);
+            injected.add(envKey);
+            found = true;
+          }
+        } else {
+          injected.add(envKey);
+          found = true;
         }
       }
-    } catch {
-      console.warn(`[vault] Could not decrypt system secret: ${cred.name}`);
+      if (found) {
+        console.info(`[vault] Loaded system secret: ${cred.name}`);
+      } else {
+        missing.add(cred.name);
+      }
+    } catch (err) {
+      console.warn(`[vault] Could not decrypt system secret: ${cred.name} — ${(err as Error).message}`);
+      missing.add(cred.name);
     }
+  }
+
+  // Warn about expected system secrets that are missing
+  const expected = ['system.openai_api_key', 'system.anthropic_api_key', 'system.azure_openai_api_key'];
+  const missingLlmKeys = expected.filter(k => missing.has(k));
+  if (missingLlmKeys.length > 0) {
+    console.warn('[vault] Missing LLM system secrets:', missingLlmKeys.join(', '));
   }
 }
