@@ -66,8 +66,11 @@ async function buildApp() {
 
   // ─── Plugins ──────────────────────────────────────────────────────────────
   await app.register(helmet);
+  // Support comma-separated list of allowed origins (e.g. dashboard + user-dashboards + external)
+  const rawOrigin = process.env['CORS_ORIGIN'] ?? 'http://localhost:3000';
+  const allowedOrigins = rawOrigin.split(',').map((o) => o.trim()).filter(Boolean);
   await app.register(cors, {
-    origin: process.env['CORS_ORIGIN'] ?? 'http://localhost:3000',
+    origin: allowedOrigins.length === 1 ? allowedOrigins[0]! : allowedOrigins,
     credentials: true,
   });
   await app.register(rateLimit, {
