@@ -556,8 +556,10 @@ async function provisionDefaultLLMConfig(prisma: PrismaClient, vault: Credential
   const model = process.env['LLM_MODEL'];
   if (!provider || !model) return;
 
-  // Find the credential created by bex init (bex.llm.primary or system.*_api_key)
-  const credNames = [`bex.llm.primary`, `system.${provider}_api_key`, `system.openai_api_key`];
+  // Find the credential created by bex init (bex.llm.primary or system.*_api_key).
+  // azure-openai uses underscores in the credential name (system.azure_openai_api_key).
+  const providerKey = provider.replace(/-/g, '_');
+  const credNames = [`bex.llm.primary`, `system.${providerKey}_api_key`, `system.openai_api_key`];
   const cred = await prisma.credential.findFirst({
     where: { name: { in: credNames } },
     select: { id: true },

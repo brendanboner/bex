@@ -73,7 +73,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
         },
       });
 
-      await vault.create({
+      const llmCred = await vault.create({
         name: 'bex.llm.primary',
         description: `${resolvedProvider} LLM configuration`,
         scope: 'SYSTEM',
@@ -82,6 +82,23 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
           ? { provider: resolvedProvider, model: llmModel, baseUrl: ollamaBaseUrl ?? 'http://localhost:11434' }
           : { provider: resolvedProvider, apiKey: llmApiKey, model: llmModel },
         allowedAgentPermissions: [],
+      });
+
+      // Inject the LLM key into process.env for the running process so that
+      // any LLM call made before the next service restart works immediately.
+      if (resolvedProvider === 'openai' && llmApiKey && !process.env['OPENAI_API_KEY']) {
+        process.env['OPENAI_API_KEY'] = llmApiKey;
+      } else if (resolvedProvider === 'anthropic' && llmApiKey && !process.env['ANTHROPIC_API_KEY']) {
+        process.env['ANTHROPIC_API_KEY'] = llmApiKey;
+      } else if (resolvedProvider === 'azure-openai' && llmApiKey && !process.env['AZURE_OPENAI_API_KEY']) {
+        process.env['AZURE_OPENAI_API_KEY'] = llmApiKey;
+      }
+
+      // Link bex.llm.primary to any existing default LLMConfig that was created
+      // at startup before this credential existed (credentialId would be null).
+      await prisma.lLMConfig.updateMany({
+        where: { isDefault: true, credentialId: null },
+        data: { credentialId: llmCred.id },
       });
 
       if (channel !== 'dashboard' && Object.keys(channelConfig).length > 0) {
