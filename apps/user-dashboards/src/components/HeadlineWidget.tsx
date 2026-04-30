@@ -13,10 +13,16 @@ interface HeadlineWidgetProps {
 
 export function HeadlineWidget({ title, dataKey, data, colSpan = 1 }: HeadlineWidgetProps) {
   const raw = resolveDataKey(data, dataKey);
-  const value = raw == null ? '—' : String(raw);
+
+  // Gracefully handle non-scalar values — show a count rather than [object Object]
+  let value: string;
+  if (raw == null) value = '—';
+  else if (Array.isArray(raw)) value = String(raw.length);
+  else if (typeof raw === 'object') value = `${Object.keys(raw as object).length}`;
+  else value = String(raw);
 
   // Try to detect if numeric for large font treatment
-  const isNumeric = raw != null && !isNaN(Number(raw));
+  const isNumeric = raw != null && !isNaN(Number(value)) && value !== '—';
 
   return (
     <div

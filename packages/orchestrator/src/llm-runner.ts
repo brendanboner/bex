@@ -160,7 +160,7 @@ export function buildTools(
   for (const rawTool of skillTools) {
     const skillTool = rawTool as ExtendedSkillTool;
 
-    const paramDef = skillTool.parameters as {
+    const paramDef = (skillTool.parameters ?? {}) as {
       properties?: Record<string, { type: string; description?: string }>;
       required?: string[];
     };

@@ -115,9 +115,9 @@ export async function generateWidgets(
   );
 
   if (isTextOnly) {
-    console.warn(`[widget-generator] Agent output for "${dashboardName}" is prose — using text fallback widgets`);
+    console.warn(`[widget-generator] Agent output for "${dashboardName}" is prose — using markdown fallback widget`);
     return [
-      { id: 'w1', type: 'table', title: dashboardName, dataKey: '_text', columns: ['value'], colSpan: 4 },
+      { id: 'w1', type: 'markdown', title: dashboardName, dataKey: '_text', colSpan: 4 },
       { id: 'w2', type: 'actions', actions: [{ label: 'Refresh', action: 'refresh', style: 'primary' }], colSpan: 1 },
     ] as Widget[];
   }
@@ -172,6 +172,7 @@ Generate a widget layout that best presents this data. Rules:
 - "dataKey" is REQUIRED for every widget type including headlines.
 - Use dot-notation for nested scalar fields: e.g. "summary.total_clients"
 - For arrays at the top level, use the key name directly: e.g. "topology" for data.topology[]
+- CRITICAL: "headline" and "stat" widget dataKey MUST resolve to a single scalar value (a number or a short string ≤ 30 chars). NEVER point headline or stat at an array or an object — if the data for a key is an array, use "table" instead. If the scalar you want lives inside a nested object, use dot-notation (e.g. "summary.total_clients", not "summary").
 - IMPORTANT: When the data has an array of objects where each object itself contains a sub-array (e.g. access_points[].clients), do NOT use bracket-indexed paths like "access_points[0].clients". Instead create ONE table widget per unique sub-array using the top-level key (e.g. "access_points") with columns including fields from the nested objects flattened. Alternatively, if the data is already structured with named top-level arrays (e.g. "apple_clients"), use that key directly.
 - Use "headline" widgets for single numeric or short-text values. Set "dataKey" to the exact dot-path to the value (e.g. "summary.total_ssids")
 - Use "stat" widgets for a single metric that benefits from health colouring (green/amber/red). Add "unit" (e.g. "dB"), "thresholds": {"warn": N, "crit": M} for auto-colour. Good for SNR, uptime, counts.
@@ -224,8 +225,10 @@ function fallbackWidgets(parsedData: unknown): Widget[] {
           ? Object.keys(val[0] as object).slice(0, 8)
           : ['value'];
         widgets.push({ id: `w${wid++}`, type: 'table', title: key, dataKey: key, columns: cols, colSpan: 4 });
-      } else if (typeof val === 'number' || typeof val === 'string') {
+      } else if (typeof val === 'number') {
         widgets.push({ id: `w${wid++}`, type: 'headline', title: key, dataKey: key, colSpan: 1 });
+      } else if (typeof val === 'string' && val.length > 0) {
+        widgets.push({ id: `w${wid++}`, type: 'markdown', title: key, dataKey: key, colSpan: 2 });
       }
     }
   }
@@ -233,10 +236,9 @@ function fallbackWidgets(parsedData: unknown): Widget[] {
   if (widgets.length === 0) {
     widgets.push({
       id: 'w1',
-      type: 'table',
+      type: 'markdown',
       title: 'Agent Output',
       dataKey: '_text',
-      columns: ['value'],
       colSpan: 4,
     });
   }
