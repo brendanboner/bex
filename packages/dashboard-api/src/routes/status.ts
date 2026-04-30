@@ -93,9 +93,11 @@ export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): 
   });
 
   app.get('/admin/requests/recent', async (_request, reply) => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recent = await prisma.agentRequest.findMany({
-      take: 50,
+      take: 3,
       orderBy: { createdAt: 'desc' },
+      where: { createdAt: { gte: oneHourAgo } },
       select: {
         id: true,
         status: true,

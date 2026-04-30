@@ -5,6 +5,14 @@ import { Bot, Brain, Clock, Key, Network, Users, Zap, ArrowRight } from 'lucide-
 import Link from 'next/link';
 import { adminApi } from '@/lib/api';
 import { formatDate, STATUS_COLOURS, truncate } from '@/lib/utils';
+
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return formatDate(dateStr);
+}
 import { AgentOrbit } from '@/components/AgentOrbit';
 
 type Status = {
@@ -92,11 +100,14 @@ export default function OverviewPage() {
         {/* Recent activity */}
         <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[rgb(var(--border))]">
-            <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Recent Activity</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Recent Activity</p>
+              <span className="text-[10px] text-[rgb(var(--text-muted))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 rounded-full border border-[rgb(var(--border))]">Last hour</span>
+            </div>
             <Link href="/requests" className="text-xs text-[rgb(var(--text-secondary))] hover:text-slate-200 transition-colors">View all</Link>
           </div>
-          <div className="divide-y divide-[rgb(var(--border))]">
-            {recent?.slice(0, 8).map((r) => (
+          <div className="overflow-y-auto max-h-[228px] divide-y divide-[rgb(var(--border))]">
+            {recent?.map((r) => (
               <div key={r.id} className="flex items-start gap-3 px-4 py-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
@@ -106,12 +117,12 @@ export default function OverviewPage() {
                     <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLOURS[r.status] ?? 'badge-queued'}`}>{r.status}</span>
                   </div>
                   <p className="text-xs text-[rgb(var(--text-secondary))] truncate">{truncate(r.input, 90)}</p>
-                  <p className="text-[10px] text-[rgb(var(--text-muted))] mt-0.5">{formatDate(r.createdAt)} · {r.channel}</p>
+                  <p className="text-[10px] text-[rgb(var(--text-muted))] mt-0.5">{relativeTime(r.createdAt)} · {r.channel}</p>
                 </div>
               </div>
             ))}
             {!recent?.length && (
-              <p className="px-4 py-6 text-sm text-[rgb(var(--text-muted))] text-center">No requests yet — start by sending a message in Nexus</p>
+              <p className="px-4 py-6 text-sm text-[rgb(var(--text-muted))] text-center">No requests in the last hour</p>
             )}
           </div>
         </div>
