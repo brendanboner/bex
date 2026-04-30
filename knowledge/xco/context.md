@@ -22,7 +22,7 @@ XCO automates the design, deployment, and lifecycle management of **IP Fabrics**
 - Minimum firmware: SLX-OS 20.2, NOS 7.3
 
 ## API Summary
-Base URL: `https://{xco-host}/rest/v1`
+Base URL: `https://{xco-host}/v1`
 
 All API calls require a Bearer token. Token validation: `xco_validate_token`.
 

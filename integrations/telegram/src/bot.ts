@@ -149,11 +149,14 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
       const res = await fetch(`${API_GATEWAY_URL}/agents`, {
         headers: { Authorization: `Bearer ${BOT_API_KEY}` },
       });
-      const json = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; status?: string }> };
+      const json = (await res.json()) as { ok: boolean; data?: Array<{ id: string; name: string; status?: string; isDefault?: boolean }> };
       const agents = (json.data ?? []).filter((a) => a.status !== 'INACTIVE');
+      // Prefer explicitly flagged default → coordinator → first active agent.
+      // Deliberately no hard-coded product preference so mixed XIQ+XCO installs
+      // don't silently route everything to one product.
       const best =
-        agents.find((a) => /extremecloud\s*iq/i.test(a.name)) ??
-        agents.find((a) => /monitor|agent/i.test(a.name)) ??
+        agents.find((a) => a.isDefault) ??
+        agents.find((a) => /coordinator/i.test(a.name)) ??
         agents[0];
       if (best) {
         DEFAULT_AGENT_ID = best.id;
@@ -169,6 +172,38 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
 
   const bot = new Bot<BotContext>(botToken);
   bot.use(session({ initial: (): SessionData => ({}) }));
+
+  // ─── Agent name resolver — fuzzy-matches "@xco", "@xco-monitor" etc. ─────────
+  // Cache for 60 s so repeated @name messages don't hammer the API.
+  let _agentCacheExpiry = 0;
+  let _agentCache: Array<{ id: string; name: string }> = [];
+
+  async function resolveAgentByName(hint: string): Promise<string | null> {
+    const now = Date.now();
+    if (now > _agentCacheExpiry) {
+      try {
+        const r = await fetch(`${API_GATEWAY_URL}/agents`, {
+          headers: { Authorization: `Bearer ${BOT_API_KEY}` },
+        });
+        const j = (await r.json()) as { ok: boolean; data?: Array<{ id: string; name: string; status?: string }> };
+        _agentCache = (j.data ?? []).filter((a) => a.status !== 'INACTIVE');
+        _agentCacheExpiry = now + 60_000;
+      } catch { /* use stale cache */ }
+    }
+    // Normalise: "xco-monitor" → "xco monitor", collapse spaces
+    const q = hint.toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+    // 1. Exact name match
+    let found = _agentCache.find((a) => a.name.toLowerCase() === q);
+    if (found) return found.id;
+    // 2. Name starts with hint
+    found = _agentCache.find((a) => a.name.toLowerCase().startsWith(q));
+    if (found) return found.id;
+    // 3. All hint words appear in name (e.g. "xco" matches "XCO Monitor")
+    const words = q.split(' ').filter(Boolean);
+    found = _agentCache.find((a) => words.every((w) => a.name.toLowerCase().includes(w)));
+    if (found) return found.id;
+    return null;
+  }
 
   /** Send a message to all known chats */
   async function broadcastMessage(text: string): Promise<void> {
@@ -193,11 +228,16 @@ bot.command('start', async (ctx) => {
     '/skills — list loaded skills\n' +
     '/tools — show tools for current agent\n' +
     '/help — show this message\n\n' +
-    '*Tip:* Start your message with `@bex` to talk to the BEX system admin (Nexus):\n' +
-    '  `@bex show me scheduled jobs`\n' +
-    '  `@bex pause all scheduled jobs`\n' +
-    '  `@bex resume BonePhone`\n' +
-    '  `@bex system status`',
+    '*Route to a specific agent:*\n' +
+    '  `@xco` — XCO Monitor (fabric health, topology)\n' +
+    '  `@xco-operator` — XCO Operator (alarm management)\n' +
+    '  `@xiq` — ExtremeCloud IQ\n' +
+    '  `@bex` — BEX system admin (Nexus)\n\n' +
+    '*Examples:*\n' +
+    '  `@xco give me a full fabric overview`\n' +
+    '  `@xco how is my network?`\n' +
+    '  `@xiq show network health for Beverly`\n' +
+    '  `@bex show me scheduled jobs`',
     { parse_mode: 'Markdown' },
   );
 });
@@ -211,10 +251,16 @@ bot.command('help', async (ctx) => {
     '*/jobs* — list scheduled jobs (quick view, no AI)\n' +
     '*/agents* — list available agents\n' +
     '*/skills* — list loaded skills & domains\n' +
-    '*/tools* — list all tools by domain (e.g. `/tools weather` for weather tools)\n' +
+    '*/tools* — list all tools by domain (e.g. `/tools xco` or `/tools xiq`)\n' +
     '*/agent \\<id\\>* — switch to a different agent\n' +
     '*/cancel* — forget the current pending request\n\n' +
-    'Or just type any message to ask your agent!',
+    '*Route to a specific agent with @name:*\n' +
+    '  `@xco give me a full fabric overview`\n' +
+    '  `@xco\\-monitor how is my network?`\n' +
+    '  `@xco\\-operator acknowledge all major alarms`\n' +
+    '  `@xiq show network health for Beverly`\n' +
+    '  `@bex system status`\n\n' +
+    'Or just type any message to ask your default agent\\.',
     { parse_mode: 'MarkdownV2' },
   );
 });
@@ -401,6 +447,23 @@ bot.on('message:text', async (ctx) => {
   if (bexPrefixMatch) {
     const bexInput = bexPrefixMatch[1]!.trim();
     await routeToAgent(ctx, bexInput, NEXUS_AGENT_ID || undefined);
+    return;
+  }
+
+  // @<agent-name> prefix → route to a named agent ("@xco", "@xco-monitor", "@xiq" etc.)
+  const agentPrefixMatch = input.match(/^@(\S+)\s+([\s\S]+)/i);
+  if (agentPrefixMatch) {
+    const nameHint = agentPrefixMatch[1]!;
+    const agentInput = agentPrefixMatch[2]!.trim();
+    const foundId = await resolveAgentByName(nameHint);
+    if (foundId) {
+      await routeToAgent(ctx, agentInput, foundId);
+    } else {
+      await ctx.reply(
+        `❓ No agent matching \`@${nameHint}\` found.\n\nUse /agents to see available agents and their names.`,
+        { parse_mode: 'Markdown' },
+      );
+    }
     return;
   }
 

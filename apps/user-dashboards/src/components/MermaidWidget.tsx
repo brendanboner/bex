@@ -27,13 +27,17 @@ async function getMermaid() {
       theme: 'dark',
       themeVariables: {
         background: '#0f172a',
-        primaryColor: '#06b6d4',
+        primaryColor: '#312e81',          // indigo-950 — default node fill
         primaryTextColor: '#e2e8f0',
-        primaryBorderColor: '#334155',
-        lineColor: '#475569',
+        primaryBorderColor: '#6366f1',    // indigo-500
+        lineColor: '#64748b',             // slate-500 — brighter than default
         secondaryColor: '#1e293b',
-        tertiaryColor: '#1e293b',
+        tertiaryColor: '#0f2926',         // teal tint for subgraph backgrounds
         edgeLabelBackground: '#1e293b',
+        clusterBkg: '#1a1f35',            // subgraph fill
+        clusterBorder: '#4f46e5',         // subgraph border — indigo
+        titleColor: '#94a3b8',
+        nodeBorder: '#6366f1',
         fontFamily: 'ui-monospace, monospace',
         fontSize: '13px',
       },

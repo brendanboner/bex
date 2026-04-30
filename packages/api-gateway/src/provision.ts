@@ -272,8 +272,32 @@ async function createXcoSkillsLocally(prisma: PrismaClient): Promise<boolean> {
     {
       name: 'xco_topology_mermaid',
       description: 'Build a Mermaid graph diagram of the XCO fabric topology. Fetches device inventory, LLDP neighbours, and fabric info in parallel, then returns a complete mermaid graph LR diagram string with health-coloured nodes and fabric subgraphs.',
-      handlerType: 'xco_composite',
+      handlerType: 'xco_topology_mermaid',
+      config: {
+        authUrl: XCO_AUTH_URL,
+        baseUrl: XCO_BASE_URL,
+        isWrite: false,
+        operationId: 'xco_topology_mermaid',
+      },
       inputSchema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+      name: 'xco_fabric_overview',
+      description: 'Full fabric overview for ExtremeCloud Orchestrator. Fetches devices, fabrics, fabric health, alarm summary, BGP sessions, and LLDP topology in parallel. Returns topology_diagram (Mermaid), headline status, health_score, alarm_summary, fabrics table, devices table, and bgp_sessions table in one call — use this for any "overview", "dashboard", "health summary", or "how is my network" request.',
+      handlerType: 'xco_fabric_overview',
+      config: {
+        authUrl: XCO_AUTH_URL,
+        baseUrl: XCO_BASE_URL,
+        isWrite: false,
+        operationId: 'xco_fabric_overview',
+      },
+      parameters: {
+        type: 'object',
+        properties: {
+          fabricFilter: { type: 'string', description: 'Optional: restrict overview to a specific fabric name' },
+        },
+        required: [],
+      },
     },
   ];
 
@@ -323,10 +347,25 @@ async function createXcoSkillsLocally(prisma: PrismaClient): Promise<boolean> {
         name: 'ExtremeCloud Orchestrator — Composite',
         domain: 'networking.extreme-xco.composite',
         version: '1.0.0',
-        description: 'Multi-step composite tools for XCO that encode complex chained API patterns: topology diagrams, fabric visualisations.',
-        capabilities: ['topology-diagram', 'mermaid-visualisation'],
+        description: 'Multi-step composite tools for XCO: full fabric overview (devices, health, alarms, BGP, topology in one call) and standalone topology diagram generation.',
+        capabilities: ['fabric-overview', 'topology-diagram', 'mermaid-visualisation', 'alarm-summary', 'bgp-health'],
         tools: compositeTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        systemPrompt: 'You are an XCO composite analysis agent. Use xco_topology_mermaid to generate Mermaid topology diagrams. When building diagrams, respond with structured JSON containing the diagram key.',
+        systemPrompt: `You are an XCO composite analysis agent with access to pre-built multi-step tools.
+
+ALWAYS use composite tools when they cover the query:
+- "overview", "dashboard", "health summary", "how is my network", "full picture" → xco_fabric_overview
+- topology diagram only, spine/leaf view → xco_topology_mermaid
+
+xco_fabric_overview returns:
+  - "topology_diagram": Mermaid graph LR string (health-coloured nodes by role and state)
+  - "headline": { "status": "HEALTHY|DEGRADED|CRITICAL", "message": "<summary>" }
+  - "health_score": { "total", "healthy", "degraded", "failed" }
+  - "alarm_summary": { "critical", "major", "minor", "warning", "info" }
+  - "fabrics": array of { name, type, stage, status, health, device_count }
+  - "devices": array of { name, ip, fabric, role, state, model }
+  - "bgp_sessions": array of { local_ip, peer_ip, state, fabric, local_asn, peer_asn }
+
+OUTPUT FORMAT: Respond with a single JSON object using exactly these top-level keys — no markdown, no prose.`,
         status: 'PUBLISHED',
       },
     ],

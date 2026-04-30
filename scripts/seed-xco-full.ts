@@ -269,14 +269,23 @@ async function main() {
   // The Endpoint drives the actual host URL at runtime via the {xco-host} placeholder.
   // Credentials are stored in the vault — never in skill definitions.
   log('Upserting XCO Endpoint record...');
-  const xcoBaseUrlForEndpoint = XCO_HOST ? `https://${XCO_HOST}` : 'https://xco.local';
+  // If XCO_HOST env var is not set at seed time, preserve the existing Endpoint baseUrl
+  // rather than overwriting it with a non-resolvable placeholder like xco.local.
   const existingEp = await prisma.endpoint.findFirst({ where: { name: 'main-xco' } });
+  const preservedHost = existingEp?.hostname ?? '';
+  const effectiveHost = XCO_HOST || preservedHost;
+  const xcoBaseUrlForEndpoint = effectiveHost ? `https://${effectiveHost}` : 'https://xco.local';
   if (existingEp) {
-    await prisma.endpoint.update({
-      where: { id: existingEp.id },
-      data: { baseUrl: xcoBaseUrlForEndpoint, tags: ['xco', 'extreme-xco'] },
-    });
-    ok(`Updated endpoint: ${existingEp.id} → ${xcoBaseUrlForEndpoint}`);
+    // Only update if XCO_HOST is explicitly provided — don't clobber a manually-set host
+    if (XCO_HOST) {
+      await prisma.endpoint.update({
+        where: { id: existingEp.id },
+        data: { baseUrl: xcoBaseUrlForEndpoint, hostname: XCO_HOST, tags: ['xco', 'extreme-xco'] },
+      });
+      ok(`Updated endpoint: ${existingEp.id} → ${xcoBaseUrlForEndpoint}`);
+    } else {
+      ok(`Preserved existing endpoint: ${existingEp.id} → ${existingEp.baseUrl} (set XCO_HOST env var to override)`);
+    }
   } else {
     const ep = await prisma.endpoint.create({
       data: {
@@ -286,7 +295,7 @@ async function main() {
         tags: ['xco', 'extreme-xco'],
         aliases: ['xco', 'efa', 'orchestrator'],
         sshEnabled: true,
-        hostname: XCO_HOST || 'xco.local',
+        hostname: effectiveHost || 'xco.local',
         sshPort: 22,
       },
     });
@@ -552,11 +561,11 @@ OUTPUT FORMAT:
   ok(`Telemetry skill: ${telemetrySkill.id}`);
   info(`Tools: ${TELEMETRY_TOOLS.map(t => t.name).join(', ')}`);
 
-  // ── 4c. Topology composite skill ───────────────────────────────────────────
-  log('Creating XCO Topology Mermaid composite skill...');
+  // ── 4c. Composite skill (topology + fabric overview) ───────────────────────
+  log('Creating XCO composite skill (topology + fabric overview)...');
   const topoCompositeTool = {
     name: 'xco_topology_mermaid',
-    description: 'Build a Mermaid graph LR topology diagram of the XCO fabric. Returns topology_diagram (Mermaid string showing spines, leaves, and LLDP links with health colouring), plus switches and fabrics arrays for table display.',
+    description: 'Build a Mermaid graph LR topology diagram of the XCO fabric. Returns topology_diagram (Mermaid string showing spines, leaves, and LLDP links with role/health colouring), plus switches and fabrics arrays for table display.',
     handlerType: 'xco_topology_mermaid',
     config: {
       authUrl: XCO_AUTH_URL,
@@ -573,6 +582,25 @@ OUTPUT FORMAT:
     },
   };
 
+  const fabricOverviewTool = {
+    name: 'xco_fabric_overview',
+    description: 'Full fabric overview for ExtremeCloud Orchestrator. Fetches devices, fabrics, fabric health, alarm summary, BGP sessions, and LLDP topology in parallel. Returns topology_diagram (Mermaid), headline status, health_score, alarm_summary, fabrics table, devices table, and bgp_sessions table in one call — use this for any "overview", "dashboard", "health summary", or "how is my network" request.',
+    handlerType: 'xco_fabric_overview',
+    config: {
+      authUrl: XCO_AUTH_URL,
+      baseUrl: XCO_BASE_URL,
+      isWrite: false,
+      operationId: 'xco_fabric_overview',
+    },
+    parameters: {
+      type: 'object' as const,
+      properties: {
+        fabricFilter: { type: 'string', description: 'Optional: restrict overview to a specific fabric name' },
+      },
+      required: [] as string[],
+    },
+  };
+
   const topoCompositeDomain = 'networking.extreme-xco.composite';
   const existingTopoComposite = await prisma.skill.findFirst({ where: { domain: topoCompositeDomain }, select: { id: true } });
   let topoCompositeId: string;
@@ -581,24 +609,32 @@ OUTPUT FORMAT:
     domain: topoCompositeDomain,
     version: '1.0.0',
     status: 'PUBLISHED' as const,
-    description: 'Composite tools for XCO that perform multi-step operations. Includes topology diagram generation using Mermaid graph LR.',
-    capabilities: [topoCompositeTool.description.slice(0, 80)],
-    tools: [topoCompositeTool],
+    description: 'Composite tools for XCO: full fabric overview (devices, health, alarms, BGP, topology in one call) and standalone topology diagram generation.',
+    capabilities: ['fabric-overview', 'topology-diagram', 'mermaid-visualisation', 'alarm-summary', 'bgp-health'],
+    tools: [topoCompositeTool, fabricOverviewTool],
     requiredCredentialType: 'USERNAME_PASSWORD',
     systemPrompt: `You have access to pre-built composite tools for ExtremeCloud Orchestrator.
 
 ALWAYS use composite tools when they cover the query:
-- Fabric topology diagram, network map, spine/leaf view → xco_topology_mermaid
+- "overview", "dashboard", "health summary", "how is my network", "full picture" → xco_fabric_overview
+- topology diagram only, spine/leaf view → xco_topology_mermaid
+
+xco_fabric_overview returns:
+  - "topology_diagram": Mermaid graph LR string (nodes colour-coded by role and health state)
+  - "headline": { "status": "HEALTHY|DEGRADED|CRITICAL", "message": "<summary>" }
+  - "health_score": { "total", "healthy", "degraded", "failed" }
+  - "alarm_summary": { "critical", "major", "minor", "warning", "info" }
+  - "fabrics": array of { name, type, stage, status, health, device_count }
+  - "devices": array of { name, ip, fabric, role, state, model }
+  - "bgp_sessions": array of { local_ip, peer_ip, state, fabric, local_asn, peer_asn }
 
 xco_topology_mermaid returns:
-  - "topology_diagram": a Mermaid "graph LR" string showing each switch as a node (spines as stadium, leaves as box), grouped into fabric subgraphs, with LLDP edges showing physical links. Nodes are health-coloured (green=in-sync, amber=drift, red=error/unreachable).
-  - "switches": array of { name, ip, fabric, role, state, model } for table display
+  - "topology_diagram": Mermaid graph LR string
+  - "switches": array of { name, ip, fabric, role, state, model }
   - "fabrics": array of { name, status, type, stage }
 
-OUTPUT FORMAT: When generating a topology diagram dashboard, return a JSON object with exactly these top-level keys:
-  { "topology_diagram": "<mermaid string>", "summary": {...}, "switches": [...], "fabrics": [...] }
-Do NOT wrap the diagram string in markdown fences — return it as a plain string value in the JSON.`,
-    learnedNotes: 'xco_topology_mermaid fetches /inventory/switches + /monitor/lldp + /fabric/fabrics in parallel and builds a Mermaid graph LR. The topology_diagram field contains valid Mermaid syntax starting with "graph LR". Always include this field in your JSON response — the dashboard will render it as a mermaid widget.',
+OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys — no markdown, no prose.`,
+    learnedNotes: 'xco_fabric_overview fetches /inventory/switches + /fabric/fabrics + /fabric/fabrics-health + /faultmanager/alarm/summary + /monitor/bgp + /monitor/lldp in parallel and returns a comprehensive overview. Use for any "overview", "dashboard", or "network health" request. xco_topology_mermaid is topology-only. Both return topology_diagram as valid Mermaid syntax starting with "graph LR".',
   };
 
   if (existingTopoComposite) {

@@ -2046,8 +2046,7 @@ export function buildTools(
             if (!token) return { error: 'XIQ login failed — check credentials in vault' };
 
             // Fetch device list to resolve connected_ap_id → AP hostname
-            // CLIENT_DETAILS view adds connected_ap_id (integer) to each client record
-            const deviceData = await skGet(token, '/devices', { page: 1, limit: 500 });
+            const deviceData = await skGet(token, '/devices', { page: 1, limit: 100 });
             const deviceMap = new Map<number, string>();
             for (const d of deviceData as Array<Record<string, unknown>>) {
               const id = d['id'] as number | undefined;
@@ -2080,8 +2079,8 @@ export function buildTools(
               }
             }
 
-            // Step 3: All active clients (paginated) — CLIENT_DETAILS view adds connected_ap_id
-            const allClients = await skGetAll(token, '/clients/active', 5, { views: 'CLIENT_DETAILS' });
+            // Step 3: All active clients (paginated) — no unsupported views param
+            const allClients = await skGetAll(token, '/clients/active', 5);
 
             // Step 4: Build flow counts
             // Policy → SSID edges
@@ -2093,8 +2092,8 @@ export function buildTools(
 
             for (const client of allClients as Array<Record<string, unknown>>) {
               const ssid = String(client['ssid'] ?? '').trim();
-              // Resolve AP name: connected_ap_id (from CLIENT_DETAILS view) → deviceMap → hostname
-              const connectedApId = client['connected_ap_id'] as number | undefined;
+              // Resolve AP name: device_id field maps directly to the AP device record
+              const connectedApId = (client['device_id'] ?? client['connected_ap_id']) as number | undefined;
               const apFromMap = connectedApId ? (deviceMap.get(connectedApId) ?? '') : '';
               const ap = (apFromMap || String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '')).trim();
               if (!ssid) continue;
@@ -2259,7 +2258,8 @@ export function buildTools(
             if (!token) return { error: 'XIQ login failed — check credentials in vault' };
 
             // Fetch device list once to resolve connected_ap_id → AP hostname
-            const deviceResp = await acsGet(token, '/devices', { page: 1, limit: 500 });
+            // XIQ max limit is 100; use pagination if needed
+            const deviceResp = await acsGet(token, '/devices', { page: 1, limit: 100 });
             const deviceList: AcsClient[] = Array.isArray(deviceResp)
               ? (deviceResp as AcsClient[])
               : ((deviceResp as { data?: AcsClient[] })?.data ?? []);
@@ -2270,11 +2270,11 @@ export function buildTools(
               if (id && hostname) deviceMap.set(id, hostname);
             }
 
-            // Fetch all active clients (paginated) with CLIENT_DETAILS view for connected_ap_id
+            // Fetch all active clients (paginated) — don't send unsupported views param
             let allClients: AcsClient[] = [];
             let page = 1;
             while (allClients.length < 2000) {
-              const resp = await acsGet(token, '/clients/active', { page, limit: 100, views: 'CLIENT_DETAILS' }) as { data?: AcsClient[] } | AcsClient[] | null;
+              const resp = await acsGet(token, '/clients/active', { page, limit: 100 }) as { data?: AcsClient[] } | AcsClient[] | null;
               if (!resp) break;
               const batch: AcsClient[] = Array.isArray(resp) ? resp : ((resp as { data?: AcsClient[] }).data ?? []);
               if (batch.length === 0) break;
@@ -2294,8 +2294,8 @@ export function buildTools(
 
             for (const client of allClients) {
               const ssid = String(client['ssid'] ?? '').trim();
-              // Resolve AP name: connected_ap_id (CLIENT_DETAILS view) → deviceMap → hostname
-              const connectedApId = client['connected_ap_id'] as number | undefined;
+              // Resolve AP name: device_id field maps directly to the AP device record
+              const connectedApId = (client['device_id'] ?? client['connected_ap_id']) as number | undefined;
               const apFromMap = connectedApId ? (deviceMap.get(connectedApId) ?? '') : '';
               const ap = (apFromMap || String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '')).trim() || 'Unknown AP';
               if (!ssid) continue;
