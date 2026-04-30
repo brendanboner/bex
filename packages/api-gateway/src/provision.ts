@@ -591,6 +591,41 @@ async function publishSkillsByDomainPrefix(prisma: PrismaClient, prefix: string)
   }
 }
 
+/**
+ * Pulls every skill available in the remote registry that isn't already
+ * installed locally. Runs at startup — non-blocking if the registry is
+ * unreachable. Idempotent: existing skills are never overwritten unless
+ * the version is absent locally.
+ */
+async function syncSkillsFromRegistry(prisma: PrismaClient): Promise<void> {
+  const client = new SkillRegistryClient();
+  if (!client.isConfigured) return;
+
+  let remoteSkills: Awaited<ReturnType<typeof client.list>>;
+  try {
+    remoteSkills = await client.list();
+  } catch {
+    return; // registry unreachable — skip silently
+  }
+
+  if (remoteSkills.length === 0) return;
+
+  // Build a set of already-installed domain@version pairs
+  const local = await prisma.skill.findMany({ select: { domain: true, version: true } });
+  const installed = new Set(local.map((s) => `${s.domain}@${s.version}`));
+
+  let pulled = 0;
+  for (const remote of remoteSkills) {
+    if (installed.has(`${remote.domain}@${remote.version}`)) continue;
+    const id = await tryPullFromRegistry(prisma, client, remote.domain, remote.version);
+    if (id) pulled++;
+  }
+
+  if (pulled > 0) {
+    console.info(`[provision] Registry sync complete — ${pulled} new skill(s) installed`);
+  }
+}
+
 async function syncKnowledgeFromRegistry(): Promise<void> {
   const knowledgeDir = process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge';
   const store = new KnowledgeStore(knowledgeDir);
@@ -685,6 +720,7 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     await provisionSystemOpsSkill(prisma);
     await assignSystemOpsSkillToMonitorAgents(prisma);
     await provisionApSsidMonitorJob(prisma);
+    await syncSkillsFromRegistry(prisma);
     await syncKnowledgeFromRegistry();
   } catch (e) {
     // Provisioning failures must never block startup
