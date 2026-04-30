@@ -339,31 +339,6 @@ async function main() {
     ok(`Created credential: ${credId}`);
   }
 
-  // Per-agent credential (username/password keys for xco_http_call compatibility)
-  let agentCredId: string | null = null;
-  const agentCredName = `ExtremeCloud Orchestrator (${XCO_USERNAME}@${XCO_HOST})`;
-  const existingAgentCred = await prisma.credential.findFirst({ where: { name: agentCredName } });
-  if (existingAgentCred) {
-    const { encrypt } = await import('../packages/credential-vault/src/crypto.js');
-    const blob = encrypt({ username: XCO_USERNAME, password: XCO_PASSWORD });
-    await prisma.credential.update({
-      where: { id: existingAgentCred.id },
-      data: { encryptedValue: blob.encryptedValue, iv: blob.iv, authTag: blob.authTag },
-    });
-    agentCredId = existingAgentCred.id;
-    ok(`Updated agent credential: ${agentCredId}`);
-  } else {
-    const agentCred = await vault.create({
-      name: agentCredName,
-      scope: 'SYSTEM',
-      credentialType: 'USERNAME_PASSWORD',
-      value: { username: XCO_USERNAME, password: XCO_PASSWORD },
-      allowedAgentPermissions: ['read:data', 'read:metrics', 'write:alarms', 'write:fabric', 'write:devices'],
-    });
-    agentCredId = agentCred.id;
-    ok(`Created agent credential: ${agentCredId}`);
-  }
-
   // ── 3. Clean up old XCO skills / agents ────────────────────────────────────
   log('Cleaning up any existing XCO agents and skills...');
   const oldAgents = await prisma.agent.findMany({
@@ -705,7 +680,7 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
       status: 'ACTIVE',
       ownerId: systemUser.id,
       charterId: monitorCharter.id,
-      credentialId: agentCredId,
+      credentialId: credId,
       agentSkills: {
         create: [
           { skillId: monitorSkill.id },
@@ -740,7 +715,7 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
       status: 'ACTIVE',
       ownerId: systemUser.id,
       charterId: operatorCharter.id,
-      credentialId: agentCredId,
+      credentialId: credId,
       agentSkills: {
         create: [
           { skillId: monitorSkill.id },
@@ -839,7 +814,7 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
   const output = {
     xcoHost: XCO_HOST,
     xcoBaseUrl: xcoBaseUrlResolved,
-    credentials: { system: credId, agent: agentCredId },
+    credentials: { system: credId },
     skills: {
       monitor:     { id: monitorSkill.id,     domain: monitorSkill.domain },
       operations:  { id: opsSkill.id,         domain: opsSkill.domain },

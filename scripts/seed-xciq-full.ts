@@ -111,54 +111,43 @@ async function main() {
   console.log(`  Found ${Object.keys((spec.paths ?? {}) as Record<string, unknown>).length} paths`);
 
   // ── 2. Resolve the XIQ credential ────────────────────────────────────────
+  // Always use the canonical system.xiq_credentials — update it if env vars provided.
   let credentialId: string;
+  const { encrypt } = await import('../packages/credential-vault/src/crypto.js');
 
-  if (XIQ_USERNAME && XIQ_PASSWORD) {
-    // Env vars provided — upsert a credential
-    const credName = `ExtremeCloud IQ (${XIQ_USERNAME})`;
-    const existingCred = await prisma.credential.findFirst({
-      where: { name: credName },
-      select: { id: true },
-    });
-    if (existingCred) {
-      credentialId = existingCred.id;
-      console.log(`✔ Using existing credential: ${credentialId}`);
-    } else {
-      const cred = await vault.create({
-        name: credName,
-        description: `ExtremeCloud IQ credentials for ${XIQ_USERNAME}`,
-        scope: 'SYSTEM',
-        credentialType: 'USERNAME_PASSWORD',
-        value: { username: XIQ_USERNAME, password: XIQ_PASSWORD },
-        allowedAgentPermissions: ['xiq:read', 'xiq:write', '*'],
+  const canonicalCred = await prisma.credential.findFirst({
+    where: { name: 'system.xiq_credentials' },
+    select: { id: true },
+  });
+
+  if (canonicalCred) {
+    credentialId = canonicalCred.id;
+    if (XIQ_USERNAME && XIQ_PASSWORD) {
+      const blob = encrypt({ username: XIQ_USERNAME, password: XIQ_PASSWORD });
+      await prisma.credential.update({
+        where: { id: credentialId },
+        data: { encryptedValue: blob.encryptedValue, iv: blob.iv, authTag: blob.authTag },
       });
-      credentialId = cred.id;
-      console.log(`✔ Created credential: ${credentialId}`);
-    }
-  } else {
-    // No env vars — try to find any XIQ-related credential already in DB
-    const existingCred = await prisma.credential.findFirst({
-      where: {
-        credentialType: 'USERNAME_PASSWORD',
-        OR: [
-          { name: { contains: 'xiq', mode: 'insensitive' } },
-          { name: { contains: 'extremecloudiq', mode: 'insensitive' } },
-          { name: { contains: 'ExtremeCloud IQ', mode: 'insensitive' } },
-          { description: { contains: 'extremecloudiq.com', mode: 'insensitive' } },
-        ],
-      },
-      select: { id: true, name: true },
-    });
-    if (existingCred) {
-      credentialId = existingCred.id;
-      console.log(`✔ Using existing credential "${existingCred.name}": ${credentialId}`);
+      console.log(`✔ Updated system.xiq_credentials (${credentialId}) with new values`);
     } else {
-      console.error('❌ No XIQ credential found.\n');
-      console.error('   Either set env vars:  XIQ_USERNAME=you@company.com XIQ_PASSWORD=yourpass');
-      console.error('   Or add a credential in the dashboard (Vault → New Credential, type: USERNAME_PASSWORD,');
-      console.error('   name containing "XIQ" or "ExtremeCloud IQ") before running this script.');
-      process.exit(1);
+      console.log(`✔ Using existing system.xiq_credentials: ${credentialId}`);
     }
+  } else if (XIQ_USERNAME && XIQ_PASSWORD) {
+    // bex init not run yet — create the canonical credential now
+    const cred = await vault.create({
+      name: 'system.xiq_credentials',
+      description: 'ExtremeCloud IQ credentials (canonical)',
+      scope: 'SYSTEM',
+      credentialType: 'USERNAME_PASSWORD',
+      value: { username: XIQ_USERNAME, password: XIQ_PASSWORD },
+      allowedAgentPermissions: ['xiq:read', 'xiq:write', '*'],
+    });
+    credentialId = cred.id;
+    console.log(`✔ Created system.xiq_credentials: ${credentialId}`);
+  } else {
+    console.error('❌ No system.xiq_credentials found and no env vars provided.\n');
+    console.error('   Run:  bex init  first, or set env vars:  XIQ_USERNAME=you@company.com XIQ_PASSWORD=yourpass');
+    process.exit(1);
   }
 
   // ── 3. Get system owner ───────────────────────────────────────────────────
