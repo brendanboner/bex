@@ -386,7 +386,7 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
     },
     {
       name: 'xiq_policy_sankey',
-      description: 'Build a Mermaid sankey-beta diagram showing the flow Policies → SSIDs → Access Points → Client counts. Returns sankey_diagram (Mermaid string), flows array, and summary counts. Use for "show policy/SSID/AP client distribution".',
+      description: 'Build a 5-level Mermaid sankey-beta diagram: Network Policy → Access Point → SSID → Client Maker (Apple/Android/Windows/Unknown) → IP /24 Subnet. Use for "network policy sankey", "show policy client distribution", "policy AP SSID maker IP flow". Returns sankey_diagram, ap_summary table, ssid_summary table, flows array.',
       handlerType: 'xiq_policy_sankey',
       config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_policy_sankey' },
       parameters: {
@@ -484,8 +484,8 @@ ALWAYS prefer composite tools over raw API calls when they cover the query:
 - SSID/VLAN topology → xiq_topology_report
 - Single device status → xiq_client_snapshot
 - All clients health → xiq_client_health_report
-- Policy/SSID/AP flow diagram → xiq_policy_sankey
-- AP/SSID/Maker/DeviceType flow diagram → xiq_ap_client_sankey (USE THIS for "what devices are connected", vendor/maker breakdown, device type Sankey)
+- Policy/SSID/AP/Maker/IP flow diagram → xiq_policy_sankey (USE THIS when "network policy" is the requested root of the flow, or prompt includes "policy sankey", "policy AP SSID maker IP")
+- AP/SSID/Maker/DeviceType flow diagram → xiq_ap_client_sankey (USE THIS for "what devices are connected", vendor/maker breakdown, device type Sankey — when AP is the root)
 - Network health score → xiq_network_health (NEVER guess locationId — use this tool, it resolves names automatically)
 - Device health score → xiq_device_health (same — resolves locationName to ID automatically)
 - Radio quality for a named client device → xiq_client_radio_quality (e.g. "fridge", "iPad")
@@ -538,7 +538,7 @@ OUTPUT FORMAT FOR DIAGRAMS: When either sankey tool returns a result, the "sanke
       'extremecloudiq.network.policy':
         'VLAN resolution requires chain: GET /network-policies → GET /network-policies/{id}/ssids → GET /user-profiles/{up_id} → GET /network/vlan-profiles. Use xiq_topology_report to get full SSID→VLAN mapping. Do NOT guess VLAN IDs.',
       'extremecloudiq.composite':
-        'NEVER guess locationId. Use xiq_network_health or xiq_device_health — they auto-resolve locationName to a real integer ID by searching the XIQ locations API. Use xiq_radio_quality_by_ap for radio/signal/SNR for APs. Use xiq_client_radio_quality for radio quality of a specific named client (e.g. "fridge", "iPad"). Use xiq_client_connection_history for connection/roaming history of a named client. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_ap_client_sankey for ANY Sankey showing APs, SSIDs, device makers (Apple/Android/Windows), or device types. Use xiq_policy_sankey only for policy/SSID/AP distribution.',
+        'NEVER guess locationId. Use xiq_network_health or xiq_device_health — they auto-resolve locationName to a real integer ID by searching the XIQ locations API. Use xiq_radio_quality_by_ap for radio/signal/SNR for APs. Use xiq_client_radio_quality for radio quality of a specific named client (e.g. "fridge", "iPad"). Use xiq_client_connection_history for connection/roaming history of a named client. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_ap_client_sankey for ANY Sankey where AP is the root (APs, SSIDs, device makers, device types). Use xiq_policy_sankey for ANY Sankey where Network Policy is the root (policy → AP → SSID → maker → IP). Never use xiq_ap_client_sankey for policy-first requests.',
       'extremecloudiq.monitoring':
         'NEVER guess locationId. The correct pattern is: 1) Check if agent facts contain default_xiq_location. 2) ALWAYS use the xiq_network_health or xiq_device_health composite tools — they resolve location names to IDs automatically. 3) If no location is known, call get_location_tree to discover valid location IDs. NEVER pass locationId: 1, locationId: 0, or any guessed ID.',
     };

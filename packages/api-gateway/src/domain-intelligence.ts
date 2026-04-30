@@ -144,19 +144,35 @@ Only use scheduled job tools when user EXPLICITLY says "set up a scheduled job" 
   },
   {
     name: 'policy-sankey-diagram',
-    triggerPatterns: ['policy ssid', 'policy flow', 'ssid ap client', 'policy client distribution'],
-    content: `## Policy → SSID → AP Sankey Diagram
+    triggerPatterns: [
+      'policy sankey', 'network policy sankey', 'policy flow', 'policy ap ssid',
+      'policy breakdown', 'policy client distribution', 'network policy flow',
+      'policy maker ip', 'policy ssid maker', 'ssid maker ip',
+    ],
+    content: `## Network Policy → AP → SSID → Maker → IP Sankey Diagram
 
-Use \`xiq_policy_sankey\` for policy/SSID/AP client distribution flow diagrams.
+Use \`xiq_policy_sankey\` for ANY request that starts with "network policies" as the root of a flow diagram, or asks to show policy-based client breakdown.
 
 xiq_policy_sankey()
-  → sankey_diagram: Mermaid sankey-beta string (Policy → SSID → AP)
-  → summary: { total_clients, total_policies, total_ssids, total_aps }
+  → sankey_diagram: Mermaid sankey-beta string (Policy → AP → SSID → Maker → /24 Subnet)
+  → summary: { total_clients, total_policies, total_aps, total_ssids }
+  → ap_summary: [{ ap, ssid_count, client_count }]   ← use for text summary table
+  → ssid_summary: [{ ssid, policy, client_count }]   ← use for text summary table
   → policies: [{ name, ssid_count, ssids }]
   → flows: [{ source, target, value }]
 
-IMPORTANT: return sankey_diagram as a plain string in JSON — NOT wrapped in markdown fences.
-The dashboard renders it as a mermaid widget automatically when it sees a field named sankey_diagram.`,
+5-level flow:
+  1. Network Policy (e.g. "Beverly")
+  2. Access Point (e.g. "Beverly Main AP5010")
+  3. SSID (e.g. "B13-Home")
+  4. Client Maker (Apple, Android, Windows, Linux, IoT/Embedded, Unknown)
+  5. IP /24 Subnet (e.g. "10.13.250.x")
+
+ALWAYS present:
+- The sankey_diagram field as a Mermaid widget
+- A text summary using ap_summary and ssid_summary tables
+
+IMPORTANT: return sankey_diagram as a plain string in JSON — NOT wrapped in markdown fences.`,
   },
   {
     name: 'ap-client-sankey-diagram',
@@ -169,6 +185,7 @@ The dashboard renders it as a mermaid widget automatically when it sees a field 
     content: `## AP → SSID → Maker → Device Type Sankey Diagram
 
 ALWAYS use the \`xiq_ap_client_sankey\` composite tool for Sankey diagrams showing APs, SSIDs, client makers (Apple/Android/Windows), and device types.
+Do NOT use this for "network policy" as the root — use xiq_policy_sankey for policy-first flows.
 
 xiq_ap_client_sankey({ apFilter?: string })
   → sankey_diagram: Mermaid sankey-beta string (AP → SSID → Maker → Device Type)

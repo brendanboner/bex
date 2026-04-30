@@ -2045,19 +2045,50 @@ export function buildTools(
             const token = await getSkToken();
             if (!token) return { error: 'XIQ login failed — check credentials in vault' };
 
-            // Fetch device list to resolve connected_ap_id → AP hostname
-            const deviceData = await skGet(token, '/devices', { page: 1, limit: 100 });
+            // Maker detection — same OUI/OS logic as xiq_ap_client_sankey
+            const detectMakerPol = (c: Record<string, unknown>): string => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              const hostname = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
+              const mac = String(c['mac_address'] ?? '').toUpperCase().replace(/[:\-]/g, '');
+              const oui = mac.substring(0, 6);
+              if (os.includes('apple') || os.includes('ios') || os.includes('macos') || os.includes('mac os') ||
+                  os.includes('ipad') || os.includes('watchos') || os.includes('tvos') ||
+                  /iphone|ipad|macbook|imac|mac mini|mac pro|airpod|ipod|apple/i.test(hostname) ||
+                  ['F81EDF','F0DB30','F0B429','ECA6B4','E8FAC6','DCA904','D83062','D0A637','B82AAA',
+                   'B0BE76','A4C361','9CF48E','8CAAB5','706E6D','6C96CF','5C96A4','504BAA','48D705',
+                   '440010','3C5282','2095F0','143C4A','0CFE45','001CBE','001B63'].includes(oui)) return 'Apple';
+              if (os.includes('android') || os.includes('google') || os.includes('chrome os')) return 'Android';
+              if (os.includes('windows') || os.includes('microsoft')) return 'Windows';
+              if (os.includes('linux') || os.includes('ubuntu') || os.includes('debian')) return 'Linux';
+              if (os.includes('embedded') || os.includes('iot') || os.includes('rtos')) return 'IoT/Embedded';
+              return 'Unknown';
+            };
+
+            // /24 subnet grouping for IP leaf nodes — keeps the diagram readable
+            const toSubnet24 = (ip: string): string => {
+              if (!ip) return 'Unknown';
+              const parts = ip.split('.');
+              return parts.length === 4 ? `${parts[0]}.${parts[1]}.${parts[2]}.x` : ip;
+            };
+
+            // Fetch device list (paginated) to resolve device_id → AP hostname
+            let allDevices: Array<Record<string, unknown>> = [];
+            for (let pg = 1; pg <= 5; pg++) {
+              const batch = await skGet(token, '/devices', { page: pg, limit: 100 });
+              allDevices = allDevices.concat(batch as Array<Record<string, unknown>>);
+              if ((batch as unknown[]).length < 100) break;
+            }
             const deviceMap = new Map<number, string>();
-            for (const d of deviceData as Array<Record<string, unknown>>) {
+            for (const d of allDevices) {
               const id = d['id'] as number | undefined;
               const hostname = String(d['hostname'] ?? d['host_name'] ?? d['name'] ?? '');
               if (id && hostname) deviceMap.set(id, hostname);
             }
 
-            // Step 1: Network policies
-            const policies = await skGet(token, '/network-policies', { page: 1, limit: 50 });
+            // Fetch network policies (paginated)
+            const policies = await skGetAll(token, '/network-policies', 5);
 
-            // Step 2: SSIDs per policy — fetch all policies in parallel
+            // Fetch SSIDs per policy in parallel
             type PolicyInfo = { id: number; name: string; ssids: string[] };
             const policyList: PolicyInfo[] = await Promise.all(
               (policies as Array<Record<string, unknown>>).map(async (p) => {
@@ -2071,74 +2102,86 @@ export function buildTools(
               }),
             );
 
-            // Reverse map: SSID name → policy name (for client lookup)
-            const ssidToPolicy = new Map<string, string>();
+            // SSID → policy map — track all policies per SSID to detect shared SSIDs
+            const ssidToPolicies = new Map<string, string[]>();
             for (const pol of policyList) {
               for (const ssid of pol.ssids) {
-                if (!ssidToPolicy.has(ssid)) ssidToPolicy.set(ssid, pol.name);
+                const existing = ssidToPolicies.get(ssid) ?? [];
+                if (!existing.includes(pol.name)) existing.push(pol.name);
+                ssidToPolicies.set(ssid, existing);
               }
             }
+            const ssidToPolicy = new Map<string, string>();
+            for (const [ssid, polNames] of ssidToPolicies) {
+              ssidToPolicy.set(ssid, polNames.length === 1 ? (polNames[0] ?? 'Unknown Policy') : 'Shared (Multiple Policies)');
+            }
 
-            // Step 3: All active clients (paginated) — no unsupported views param
+            // Fetch all active clients (paginated)
             const allClients = await skGetAll(token, '/clients/active', 5);
 
-            // Step 4: Build flow counts
-            // Policy → SSID edges
-            const policyToSsid = new Map<string, Map<string, number>>();   // policy → ssid → count
-            // SSID → AP edges
-            const ssidToAp = new Map<string, Map<string, number>>();       // ssid → ap → count
-            // AP → Clients (sink)
-            const apClientCount = new Map<string, number>();
+            // Build 5-level edges: Policy → AP → SSID → Maker → /24 Subnet
+            const policyToAp  = new Map<string, Map<string, number>>();
+            const apToSsid    = new Map<string, Map<string, number>>();
+            const ssidToMaker = new Map<string, Map<string, number>>();
+            const makerToSubnet = new Map<string, Map<string, number>>();
+
+            // Summary helpers
+            const apClientCounts = new Map<string, number>();
+            const ssidClientCounts = new Map<string, number>();
+            const apSsidSet = new Map<string, Set<string>>();
+
+            const addEdge = (m: Map<string, Map<string, number>>, src: string, tgt: string) => {
+              if (!m.has(src)) m.set(src, new Map());
+              m.get(src)!.set(tgt, (m.get(src)!.get(tgt) ?? 0) + 1);
+            };
 
             for (const client of allClients as Array<Record<string, unknown>>) {
               const ssid = String(client['ssid'] ?? '').trim();
-              // Resolve AP name: device_id field maps directly to the AP device record
-              const connectedApId = (client['device_id'] ?? client['connected_ap_id']) as number | undefined;
-              const apFromMap = connectedApId ? (deviceMap.get(connectedApId) ?? '') : '';
-              const ap = (apFromMap || String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '')).trim();
               if (!ssid) continue;
 
+              // Resolve AP name via device_id (exact field returned by XIQ /clients/active)
+              const devId = (client['device_id'] ?? client['connected_ap_id']) as number | undefined;
+              const ap = (devId ? (deviceMap.get(devId) ?? '') : '').trim() ||
+                         String(client['connected_ap'] ?? '').trim() || 'Unknown AP';
+
               const policyName = ssidToPolicy.get(ssid) ?? 'Unknown Policy';
+              const maker = detectMakerPol(client);
+              const rawIp = String(client['ip_address'] ?? '').trim();
+              const subnet = rawIp ? toSubnet24(rawIp) : `${maker} (no IP)`;
 
-              // Policy → SSID
-              if (!policyToSsid.has(policyName)) policyToSsid.set(policyName, new Map());
-              policyToSsid.get(policyName)!.set(ssid, (policyToSsid.get(policyName)!.get(ssid) ?? 0) + 1);
+              addEdge(policyToAp, policyName, ap);
+              addEdge(apToSsid, ap, ssid);
+              addEdge(ssidToMaker, ssid, maker);
+              addEdge(makerToSubnet, maker, subnet);
 
-              // SSID → AP
-              const apLabel = ap || 'Unknown AP';
-              if (!ssidToAp.has(ssid)) ssidToAp.set(ssid, new Map());
-              ssidToAp.get(ssid)!.set(apLabel, (ssidToAp.get(ssid)!.get(apLabel) ?? 0) + 1);
-
-              // AP count (for sink)
-              apClientCount.set(apLabel, (apClientCount.get(apLabel) ?? 0) + 1);
+              apClientCounts.set(ap, (apClientCounts.get(ap) ?? 0) + 1);
+              ssidClientCounts.set(ssid, (ssidClientCounts.get(ssid) ?? 0) + 1);
+              if (!apSsidSet.has(ap)) apSsidSet.set(ap, new Set());
+              apSsidSet.get(ap)!.add(ssid);
             }
 
-            // Step 5: Build sankey-beta lines
-            // Format: "Source","Target",value
+            // Build sankey-beta lines
+            const sanitize = (s: string) => `"${s.replace(/"/g, "'").replace(/[\n\r]/g, ' ').trim()}"`;
             const sankeyLines: string[] = ['sankey-beta', ''];
             const flows: Array<{ source: string; target: string; value: number }> = [];
 
-            const sanitize = (s: string) => `"${s.replace(/"/g, "'").replace(/[\n\r]/g, ' ').trim()}"`;
-
-            for (const [policyName, ssidMap] of policyToSsid) {
-              for (const [ssidName, count] of ssidMap) {
-                if (count > 0) {
-                  sankeyLines.push(`${sanitize(policyName)},${sanitize(ssidName)},${count}`);
-                  flows.push({ source: policyName, target: ssidName, value: count });
+            const emitEdges = (m: Map<string, Map<string, number>>) => {
+              for (const [src, tgtMap] of m) {
+                for (const [tgt, count] of tgtMap) {
+                  if (count > 0) {
+                    sankeyLines.push(`${sanitize(src)},${sanitize(tgt)},${count}`);
+                    flows.push({ source: src, target: tgt, value: count });
+                  }
                 }
               }
-            }
+            };
 
-            for (const [ssidName, apMap] of ssidToAp) {
-              for (const [apName, count] of apMap) {
-                if (count > 0) {
-                  sankeyLines.push(`${sanitize(ssidName)},${sanitize(apName)},${count}`);
-                  flows.push({ source: ssidName, target: apName, value: count });
-                }
-              }
-            }
+            emitEdges(policyToAp);
+            emitEdges(apToSsid);
+            emitEdges(ssidToMaker);
+            emitEdges(makerToSubnet);
 
-            // If no clients were active, build a structural Sankey from policy/SSID definitions only
+            // Zero-client fallback: show policy/SSID skeleton
             if (flows.length === 0 && policyList.length > 0) {
               sankeyLines.push('%% No active clients — showing policy/SSID structure');
               for (const pol of policyList) {
@@ -2149,17 +2192,30 @@ export function buildTools(
               }
             }
 
-            const sankey_diagram = sankeyLines.join('\n');
+            // Summary tables
+            const ap_summary = Array.from(apClientCounts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([ap, count]) => ({ ap, ssid_count: apSsidSet.get(ap)?.size ?? 0, client_count: count }));
+
+            const ssid_summary = Array.from(ssidClientCounts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([ssid, count]) => ({
+                ssid,
+                policy: ssidToPolicy.get(ssid) ?? 'Unknown Policy',
+                client_count: count,
+              }));
 
             return {
-              sankey_diagram,
+              sankey_diagram: sankeyLines.join('\n'),
               summary: {
                 total_clients: allClients.length,
                 total_policies: policyList.length,
-                total_ssids: ssidToPolicy.size,
-                total_aps: apClientCount.size,
+                total_aps: apClientCounts.size,
+                total_ssids: ssidClientCounts.size,
                 timestamp: new Date().toISOString(),
               },
+              ap_summary,
+              ssid_summary,
               policies: policyList.map((p) => ({ name: p.name, ssid_count: p.ssids.length, ssids: p.ssids })),
               flows,
             };
