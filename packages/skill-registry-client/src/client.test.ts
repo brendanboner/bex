@@ -50,15 +50,19 @@ describe('SkillRegistryClient', () => {
     expect(client.isConfigured).toBe(true);
   });
 
-  it('isConfigured is false when no URL is configured', () => {
+  it('isConfigured is true even when no env URL is set (uses default public registry)', () => {
     delete process.env['SKILL_REGISTRY_URL'];
     const client = new SkillRegistryClient();
+    expect(client.isConfigured).toBe(true);
+  });
+
+  it('isConfigured is false when explicitly overridden with empty URL', () => {
+    const client = new SkillRegistryClient({ registryUrl: '' });
     expect(client.isConfigured).toBe(false);
   });
 
-  it('list() returns empty array when not configured', async () => {
-    delete process.env['SKILL_REGISTRY_URL'];
-    const client = new SkillRegistryClient();
+  it('list() returns empty array when explicitly not configured', async () => {
+    const client = new SkillRegistryClient({ registryUrl: '' });
     const result = await client.list();
     expect(result).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();

@@ -27,6 +27,9 @@ const llmPersonaObject = {
   schedule: '0 * * * *',
   tags: ['networking', 'monitoring', 'extreme-xco'],
   rationale: 'Periodic drift detection on XCO fabrics requires network read and SSH access.',
+  instructions: '## Instructions\n\nCheck fabric health every hour.',
+  context: '## Context\n\nXCO fabrics managed by this agent.',
+  memory: '## Memory\n\nRecord observations after each run.',
 };
 
 const dbPersona: Persona = {
@@ -53,14 +56,22 @@ function makePrismaMock() {
     skill: {
       findMany: vi.fn().mockResolvedValue([{ id: 'skill-1' }]),
     },
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 'skill-1' }]),
     agent: {
       create: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
+      update: vi.fn(),
     },
     agentSkill: {
       create: vi.fn(),
+      createMany: vi.fn(),
+    },
+    agentCharter: {
+      create: vi.fn().mockResolvedValue({ id: 'charter-1' }),
     },
     scheduledJob: {
       create: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
   };
 }
@@ -147,19 +158,20 @@ describe('PersonaSpawner', () => {
   let prismaMock: ReturnType<typeof makePrismaMock>;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     prismaMock = makePrismaMock();
     prismaMock.agent.create.mockResolvedValue(mockAgent);
-    vi.clearAllMocks();
+    prismaMock.agent.update.mockResolvedValue({ ...mockAgent, charterId: 'charter-1' });
   });
 
   it('spawnAgent() creates and returns an Agent with personaId set', async () => {
     const spawner = new PersonaSpawner(prismaMock as unknown as PrismaClient);
-    const agent = await spawner.spawnAgent('persona-1', 'user-1');
+    const result = await spawner.spawnAgent('persona-1', 'user-1');
 
     expect(prismaMock.agent.create).toHaveBeenCalledOnce();
     const createCall = prismaMock.agent.create.mock.calls[0]?.[0] as { data: Partial<Agent> };
     expect(createCall.data.personaId).toBe('persona-1');
-    expect(agent.id).toBe('agent-1');
+    expect(result.agent.id).toBe('agent-1');
   });
 
   it('spawnAgent() creates a ScheduledJob when persona has a schedule', async () => {

@@ -22,9 +22,12 @@ describe('knowledge-parser', () => {
       expect(result.type).toBe('openapi');
       expect(result.title).toBe('XCO API');
       expect(result.content).toContain('XCO API v1.0');
-      expect(result.content).toContain('GET /devices - listDevices: List all devices');
-      expect(result.content).toContain('POST /devices - createDevice: Create a device');
-      expect(result.content).toContain('GET /vlans - listVlans: List VLANs');
+      expect(result.content).toContain('GET /devices [listDevices]');
+      expect(result.content).toContain('List all devices');
+      expect(result.content).toContain('POST /devices [createDevice]');
+      expect(result.content).toContain('Create a device');
+      expect(result.content).toContain('GET /vlans [listVlans]');
+      expect(result.content).toContain('List VLANs');
     });
 
     it('handles missing info and paths gracefully', () => {
