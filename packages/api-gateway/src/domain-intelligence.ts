@@ -144,23 +144,48 @@ Only use scheduled job tools when user EXPLICITLY says "set up a scheduled job" 
   },
   {
     name: 'policy-sankey-diagram',
-    triggerPatterns: ['sankey', 'flow chart', 'policy ssid', 'ssid ap client', 'client distribution', 'client flow', 'policy flow', 'client breakdown'],
-    content: `## Policy → SSID → AP → Client Sankey Diagram
+    triggerPatterns: ['policy ssid', 'policy flow', 'ssid ap client', 'policy client distribution'],
+    content: `## Policy → SSID → AP Sankey Diagram
 
-ALWAYS use the \`xiq_policy_sankey\` composite tool for this type of query.
+Use \`xiq_policy_sankey\` for policy/SSID/AP client distribution flow diagrams.
 
 xiq_policy_sankey()
-  → sankey_diagram: Mermaid sankey-beta string showing the client flow
+  → sankey_diagram: Mermaid sankey-beta string (Policy → SSID → AP)
   → summary: { total_clients, total_policies, total_ssids, total_aps }
   → policies: [{ name, ssid_count, ssids }]
   → flows: [{ source, target, value }]
 
+IMPORTANT: return sankey_diagram as a plain string in JSON — NOT wrapped in markdown fences.
+The dashboard renders it as a mermaid widget automatically when it sees a field named sankey_diagram.`,
+  },
+  {
+    name: 'ap-client-sankey-diagram',
+    triggerPatterns: [
+      'sankey', 'flow chart', 'client flow', 'client breakdown', 'client distribution',
+      'ap ssid maker', 'ap ssid vendor', 'devices ssid maker', 'device breakdown',
+      'apple android', 'vendor breakdown', 'maker breakdown', 'device type', 'os breakdown',
+      'who is connected', 'what devices', 'client topology',
+    ],
+    content: `## AP → SSID → Maker → Device Type Sankey Diagram
+
+ALWAYS use the \`xiq_ap_client_sankey\` composite tool for Sankey diagrams showing APs, SSIDs, client makers (Apple/Android/Windows), and device types.
+
+xiq_ap_client_sankey({ apFilter?: string })
+  → sankey_diagram: Mermaid sankey-beta string (AP → SSID → Maker → Device Type)
+  → flows: [{ source, target, value }]
+  → summary: { total_clients, total_aps, total_ssids, maker_breakdown }
+
+The 4-level flow shows:
+  1. Access Points (APs)
+  2. SSIDs connected to each AP
+  3. Client maker/OS (Apple, Android, Windows, Linux, IoT/Embedded, Unknown)
+  4. Device type (Phone, Tablet, Laptop, Desktop/Mac, Windows Device, Linux Device, IoT Device)
+
 OUTPUT FORMAT for dashboard:
 \`\`\`json
 {
-  "sankey_diagram": "sankey-beta\\n\\"Corp Policy\\",\\"SSID-Corp\\",5\\n...",
-  "summary": { "total_clients": 47 },
-  "policies": [...],
+  "sankey_diagram": "sankey-beta\\n\\"AP-1\\",\\"Corp-SSID\\",12\\n\\"Corp-SSID\\",\\"Apple\\",8\\n\\"Apple\\",\\"Phone\\",6\\n...",
+  "summary": { "total_clients": 38, "maker_breakdown": { "Apple": 22, "Android": 10 } },
   "flows": [...]
 }
 \`\`\`

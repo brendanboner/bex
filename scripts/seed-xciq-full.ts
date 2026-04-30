@@ -386,13 +386,26 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
     },
     {
       name: 'xiq_policy_sankey',
-      description: 'Build a Mermaid sankey-beta diagram showing the flow Policies → SSIDs → Access Points → Client counts. Returns sankey_diagram (Mermaid string), flows array, and summary counts. Use for "show policy/SSID/AP client distribution" or any Sankey/flow visualisation request.',
+      description: 'Build a Mermaid sankey-beta diagram showing the flow Policies → SSIDs → Access Points → Client counts. Returns sankey_diagram (Mermaid string), flows array, and summary counts. Use for "show policy/SSID/AP client distribution".',
       handlerType: 'xiq_policy_sankey',
       config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_policy_sankey' },
       parameters: {
         type: 'object' as const,
         properties: {
           policyFilter: { type: 'string', description: 'Optional: only include policies whose name contains this string' },
+        },
+        required: [] as string[],
+      },
+    },
+    {
+      name: 'xiq_ap_client_sankey',
+      description: 'Build a Mermaid sankey-beta diagram showing the 4-level flow: Access Points → SSIDs → Client Maker (Apple/Android/Windows/Linux) → Device Type (Phone/Tablet/Laptop/Desktop). Use for "show what devices are connected", "AP client breakdown by vendor", "device type distribution" or any Sankey showing client topology.',
+      handlerType: 'xiq_ap_client_sankey',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_ap_client_sankey' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          apFilter: { type: 'string', description: 'Optional: only include clients connected to APs whose name contains this string' },
         },
         required: [] as string[],
       },
@@ -414,11 +427,12 @@ ALWAYS prefer composite tools over raw API calls when they cover the query:
 - SSID/VLAN topology → xiq_topology_report
 - Single device status → xiq_client_snapshot
 - All clients health → xiq_client_health_report
-- Policy/SSID/AP/Client flow diagram → xiq_policy_sankey
+- Policy/SSID/AP flow diagram → xiq_policy_sankey
+- AP/SSID/Maker/DeviceType flow diagram → xiq_ap_client_sankey (USE THIS for "what devices are connected", vendor/maker breakdown, device type Sankey)
 
-These tools handle all required API chaining (e.g., getting device IDs before radio-information) automatically.
+These tools handle all required API chaining automatically.
 
-OUTPUT FORMAT FOR DIAGRAMS: When xiq_policy_sankey returns a result, the "sankey_diagram" field contains valid Mermaid sankey-beta syntax. Return this field as-is in your response JSON so the dashboard can render it as a Mermaid widget.`,
+OUTPUT FORMAT FOR DIAGRAMS: When either sankey tool returns a result, the "sankey_diagram" field contains valid Mermaid sankey-beta syntax. Return this field as-is in your JSON response so the dashboard renders it as a Mermaid widget.`,
     tools: compositeTools,
   };
 
@@ -463,7 +477,7 @@ OUTPUT FORMAT FOR DIAGRAMS: When xiq_policy_sankey returns a result, the "sankey
       'extremecloudiq.network.policy':
         'VLAN resolution requires chain: GET /network-policies → GET /network-policies/{id}/ssids → GET /user-profiles/{up_id} → GET /network/vlan-profiles. Use xiq_topology_report to get full SSID→VLAN mapping. Do NOT guess VLAN IDs.',
       'extremecloudiq.composite':
-        'These are pre-built intelligence tools. Use xiq_radio_quality_by_ap for all radio/signal/SNR queries. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_policy_sankey for any Sankey/flow chart of Policies→SSIDs→APs→Clients — it returns "sankey_diagram" (Mermaid sankey-beta string) which the dashboard renders as a mermaid widget.',
+        'These are pre-built intelligence tools. Use xiq_radio_quality_by_ap for radio/signal/SNR. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_ap_client_sankey for ANY Sankey showing APs, SSIDs, device makers (Apple/Android/Windows), or device types — it returns "sankey_diagram" (Mermaid sankey-beta) which the dashboard renders as a mermaid widget. Use xiq_policy_sankey only for policy/SSID/AP distribution (not vendor breakdown).',
     };
 
     for (const [domain, note] of Object.entries(learnedNotesMap)) {

@@ -1840,6 +1840,209 @@ export function buildTools(
           }
         }
 
+        // ── xiq_ap_client_sankey: AP → SSID → Maker → Device Type ──
+        // Returns { sankey_diagram, flows, summary } with 4-level client breakdown
+        if (handlerType === 'xiq_ap_client_sankey') {
+          if (!credentialId) return { error: 'xiq_ap_client_sankey requires a credentialId' };
+
+          const loginUrlAcs = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const apiBaseAcs = 'https://api.extremecloudiq.com';
+
+          const reachAcs = await checkReachable(loginUrlAcs);
+          if (!reachAcs.reachable) {
+            return { error: reachAcs.error ?? `Cannot reach ${loginUrlAcs}`, hint: 'Check network connectivity — XIQ requires internet access' };
+          }
+
+          const { fetch: acsF } = await import('undici');
+
+          const getAcsToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await acsF(loginUrlAcs, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const acsGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${apiBaseAcs}${path}${qs ? '?' + qs : ''}`;
+            const resp = await acsF(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_ap_client_sankey] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              console.warn(`[xiq_ap_client_sankey] ${path} failed: ${resp.status}`);
+              return null;
+            }
+            return resp.json();
+          };
+
+          type AcsClient = Record<string, unknown>;
+
+          // Map os_type + hostname + MAC → normalised maker name
+          const detectMaker = (c: AcsClient): string => {
+            const os = String(c['os_type'] ?? '').toLowerCase();
+            const hostname = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
+            const mac = String(c['mac_address'] ?? '').toUpperCase().replace(/[:\-]/g, '');
+            const oui = mac.substring(0, 6);
+
+            if (os.includes('apple') || os.includes('ios') || os.includes('macos') || os.includes('mac os') ||
+                os.includes('ipad') || os.includes('watchos') || os.includes('tvos') ||
+                /iphone|ipad|macbook|imac|mac mini|mac pro|airpod|ipod|apple/i.test(hostname) ||
+                ['F81EDF','F0DB30','F0B429','ECA6B4','E8FAC6','DCA904','D83062','D0A637','B82AAA',
+                 'B0BE76','A4C361','9CF48E','8CAAB5','706E6D','6C96CF','5C96A4','504BAA','48D705',
+                 '440010','3C5282','2095F0','143C4A','0CFE45','001CBE','001B63'].includes(oui)) return 'Apple';
+
+            if (os.includes('android') || os.includes('google') || os.includes('chrome os')) return 'Android';
+            if (os.includes('windows') || os.includes('microsoft')) return 'Windows';
+            if (os.includes('linux') || os.includes('ubuntu') || os.includes('debian')) return 'Linux';
+            if (os.includes('embedded') || os.includes('iot') || os.includes('rtos')) return 'IoT/Embedded';
+            return 'Unknown';
+          };
+
+          // Map os_type + hostname → normalised device type
+          const detectDeviceType = (c: AcsClient): string => {
+            const os = String(c['os_type'] ?? '').toLowerCase();
+            const hostname = String(c['hostname'] ?? c['name'] ?? '').toLowerCase();
+
+            if (/ipad|tablet/i.test(hostname) || os.includes('ipad') || os.includes('tablet')) return 'Tablet';
+            if (/iphone|ipod/i.test(hostname) || os.includes('iphone') || os.includes('ios')) return 'Phone';
+            if (/macbook|laptop|notebook/i.test(hostname) || os.includes('macbook')) return 'Laptop';
+            if (/imac|mac mini|mac pro|desktop|workstation/i.test(hostname) || os.includes('macos') || os.includes('mac os')) return 'Desktop/Mac';
+            if (os.includes('android')) return 'Phone';
+            if (os.includes('windows')) return 'Windows Device';
+            if (os.includes('linux')) return 'Linux Device';
+            if (os.includes('embedded') || os.includes('iot')) return 'IoT Device';
+            return 'Unknown Device';
+          };
+
+          try {
+            const token = await getAcsToken();
+            if (!token) return { error: 'XIQ login failed — check credentials in vault' };
+
+            // Fetch all active clients (paginated)
+            let allClients: AcsClient[] = [];
+            let page = 1;
+            while (allClients.length < 2000) {
+              const resp = await acsGet(token, '/clients/active', { page, limit: 100 }) as { data?: AcsClient[] } | AcsClient[] | null;
+              if (!resp) break;
+              const batch: AcsClient[] = Array.isArray(resp) ? resp : ((resp as { data?: AcsClient[] }).data ?? []);
+              if (batch.length === 0) break;
+              allClients = allClients.concat(batch);
+              if (batch.length < 100) break;
+              page++;
+            }
+
+            // apFilter from args
+            const apFilter = String(args['apFilter'] ?? '').toLowerCase();
+
+            // Build 4-level edges: AP → SSID, SSID → Maker, Maker → DeviceType
+            // Using compound keys to disambiguate (e.g. same SSID on different APs)
+            const apToSsid = new Map<string, Map<string, number>>();
+            const ssidMakerKey = new Map<string, Map<string, number>>();   // "SSID|AP" → maker → count
+            const makerToDeviceType = new Map<string, Map<string, number>>();
+
+            for (const client of allClients) {
+              const ssid = String(client['ssid'] ?? '').trim();
+              const ap = String(client['connected_ap'] ?? client['ap_name'] ?? client['device_name'] ?? '').trim() || 'Unknown AP';
+              if (!ssid) continue;
+              if (apFilter && !ap.toLowerCase().includes(apFilter)) continue;
+
+              const maker = detectMaker(client);
+              const deviceType = detectDeviceType(client);
+              const ssidApKey = `${ssid}|${ap}`;
+
+              // AP → SSID
+              if (!apToSsid.has(ap)) apToSsid.set(ap, new Map());
+              apToSsid.get(ap)!.set(ssid, (apToSsid.get(ap)!.get(ssid) ?? 0) + 1);
+
+              // SSID (with AP context) → Maker
+              if (!ssidMakerKey.has(ssidApKey)) ssidMakerKey.set(ssidApKey, new Map());
+              ssidMakerKey.get(ssidApKey)!.set(maker, (ssidMakerKey.get(ssidApKey)!.get(maker) ?? 0) + 1);
+
+              // Maker → DeviceType
+              if (!makerToDeviceType.has(maker)) makerToDeviceType.set(maker, new Map());
+              makerToDeviceType.get(maker)!.set(deviceType, (makerToDeviceType.get(maker)!.get(deviceType) ?? 0) + 1);
+            }
+
+            const sanitize = (s: string) => `"${s.replace(/"/g, "'").replace(/[\n\r]/g, ' ').trim()}"`;
+            const sankeyLines: string[] = ['sankey-beta', ''];
+            const flows: Array<{ source: string; target: string; value: number }> = [];
+
+            // AP → SSID edges
+            for (const [ap, ssidMap] of apToSsid) {
+              for (const [ssid, count] of ssidMap) {
+                if (count > 0) {
+                  sankeyLines.push(`${sanitize(ap)},${sanitize(ssid)},${count}`);
+                  flows.push({ source: ap, target: ssid, value: count });
+                }
+              }
+            }
+
+            // SSID → Maker edges (aggregate across APs so Maker node totals are correct)
+            const ssidToMaker = new Map<string, Map<string, number>>();
+            for (const [ssidApKey, makerMap] of ssidMakerKey) {
+              const ssid = ssidApKey.split('|')[0]!;
+              if (!ssidToMaker.has(ssid)) ssidToMaker.set(ssid, new Map());
+              for (const [maker, count] of makerMap) {
+                ssidToMaker.get(ssid)!.set(maker, (ssidToMaker.get(ssid)!.get(maker) ?? 0) + count);
+              }
+            }
+            for (const [ssid, makerMap] of ssidToMaker) {
+              for (const [maker, count] of makerMap) {
+                if (count > 0) {
+                  sankeyLines.push(`${sanitize(ssid)},${sanitize(maker)},${count}`);
+                  flows.push({ source: ssid, target: maker, value: count });
+                }
+              }
+            }
+
+            // Maker → DeviceType edges
+            for (const [maker, dtMap] of makerToDeviceType) {
+              for (const [dt, count] of dtMap) {
+                if (count > 0) {
+                  sankeyLines.push(`${sanitize(maker)},${sanitize(dt)},${count}`);
+                  flows.push({ source: maker, target: dt, value: count });
+                }
+              }
+            }
+
+            // Fallback: no active clients
+            if (flows.length === 0) {
+              sankeyLines.push('%% No active clients found');
+            }
+
+            // Summary
+            const makerCounts: Record<string, number> = {};
+            for (const [maker, dtMap] of makerToDeviceType) {
+              makerCounts[maker] = [...dtMap.values()].reduce((a, b) => a + b, 0);
+            }
+
+            return {
+              sankey_diagram: sankeyLines.join('\n'),
+              flows,
+              summary: {
+                total_clients: allClients.length,
+                total_aps: apToSsid.size,
+                total_ssids: ssidToMaker.size,
+                maker_breakdown: makerCounts,
+                timestamp: new Date().toISOString(),
+              },
+            };
+          } catch (e) {
+            return { error: `XIQ AP client sankey failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
         // ── BEX system admin handlers ─────────────────────────────────────
 
         if (handlerType === 'bex_list_scheduled_jobs') {
