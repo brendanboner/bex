@@ -360,7 +360,8 @@ export async function initCommand(): Promise<void> {
   writeEnv(envVars);
   printSuccess('.env written');
 
-  const shouldCleanGenerated = (setupXiq || setupXco)
+  const isReinit = Object.keys(prev).length > 0;
+  const shouldCleanGenerated = (isReinit && (setupXiq || setupXco))
     ? await confirm({
       message: 'Remove previously generated XIQ/XCO agents and skills before provisioning?',
       default: false,
