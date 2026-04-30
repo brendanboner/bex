@@ -20,6 +20,7 @@ const prismaMock = {
   agent: {
     findMany: vi.fn().mockResolvedValue([mockAgent]),
     findUnique: vi.fn().mockResolvedValue(null),
+    findFirst: vi.fn().mockResolvedValue(null),
     create: vi.fn().mockResolvedValue(mockAgent),
     update: vi.fn().mockResolvedValue(mockAgent),
     delete: vi.fn().mockResolvedValue(mockAgent),
@@ -100,7 +101,7 @@ describe('api-gateway /agents routes', () => {
   });
 
   it('GET /agents/:id returns 404 for unknown id', async () => {
-    prismaMock.agent.findUnique.mockResolvedValueOnce(null);
+    prismaMock.agent.findFirst.mockResolvedValueOnce(null);
     const token = makeToken(app);
     const res = await app.inject({
       method: 'GET',
