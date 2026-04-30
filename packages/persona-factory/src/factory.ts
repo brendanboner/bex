@@ -68,8 +68,8 @@ export class PersonaFactory {
 
   constructor(
     private prisma: PrismaClient,
-    private llmProvider: string = 'openai',
-    private llmModel: string = 'gpt-4o',
+    private llmProvider: string = process.env['LLM_PROVIDER'] ?? 'openai',
+    private llmModel: string = process.env['LLM_MODEL'] ?? 'gpt-4o',
   ) {
     this.knowledgeStore = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
   }

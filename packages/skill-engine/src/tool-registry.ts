@@ -235,7 +235,7 @@ export class ToolRegistry {
   }
 
   async generate(intent: string, apiSpec?: string): Promise<ToolDefinition> {
-    const model = buildModel('openai');
+    const model = buildModel((process.env['LLM_PROVIDER'] as import('@bex/shared').LlmProvider) ?? 'openai');
     const { object } = await generateObject({
       model,
       schema: z.object({

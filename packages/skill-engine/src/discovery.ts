@@ -25,7 +25,7 @@ For tools, follow the JSON Schema convention for parameters.
 Generate only what is described in the knowledge sources. Do not invent endpoints.`;
 
 export class SkillDiscoveryService {
-  constructor(private readonly llmProvider: LlmProvider = 'openai') {}
+  constructor(private readonly llmProvider: LlmProvider = (process.env['LLM_PROVIDER'] as LlmProvider) ?? 'openai') {}
 
   async discover(request: SkillDiscoveryRequest): Promise<SkillDiscoveryResult> {
     const parsed: ParsedKnowledge[] = [];

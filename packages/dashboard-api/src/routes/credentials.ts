@@ -144,8 +144,8 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
         data: {
           name: body.name,
           description: body.description ?? null,
-          llmProvider: body.llmProvider ?? 'openai',
-          llmModel: body.llmModel ?? 'gpt-4o',
+          llmProvider: body.llmProvider ?? process.env['LLM_PROVIDER'] ?? 'openai',
+          llmModel: body.llmModel ?? process.env['LLM_MODEL'] ?? 'gpt-4o',
           ownerId: systemUser.id,
           ...(body.credentialId ? { credentialId: body.credentialId } : {}),
         },

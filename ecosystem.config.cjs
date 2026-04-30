@@ -18,8 +18,15 @@ const sharedEnv = {
   REDIS_URL:             process.env.REDIS_URL,
   JWT_SECRET:            process.env.JWT_SECRET,
   CREDENTIAL_VAULT_KEY:  process.env.CREDENTIAL_VAULT_KEY,
-  // LLM API keys are NOT passed here — loadSystemSecrets() injects them from
-  // the credential vault at service startup (see @bex/credential-vault).
+  // LLM API keys — written to .env by bex init as the reliable cold-start source.
+  // The vault/DB LLMConfig is the durable, GUI-updatable source (read by orchestrator
+  // on every call). These env vars are the fallback so services have them at startup.
+  OPENAI_API_KEY:            process.env.OPENAI_API_KEY            ?? '',
+  ANTHROPIC_API_KEY:         process.env.ANTHROPIC_API_KEY         ?? '',
+  AZURE_OPENAI_API_KEY:      process.env.AZURE_OPENAI_API_KEY      ?? '',
+  AZURE_OPENAI_ENDPOINT:     process.env.AZURE_OPENAI_ENDPOINT     ?? '',
+  AZURE_OPENAI_API_VERSION:  process.env.AZURE_OPENAI_API_VERSION  ?? '',
+  OLLAMA_BASE_URL:           process.env.OLLAMA_BASE_URL           ?? '',
   CORS_ORIGIN:           process.env.CORS_ORIGIN      ?? 'http://localhost:3000',
   SKILL_REGISTRY_URL:    process.env.SKILL_REGISTRY_URL ?? 'http://localhost:5050',
   SKILL_REGISTRY_TOKEN:  process.env.SKILL_REGISTRY_TOKEN ?? 'bex-registry-dev',

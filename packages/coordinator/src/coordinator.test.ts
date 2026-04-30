@@ -65,7 +65,7 @@ vi.mock('ai', () => ({
 import { SessionManager } from './session-manager.js';
 import { WorkflowPlanner } from './planner.js';
 import { CoordinatorAgent } from './coordinator.js';
-import { makeCheckConstraintTool } from './meta-tools.js';
+import { makeCheckConstraintTool, makeListAgentsTool } from './meta-tools.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +94,12 @@ function makeMockPrisma(overrides: Partial<Record<string, unknown>> = {}) {
     },
     skill: {
       findMany: vi.fn().mockResolvedValue([]),
+    },
+    agent: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    lLMConfig: {
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     domainConstraint: {
       findFirst: vi.fn().mockResolvedValue({
@@ -211,5 +217,58 @@ describe('makeCheckConstraintTool', () => {
     expect(result.found).toBe(true);
     expect(result.compatible).toBe('PARTIAL');
     expect(result.notes).toContain('partially compatible');
+  });
+});
+
+describe('makeListAgentsTool', () => {
+  it('returns all ACTIVE agents when no domain filter given', async () => {
+    const xiqAgent = {
+      id: 'agent-xiq',
+      name: 'XIQ Agent',
+      status: 'ACTIVE',
+      agentSkills: [
+        {
+          skill: {
+            id: 'skill-1',
+            name: 'XIQ Network Policy',
+            domain: 'extremecloudiq.network',
+            capabilities: ['update-ssid', 'push-config'],
+          },
+        },
+      ],
+    };
+    const prisma = makeMockPrisma({
+      agent: {
+        findMany: vi.fn().mockResolvedValue([xiqAgent]),
+      },
+    });
+
+    const tool = makeListAgentsTool(prisma);
+    const execute = tool.execute as (args: { domain?: string }) => Promise<{ agents: typeof xiqAgent[] }>;
+
+    const result = await execute({});
+    expect(result.agents).toHaveLength(1);
+    expect(result.agents[0]!.name).toBe('XIQ Agent');
+  });
+
+  it('filters by domain substring when domain is provided', async () => {
+    const prisma = makeMockPrisma({
+      agent: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    const tool = makeListAgentsTool(prisma);
+    const execute = tool.execute as (args: { domain?: string }) => Promise<{ agents: unknown[] }>;
+
+    const result = await execute({ domain: 'extremecloudiq' });
+    expect(result.agents).toHaveLength(0);
+
+    expect((prisma.agent.findMany as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({
+      where: {
+        status: 'ACTIVE',
+        agentSkills: { some: { skill: { domain: { contains: 'extremecloudiq' } } } },
+      },
+    });
   });
 });

@@ -6,6 +6,17 @@ import { join, dirname } from 'node:path';
 import { WorkflowPlanner } from './planner.js';
 import { SkillBuilderService } from '@bex/skill-engine';
 
+async function resolveSystemLlmProvider(prisma: PrismaClient): Promise<{ provider: string; model: string }> {
+  try {
+    const cfg = await prisma.lLMConfig.findFirst({ where: { isDefault: true } });
+    if (cfg) return { provider: cfg.provider, model: cfg.model };
+  } catch { /* fall through */ }
+  return {
+    provider: process.env['LLM_PROVIDER'] ?? 'openai',
+    model: process.env['LLM_MODEL'] ?? 'gpt-4o',
+  };
+}
+
 // ─── list_agents ─────────────────────────────────────────────────────────────
 
 export function makeListAgentsTool(prisma: PrismaClient): CoreTool {
@@ -87,8 +98,7 @@ export function makeSpawnAgentTool(prisma: PrismaClient): CoreTool {
             name: persona.name,
             status: 'ACTIVE',
             persona: {},
-            llmProvider: process.env['LLM_PROVIDER'] ?? 'openai',
-            llmModel: process.env['LLM_MODEL'] ?? 'gpt-4o',
+            ...await resolveSystemLlmProvider(prisma).then(llm => ({ llmProvider: llm.provider, llmModel: llm.model })),
             llmConfig: {},
             permissions: persona.suggestedPermissions,
             ownerId: owner.id,

@@ -6,15 +6,17 @@ import { SkillBuilderService, SkillRegistryService, SkillTestRunner, SkillProber
 import { SkillRegistryClient, computeSkillChecksum } from '@bex/skill-registry-client';
 import { KnowledgeStore } from '@bex/knowledge-store';
 import { CredentialVaultService } from '@bex/credential-vault';
+import { resolveSystemLlm } from '@bex/orchestrator';
 import type { BuildSkillSource } from '@bex/skill-engine';
 
 export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
-  const registry = new SkillRegistryService(prisma);
-  const builder = new SkillBuilderService(prisma);
+  const vault = new CredentialVaultService(prisma);
+  const llm = await resolveSystemLlm(prisma, vault);
+  const registry = new SkillRegistryService(prisma, llm.provider);
+  const builder = new SkillBuilderService(prisma, llm.provider);
   const testRunner = new SkillTestRunner(prisma);
   const prober = new SkillProberService(prisma);
   const remoteRegistry = new SkillRegistryClient();
-  const vault = new CredentialVaultService(prisma);
 
   // GET /skills
   app.get('/skills', async (_request, reply) => {
@@ -192,17 +194,36 @@ export async function skillRoutes(app: FastifyInstance, prisma: PrismaClient): P
     return reply.status(201).send(ok(skill));
   });
 
-  // POST /skills/discover — trigger skill discovery from knowledge sources
+  // POST /skills/discover — trigger skill discovery, enriched with knowledge base content
   app.post<{ Body: unknown }>('/skills/discover', async (request, reply) => {
     const body = request.body as { intent?: string; domain?: string };
     if (!body?.intent) {
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'intent is required'));
     }
-    const discoveryReq = body.domain
-      ? { intent: body.intent, domain: body.domain }
-      : { intent: body.intent };
+
+    // Search knowledge base for relevant content to ground the LLM skill generation
+    const knowledgeDir = process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge';
+    const store = new KnowledgeStore(knowledgeDir);
+    const matchingTopics = await store.search(body.intent, body.domain).catch(() => []);
+
+    const knowledgeSources = (
+      await Promise.all(
+        matchingTopics.slice(0, 5).map(async (t) => {
+          const entry = await store.read(t.domain, t.topic).catch(() => null);
+          if (!entry) return null;
+          return { type: 'MARKDOWN' as const, content: entry.content };
+        }),
+      )
+    ).filter((s): s is { type: 'MARKDOWN'; content: string } => s !== null);
+
+    const discoveryReq = {
+      intent: body.intent,
+      ...(body.domain ? { domain: body.domain } : {}),
+      ...(knowledgeSources.length > 0 ? { knowledgeSources } : {}),
+    };
+
     const skill = await registry.createFromDiscovery(discoveryReq);
-    return reply.status(202).send(ok({ skillId: skill.id, status: 'DRAFT' }));
+    return reply.status(202).send(ok({ skillId: skill.id, status: 'DRAFT', sourcesUsed: knowledgeSources.length }));
   });
 
   // POST /skills/build — build a comprehensive skill from typed knowledge sources

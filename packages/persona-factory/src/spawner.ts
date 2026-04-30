@@ -97,8 +97,8 @@ export class PersonaSpawner {
       data: {
         name: overrides?.name ?? persona.name,
         persona: { systemPrompt: persona.systemPrompt },
-        llmProvider: overrides?.llmProvider ?? 'openai',
-        llmModel: overrides?.llmModel ?? 'gpt-4o',
+        llmProvider: overrides?.llmProvider ?? process.env['LLM_PROVIDER'] ?? 'openai',
+        llmModel: overrides?.llmModel ?? process.env['LLM_MODEL'] ?? 'gpt-4o',
         permissions: persona.suggestedPermissions,
         personaId: persona.id,
         ownerId,

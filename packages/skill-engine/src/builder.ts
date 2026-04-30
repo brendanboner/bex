@@ -191,7 +191,7 @@ function toKnowledgeSourceType(
 export class SkillBuilderService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly llmProvider: LlmProvider = 'openai',
+    private readonly llmProvider: LlmProvider = (process.env['LLM_PROVIDER'] as LlmProvider) ?? 'openai',
   ) {}
 
   async build(request: BuildSkillRequest): Promise<BuildSkillResult> {

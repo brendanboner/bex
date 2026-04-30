@@ -33,8 +33,8 @@ async function main(): Promise<void> {
       description: 'The system default agent. Handles general requests and automatically uses all available published skills.',
       status: 'ACTIVE',
       isDefault: true,
-      llmProvider: 'openai',
-      llmModel: 'gpt-4o',
+      llmProvider: process.env['LLM_PROVIDER'] ?? 'openai',
+      llmModel: process.env['LLM_MODEL'] ?? 'gpt-4o',
       ownerId: systemUser.id,
       persona: {
         name: 'Forge Assistant',

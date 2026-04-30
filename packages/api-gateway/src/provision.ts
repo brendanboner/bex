@@ -720,7 +720,9 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     await provisionSystemOpsSkill(prisma);
     await deduplicateLegacyAgents(prisma);
     await assignSystemOpsSkillToMonitorAgents(prisma);
-    await provisionApSsidMonitorJob(prisma);
+    if (xiqEnabled) {
+      await provisionApSsidMonitorJob(prisma);
+    }
     await syncSkillsFromRegistry(prisma);
     await syncKnowledgeFromRegistry();
   } catch (e) {

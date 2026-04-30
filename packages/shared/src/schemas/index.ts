@@ -37,8 +37,10 @@ export const CreateAgentSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).optional(),
   persona: PersonaSchema.optional(),
-  llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']).default('openai'),
-  llmModel: z.string().default('gpt-4o'),
+  llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']).default(
+    (process.env['LLM_PROVIDER'] as 'openai' | 'anthropic' | 'azure-openai') ?? 'openai',
+  ),
+  llmModel: z.string().default(process.env['LLM_MODEL'] ?? 'gpt-4o'),
   llmConfig: LlmConfigSchema.partial().optional(),
   permissions: z.array(z.string()).default([]),
   skillIds: z.array(z.string()).default([]),

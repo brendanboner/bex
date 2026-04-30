@@ -10,7 +10,7 @@ export class SkillRegistryService {
 
   constructor(
     private readonly prisma: PrismaClient,
-    llmProvider: LlmProvider = 'openai',
+    llmProvider: LlmProvider = (process.env['LLM_PROVIDER'] as LlmProvider) ?? 'openai',
   ) {
     this.discovery = new SkillDiscoveryService(llmProvider);
   }

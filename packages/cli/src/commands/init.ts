@@ -334,6 +334,11 @@ export async function initCommand(): Promise<void> {
     OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : (prev['OLLAMA_BASE_URL'] ?? ''),
     ...(llmProvider === 'azure-openai' && azureEndpoint && { AZURE_OPENAI_ENDPOINT: azureEndpoint }),
     ...(llmProvider === 'azure-openai' && azureApiVersion && { AZURE_OPENAI_API_VERSION: azureApiVersion }),
+    // LLM API keys written here so services have them at startup (vault/DB LLMConfig is the
+    // durable, GUI-updatable source; .env is the reliable cold-start fallback).
+    ...(llmProvider === 'azure-openai' && llmApiKey && { AZURE_OPENAI_API_KEY: llmApiKey }),
+    ...(llmProvider === 'openai' && llmApiKey && { OPENAI_API_KEY: llmApiKey }),
+    ...(llmProvider === 'anthropic' && llmApiKey && { ANTHROPIC_API_KEY: llmApiKey }),
     PORT: '4000',
     ADMIN_API_PORT: '4001',
     DASHBOARD_PORT: '3000',
@@ -353,8 +358,6 @@ export async function initCommand(): Promise<void> {
     // provision.ts can create default agents even before credentials are in vault
     ...(setupXiq && { BEX_XIQ_ENABLED: 'true' }),
     ...(setupXco && { BEX_XCO_ENABLED: 'true' }),
-    // All sensitive credentials (LLM keys, tokens, passwords) go to the
-    // credential vault only — never stored in .env.
   };
 
   writeEnv(envVars);

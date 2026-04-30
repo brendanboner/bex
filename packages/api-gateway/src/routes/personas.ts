@@ -4,19 +4,20 @@ import { PersonaFactory, PersonaSpawner } from '@bex/persona-factory';
 import { GeneratePersonaSchema, SpawnPersonaSchema } from '@bex/shared';
 import { ok, err, ErrorCodes } from '@bex/shared';
 import { KnowledgeStore } from '@bex/knowledge-store';
+import { CredentialVaultService } from '@bex/credential-vault';
+import { resolveSystemLlm } from '@bex/orchestrator';
 
 export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
+  const vault = new CredentialVaultService(prisma);
+
   // POST /personas/generate — generate persona from goal via LLM
   app.post('/personas/generate', async (request, reply) => {
     const parse = GeneratePersonaSchema.safeParse(request.body);
     if (!parse.success) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, parse.error.message));
 
     try {
-      const factory = new PersonaFactory(
-        prisma,
-        process.env['LLM_PROVIDER'] ?? 'openai',
-        process.env['LLM_MODEL'] ?? 'gpt-4o',
-      );
+      const llm = await resolveSystemLlm(prisma, vault);
+      const factory = new PersonaFactory(prisma, llm.provider, llm.model);
       const persona = await factory.generate({
         goal: parse.data.goal,
         ...(parse.data.domain !== undefined ? { domain: parse.data.domain } : {}),
@@ -66,6 +67,7 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
     if (!parse.success) return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, parse.error.message));
 
     try {
+      const llm = await resolveSystemLlm(prisma, vault);
       const spawner = new PersonaSpawner(prisma);
       const externalId = (request.user as { sub: string }).sub;
       // Resolve DB user from JWT externalId — same pattern as agents route.
@@ -76,8 +78,8 @@ export async function personaRoutes(app: FastifyInstance, prisma: PrismaClient):
       }
       const { agent, scheduledJob } = await spawner.spawnAgent(id, resolvedOwnerId, {
         ...(parse.data.name !== undefined ? { name: parse.data.name } : {}),
-        ...(parse.data.llmProvider !== undefined ? { llmProvider: parse.data.llmProvider } : {}),
-        ...(parse.data.llmModel !== undefined ? { llmModel: parse.data.llmModel } : {}),
+        llmProvider: parse.data.llmProvider ?? llm.provider,
+        llmModel: parse.data.llmModel ?? llm.model,
       });
       return reply.status(201).send(ok({ agent, scheduledJob }));
     } catch (e) {

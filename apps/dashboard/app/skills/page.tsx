@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpFromLine, Brain, CheckCircle, Cloud, CloudDownload, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
+import { ArrowUpFromLine, Brain, CheckCircle, Cloud, CloudDownload, Link, Plus, RefreshCw, Search, Trash2, Upload, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatDate, STATUS_COLOURS } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -55,10 +55,28 @@ type ConfirmState =
   | { type: 'delete'; skillId: string; requiresConfirm?: boolean; linkedAgentCount?: number; message?: string }
   | { type: 'replace'; skillId: string; existingVersion: string; existingId: string; linkedAgentCount: number; message: string };
 
+type BuildSource = { type: 'openapi_url' | 'pdf_url' | 'markdown_url' | 'raw_markdown'; label: string; url: string; content: string };
+
+const SOURCE_TYPE_LABELS: Record<BuildSource['type'], string> = {
+  openapi_url: 'OpenAPI URL',
+  pdf_url: 'PDF URL',
+  markdown_url: 'Markdown URL',
+  raw_markdown: 'Raw Markdown',
+};
+
+function emptySource(): BuildSource {
+  return { type: 'openapi_url', label: '', url: '', content: '' };
+}
+
 export default function CapabilityMarketplacePage() {
   const qc = useQueryClient();
   const [intent, setIntent] = useState('');
   const [showDiscover, setShowDiscover] = useState(false);
+  const [discoverMode, setDiscoverMode] = useState<'quick' | 'build'>('quick');
+  // Build-from-API form state
+  const [buildDomain, setBuildDomain] = useState('');
+  const [buildIntent, setBuildIntent] = useState('');
+  const [buildSources, setBuildSources] = useState<BuildSource[]>([emptySource()]);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'local' | 'registry'>('local');
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -94,6 +112,41 @@ export default function CapabilityMarketplacePage() {
     },
     onError: (e) => toast({ title: 'Discovery failed', description: (e as Error).message, variant: 'destructive' }),
   });
+
+  const buildMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ skillId: string; domain: string; name: string }>('/skills/build', {
+        domain: buildDomain.trim(),
+        intent: buildIntent.trim(),
+        sources: buildSources
+          .filter(s => s.label.trim() && (s.url.trim() || s.content.trim()))
+          .map(s => ({
+            type: s.type,
+            label: s.label.trim(),
+            ...(s.type === 'raw_markdown' ? { content: s.content } : { url: s.url.trim() }),
+          })),
+      }),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['skills'] });
+      setShowDiscover(false);
+      setBuildDomain('');
+      setBuildIntent('');
+      setBuildSources([emptySource()]);
+      toast({ title: `Skill built: ${data.name ?? data.domain}`, description: 'Status: DRAFT — test and publish when ready.' });
+    },
+    onError: (e) => toast({ title: 'Build failed', description: (e as Error).message, variant: 'destructive' }),
+  });
+
+  function updateSource(idx: number, patch: Partial<BuildSource>) {
+    setBuildSources(prev => prev.map((s, i) => i === idx ? { ...s, ...patch } : s));
+  }
+  function addSource() { setBuildSources(prev => [...prev, emptySource()]); }
+  function removeSource(idx: number) { setBuildSources(prev => prev.filter((_, i) => i !== idx)); }
+
+  const buildValid = buildDomain.trim().length > 0 &&
+    buildIntent.trim().length > 0 &&
+    buildSources.some(s => s.label.trim() && (s.url.trim() || s.content.trim()));
+
 
   const publishMutation = useMutation({
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
@@ -326,41 +379,114 @@ export default function CapabilityMarketplacePage() {
             onClick={() => setShowDiscover(v => !v)}
             className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-purple-500 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-purple-400 transition-all shadow-m shrink-0"
           >
-            <Plus className="h-4 w-4" /> Discover Skill
+            <Plus className="h-4 w-4" /> Build Skill
           </button>
         </div>
       </div>
 
-      {/* Discover panel */}
+      {/* Build / Discover panel */}
       {showDiscover && (
-        <div className="rounded-xl border border-violet-500/30 bg-[rgba(137,129,229,0.06)] p-5">
-          <div className="flex items-start justify-between mb-4">
+        <div className="rounded-xl border border-violet-500/30 bg-[rgba(137,129,229,0.06)] p-5 space-y-4">
+          <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Discover New Skill</p>
+              <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Build or Discover a Skill</p>
               <p className="text-xs text-[rgb(var(--text-secondary))] mt-0.5">
-                Describe the capability needed — the system checks the registry first, then generates via LLM if not found
+                Build from an API spec for precise tool generation, or quick-discover from intent alone.
               </p>
             </div>
             <button onClick={() => setShowDiscover(false)} className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))]">
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex gap-3">
-            <input
-              value={intent}
-              onChange={e => setIntent(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && intent.trim()) discoverMutation.mutate(intent); }}
-              placeholder="e.g. Monitor fabric drift in an Extreme XCO environment"
-              className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors"
-            />
-            <button
-              onClick={() => discoverMutation.mutate(intent)}
-              disabled={!intent.trim() || discoverMutation.isPending}
-              className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors"
-            >
-              {discoverMutation.isPending ? 'Generating…' : 'Generate'}
-            </button>
+
+          {/* Mode tabs */}
+          <div className="flex rounded-lg border border-[rgb(var(--border))] p-0.5 bg-[rgb(var(--bg-surface))] w-fit">
+            {(['build', 'quick'] as const).map(m => (
+              <button key={m} onClick={() => setDiscoverMode(m)}
+                className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${discoverMode === m ? 'bg-[rgba(137,129,229,0.15)] text-violet-300' : 'text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))]'}`}>
+                {m === 'build' ? <><Link className="h-3 w-3" /> Build from API</> : <><Brain className="h-3 w-3" /> Quick Discover</>}
+              </button>
+            ))}
           </div>
+
+          {discoverMode === 'build' ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[rgb(var(--text-secondary))] mb-1">Domain <span className="text-violet-400">*</span></label>
+                  <input value={buildDomain} onChange={e => setBuildDomain(e.target.value)}
+                    placeholder="e.g. extremecloudiq.network.policy"
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors font-mono" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[rgb(var(--text-secondary))] mb-1">Intent <span className="text-violet-400">*</span></label>
+                  <input value={buildIntent} onChange={e => setBuildIntent(e.target.value)}
+                    placeholder="e.g. Update SSID WPA passphrase and push to AP"
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors" />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-[rgb(var(--text-secondary))]">Knowledge Sources <span className="text-violet-400">*</span></label>
+                  <button onClick={addSource} className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 transition-colors">
+                    <Plus className="h-3 w-3" /> Add source
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {buildSources.map((src, idx) => (
+                    <div key={idx} className="flex gap-2 items-start">
+                      <select value={src.type} onChange={e => updateSource(idx, { type: e.target.value as BuildSource['type'] })}
+                        className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] focus:border-violet-500 focus:outline-none shrink-0">
+                        {(Object.entries(SOURCE_TYPE_LABELS) as [BuildSource['type'], string][]).map(([v, l]) => (
+                          <option key={v} value={v}>{l}</option>
+                        ))}
+                      </select>
+                      <input value={src.label} onChange={e => updateSource(idx, { label: e.target.value })}
+                        placeholder="Label (e.g. XIQ OpenAPI)"
+                        className="w-36 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors" />
+                      {src.type === 'raw_markdown' ? (
+                        <textarea value={src.content} onChange={e => updateSource(idx, { content: e.target.value })}
+                          placeholder="Paste API docs, endpoint descriptions, or relevant markdown…"
+                          rows={3}
+                          className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors resize-none font-mono" />
+                      ) : (
+                        <input value={src.url} onChange={e => updateSource(idx, { url: e.target.value })}
+                          placeholder="https://openapi.extremecloudiq.com/swagger/openapi.yaml"
+                          className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors font-mono" />
+                      )}
+                      {buildSources.length > 1 && (
+                        <button onClick={() => removeSource(idx)} className="mt-2 text-[rgb(var(--text-muted))] hover:text-rose-400 transition-colors shrink-0">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-[rgb(var(--text-muted))] mt-2">
+                  Tip: Use <span className="text-violet-400 font-mono">Raw Markdown</span> to paste relevant API endpoint docs directly — no public URL needed.
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <button onClick={() => buildMutation.mutate()} disabled={!buildValid || buildMutation.isPending}
+                  className="rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors">
+                  {buildMutation.isPending ? 'Building skill…' : 'Build Skill'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <input value={intent} onChange={e => setIntent(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && intent.trim()) discoverMutation.mutate(intent); }}
+                placeholder="e.g. Monitor fabric drift in an Extreme XCO environment"
+                className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors" />
+              <button onClick={() => discoverMutation.mutate(intent)} disabled={!intent.trim() || discoverMutation.isPending}
+                className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors">
+                {discoverMutation.isPending ? 'Generating…' : 'Generate'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

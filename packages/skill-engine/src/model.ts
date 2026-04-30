@@ -8,22 +8,25 @@ import type { LlmProvider } from '@bex/shared';
 /**
  * Constructs the AI SDK model instance for the given LLM provider.
  * Shared by SkillDiscoveryService, SkillBuilderService, and SkillTestRunner.
+ *
+ * Falls back to process.env for credentials — populated at startup by
+ * loadSystemSecrets() from the credential vault.
  */
-export function buildModel(provider: LlmProvider): LanguageModel {
-  const openaiKey = process.env['OPENAI_API_KEY'];
-  const anthropicKey = process.env['ANTHROPIC_API_KEY'];
-  const azureKey = process.env['AZURE_OPENAI_API_KEY'];
+export function buildModel(provider: LlmProvider, apiKey?: string): LanguageModel {
+  const openaiKey = apiKey ?? process.env['OPENAI_API_KEY'];
+  const anthropicKey = apiKey ?? process.env['ANTHROPIC_API_KEY'];
+  const azureKey = apiKey ?? process.env['AZURE_OPENAI_API_KEY'];
   const azureEndpoint = process.env['AZURE_OPENAI_ENDPOINT'];
   const azureApiVersion = process.env['AZURE_OPENAI_API_VERSION'] ?? '2024-08-01-preview';
-  const azureDeployment = process.env['AZURE_OPENAI_DEPLOYMENT'] ?? 'gpt-4o';
+  const azureDeployment = process.env['AZURE_OPENAI_DEPLOYMENT'] ?? process.env['LLM_MODEL'] ?? 'gpt-4o';
 
   switch (provider) {
     case 'openai':
       if (!openaiKey) throw new Error('OPENAI_API_KEY not set');
-      return createOpenAI({ apiKey: openaiKey })('gpt-4o');
+      return createOpenAI({ apiKey: openaiKey })(process.env['LLM_MODEL'] ?? 'gpt-4o');
     case 'anthropic':
       if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not set');
-      return createAnthropic({ apiKey: anthropicKey })('claude-3-5-sonnet-20241022');
+      return createAnthropic({ apiKey: anthropicKey })(process.env['LLM_MODEL'] ?? 'claude-3-5-sonnet-20241022');
     case 'azure-openai': {
       if (!azureKey) throw new Error('AZURE_OPENAI_API_KEY not set');
       if (!azureEndpoint) throw new Error('Azure endpoint not configured — set AZURE_OPENAI_ENDPOINT');
