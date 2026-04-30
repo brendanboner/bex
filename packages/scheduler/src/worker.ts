@@ -31,15 +31,21 @@ async function cronTick(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await loadSystemSecrets(prisma);
-
-  // Validate that at least one LLM API key is configured
+  // Retry vault loading — on rapid PM2 restarts the DB connection pool may not be
+  // ready yet. Retry up to 5 times with 2-second backoff before giving up.
   const llmKeys = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'AZURE_OPENAI_API_KEY'];
-  const hasLlmKey = llmKeys.some((k) => process.env[k]);
-  if (!hasLlmKey) {
-    throw new Error(
-      `No LLM API key configured. Set one of: ${llmKeys.join(', ')} ` +
-      `in .env or via credential vault. Run 'bex init' to set up LLM configuration.`,
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    await loadSystemSecrets(prisma);
+    if (llmKeys.some((k) => process.env[k])) break;
+    if (attempt < 5) {
+      console.warn(`[scheduler] LLM key not yet available (attempt ${attempt}/5) — retrying in 2s`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  if (!llmKeys.some((k) => process.env[k])) {
+    console.warn(
+      `[scheduler] No LLM API key loaded from vault. Worker will start but jobs will fail until ` +
+      `a key is configured via 'bex init' or the credential vault.`,
     );
   }
 

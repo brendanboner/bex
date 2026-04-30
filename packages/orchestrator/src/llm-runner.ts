@@ -329,17 +329,30 @@ export function buildTools(
           if (!urlTemplate) return { error: 'No URL template configured for xco_http_call tool' };
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
 
-          // Replace {param} placeholders — support both word-chars and hyphenated names (e.g. {fabric-name})
+          // Resolve credential early so we can extract `host` for {xco-host} template substitution.
+          // This prevents the LLM from having to guess the XCO hostname.
+          const credsForHost = await vault.resolve(effectiveCredId, agentPermissions);
+          const credHost = String(credsForHost['host'] ?? credsForHost['xco_host'] ?? credsForHost['xco-host'] ?? '');
+
+          // Replace {param} placeholders — support both word-chars and hyphenated names (e.g. {fabric-name}).
+          // {xco-host} is resolved from the credential vault first, falling back to LLM-supplied arg.
           const url = urlTemplate.replace(/\{([^}]+)\}/g, (full, k: string) => {
-            const val = args[k] ?? args[k.replace(/-/g, '_')] ?? args[k.replace(/_/g, '-')];
-            return val !== undefined ? encodeURIComponent(String(val)) : full;
+            const isXcoHost = k === 'xco-host' || k === 'xco_host';
+            const val = isXcoHost
+              ? (credHost || (args[k] ?? args[k.replace(/-/g, '_')] ?? args[k.replace(/_/g, '-')]))
+              : (args[k] ?? args[k.replace(/-/g, '_')] ?? args[k.replace(/_/g, '-')]);
+            return val !== undefined && val !== '' ? encodeURIComponent(String(val)) : full;
           });
 
-          // Derive XCO EFA auth URL: strip path and append the correct token endpoint
+          // Derive XCO EFA auth URL: strip path and append the correct token endpoint.
+          // Also substitute {xco-host} in the config authUrl in case it was stored as a template.
+          const substituteHost = (template: string) =>
+            credHost ? template.replace(/\{xco[-_]host\}/g, credHost) : template;
           const defaultAuthUrl = (() => {
             try { const u = new URL(url); return `${u.protocol}//${u.host}/v1/auth/token/access-token`; } catch { return ''; }
           })();
-          const authUrl = (config['authUrl'] as string | undefined) ?? defaultAuthUrl;
+          const rawAuthUrl = (config['authUrl'] as string | undefined) ?? defaultAuthUrl;
+          const authUrl = substituteHost(rawAuthUrl);
           console.info(`[xco_http_call] Auth URL: ${authUrl}, API URL: ${url}`);
 
           // Use undici with TLS verification disabled (XCO uses self-signed cert)
@@ -356,7 +369,7 @@ export function buildTools(
           const cacheKey = `${effectiveCredId}:${authUrl}`;
 
           const doAuth = async (targetAuthUrl = authUrl): Promise<string | null> => {
-            const creds = await vault.resolve(effectiveCredId, agentPermissions);
+            const creds = credsForHost;
             const authResp = await xcoFetch(targetAuthUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -1463,11 +1476,15 @@ export function buildTools(
           const effectiveCredIdXco = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
           if (!effectiveCredIdXco) return { error: 'xco_topology_mermaid requires an XCO credential. Configure an xco-admin credential in the dashboard.' };
 
-          // Base URL and auth URL are resolved from {xco-host} by the orchestrator before we get here
-          const rawAuthUrl = (config['authUrl'] as string | undefined) ?? '';
-          const rawBaseUrl = (config['baseUrl'] as string | undefined) ?? (() => {
+          // Base URL and auth URL — substitute {xco-host} from credential vault
+          const xcoCredForTopology = await vault.resolve(effectiveCredIdXco, agentPermissions);
+          const xcoCredHost = String(xcoCredForTopology['host'] ?? xcoCredForTopology['xco_host'] ?? xcoCredForTopology['xco-host'] ?? '');
+          const subHost = (t: string) => xcoCredHost ? t.replace(/\{xco[-_]host\}/g, xcoCredHost) : t;
+
+          const rawAuthUrl = subHost((config['authUrl'] as string | undefined) ?? '');
+          const rawBaseUrl = subHost((config['baseUrl'] as string | undefined) ?? (() => {
             try { const u = new URL(rawAuthUrl); return `${u.protocol}//${u.host}/v1`; } catch { return ''; }
-          })();
+          })());
           if (!rawBaseUrl) return { error: 'xco_topology_mermaid: cannot determine XCO base URL — check Endpoint record has correct baseUrl' };
 
           const authUrlXco = rawAuthUrl || `${rawBaseUrl}/auth/token/access-token`;
@@ -1485,7 +1502,7 @@ export function buildTools(
 
           const cacheKeyXco = `${effectiveCredIdXco}:${authUrlXco}`;
           const doXcoAuth = async (): Promise<string | null> => {
-            const creds = await vault.resolve(effectiveCredIdXco, agentPermissions);
+            const creds = xcoCredForTopology;
             const resp = await xcoFetch(authUrlXco, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -1636,21 +1653,43 @@ export function buildTools(
               }
             }
 
-            // Style nodes by state
+            // Style nodes by role × state — vibrant palette visible on dark backgrounds
             lines.push('');
-            lines.push('  classDef healthy fill:#065f46,color:#d1fae5,stroke:#34d399');
-            lines.push('  classDef warn fill:#78350f,color:#fef3c7,stroke:#f59e0b');
-            lines.push('  classDef error fill:#7f1d1d,color:#fee2e2,stroke:#f87171');
+            // Spine: indigo tones
+            lines.push('  classDef spine_healthy fill:#1e3a5f,color:#bfdbfe,stroke:#3b82f6,stroke-width:2px');
+            lines.push('  classDef spine_warn    fill:#451a03,color:#fed7aa,stroke:#f97316,stroke-width:2px');
+            lines.push('  classDef spine_error   fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            lines.push('  classDef spine_unknown fill:#1e293b,color:#93c5fd,stroke:#3b82f6,stroke-width:1px');
+            // Leaf: emerald/teal tones
+            lines.push('  classDef leaf_healthy  fill:#052e16,color:#bbf7d0,stroke:#22c55e,stroke-width:2px');
+            lines.push('  classDef leaf_warn     fill:#431407,color:#fde68a,stroke:#f59e0b,stroke-width:2px');
+            lines.push('  classDef leaf_error    fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            lines.push('  classDef leaf_unknown  fill:#0f2926,color:#5eead4,stroke:#14b8a6,stroke-width:1px');
+            // Border-leaf / gateway: purple tones
+            lines.push('  classDef border_healthy fill:#1a1033,color:#ddd6fe,stroke:#8b5cf6,stroke-width:2px');
+            lines.push('  classDef border_warn    fill:#3b1506,color:#fed7aa,stroke:#f97316,stroke-width:2px');
+            lines.push('  classDef border_error   fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            lines.push('  classDef border_unknown fill:#1e1040,color:#c4b5fd,stroke:#7c3aed,stroke-width:1px');
+            // Fallback
+            lines.push('  classDef sw_healthy fill:#052e16,color:#bbf7d0,stroke:#22c55e,stroke-width:2px');
+            lines.push('  classDef sw_warn    fill:#431407,color:#fde68a,stroke:#f59e0b,stroke-width:2px');
+            lines.push('  classDef sw_error   fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            lines.push('  classDef sw_unknown fill:#1e293b,color:#cbd5e1,stroke:#475569,stroke-width:1px');
+
             for (const sw of switches) {
               const id = nodeId(sw);
-              const state = sw.state.toLowerCase();
-              if (state.includes('in-sync') || state.includes('insync') || state === 'provisioned') {
-                lines.push(`  class ${id} healthy`);
-              } else if (state.includes('error') || state.includes('failed') || state.includes('unreachable')) {
-                lines.push(`  class ${id} error`);
-              } else if (state.includes('refresh') || state.includes('maintenance')) {
-                lines.push(`  class ${id} warn`);
-              }
+              const r = sw.role.toLowerCase();
+              const roleKey = r.includes('super') ? 'spine'
+                : r.includes('border') || r.includes('gateway') ? 'border'
+                : r.includes('spine') ? 'spine'
+                : r.includes('leaf') ? 'leaf'
+                : 'sw';
+              const st = sw.state.toLowerCase();
+              const stateKey = (st.includes('in-sync') || st.includes('insync') || st === 'provisioned') ? 'healthy'
+                : (st.includes('error') || st.includes('failed') || st.includes('unreachable')) ? 'error'
+                : (st.includes('refresh') || st.includes('maintenance')) ? 'warn'
+                : 'unknown';
+              lines.push(`  class ${id} ${roleKey}_${stateKey}`);
             }
 
             const topology_diagram = lines.join('\n');
@@ -1673,7 +1712,276 @@ export function buildTools(
           }
         }
 
-        // ── xiq_policy_sankey: composite — login → policies → SSIDs → clients → sankey-beta ──
+        // ── xco_fabric_overview: full fabric picture — devices, fabrics, health, alarms, BGP, topology ──
+        // Returns { topology_diagram, headline, fabrics, devices, alarm_summary, bgp_sessions, health_score }
+        if (handlerType === 'xco_fabric_overview') {
+          const effectiveCredIdFo = (config['resolvedCredentialId'] as string | undefined) ?? credentialId;
+          if (!effectiveCredIdFo) return { error: 'xco_fabric_overview requires an XCO credential.' };
+
+          const rawAuthUrlFo = (config['authUrl'] as string | undefined) ?? '';
+          const rawBaseUrlFo = (config['baseUrl'] as string | undefined) ?? (() => {
+            try { const u = new URL(rawAuthUrlFo); return `${u.protocol}//${u.host}/v1`; } catch { return ''; }
+          })();
+          if (!rawBaseUrlFo) return { error: 'xco_fabric_overview: cannot determine XCO base URL — check Endpoint record has correct baseUrl' };
+
+          const authUrlFo = rawAuthUrlFo || `${rawBaseUrlFo}/auth/token/access-token`;
+          const baseUrlFo = rawBaseUrlFo;
+
+          const reach = await checkReachable(authUrlFo || baseUrlFo);
+          if (!reach.reachable) {
+            return { error: reach.error ?? 'Cannot reach XCO endpoint', hint: 'XCO is on a private network — ensure VPN or network access is available' };
+          }
+
+          const { fetch: foFetchBase, Agent: FoAgent } = await import('undici');
+          const foTlsAgent = new (FoAgent)({ connect: { rejectUnauthorized: false } });
+          const foFetch = (u: Parameters<typeof foFetchBase>[0], opts?: Parameters<typeof foFetchBase>[1]) =>
+            foFetchBase(u, { ...opts, dispatcher: foTlsAgent });
+
+          const cacheKeyFo = `${effectiveCredIdFo}:${authUrlFo}`;
+          const doFoAuth = async (): Promise<string | null> => {
+            const creds = await vault.resolve(effectiveCredIdFo, agentPermissions);
+            const resp = await foFetch(authUrlFo, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({ username: String(creds['username'] ?? ''), password: String(creds['password'] ?? '') }),
+            });
+            if (!resp.ok) { console.error(`[xco_fabric_overview] Auth failed (${resp.status})`); return null; }
+            const d = await resp.json() as Record<string, unknown>;
+            const tok = String(d['access-token'] ?? d['token'] ?? d['access_token'] ?? '');
+            if (!tok) return null;
+            setXcoToken(cacheKeyFo, tok, Number(d['expires_in'] ?? 3600));
+            return tok;
+          };
+
+          const foToken = getXcoToken(cacheKeyFo) ?? await doFoAuth();
+          if (!foToken) return { error: 'XCO authentication failed — check credentials in vault' };
+
+          const foGet = async (path: string): Promise<unknown[]> => {
+            const url = `${baseUrlFo}${path}`;
+            const resp = await foFetch(url, { headers: { Authorization: `Bearer ${foToken}`, Accept: 'application/json' } });
+            console.info(`[xco_fabric_overview] GET ${url} → ${resp.status}`);
+            if (!resp.ok) { console.warn(`[xco_fabric_overview] ${path} failed: ${resp.status}`); return []; }
+            const body = await resp.json() as unknown;
+            if (Array.isArray(body)) return body;
+            if (body && typeof body === 'object') {
+              const b = body as Record<string, unknown>;
+              for (const k of ['switches', 'fabrics', 'result', 'data', 'items', 'sessions', 'neighbors', 'alarms']) {
+                if (Array.isArray(b[k])) return b[k] as unknown[];
+              }
+            }
+            return [];
+          };
+
+          try {
+            const [switchData, fabricData, fabricHealthData, alarmRaw, bgpData, lldpData] = await Promise.all([
+              foGet('/inventory/switches'),
+              foGet('/fabric/fabrics').catch(() => [] as unknown[]),
+              foGet('/fabric/fabrics-health').catch(() => [] as unknown[]),
+              foFetch(`${baseUrlFo}/faultmanager/alarm/summary`, {
+                headers: { Authorization: `Bearer ${foToken}`, Accept: 'application/json' },
+              }).then((r) => r.json() as Promise<unknown>).catch(() => null),
+              foGet('/monitor/bgp').catch(() => [] as unknown[]),
+              foGet('/monitor/lldp').catch(() => [] as unknown[]),
+            ]);
+
+            // ── Device normalisation ────────────────────────────────────────────
+            type FoSwitch = { ip: string; name: string; fabric: string; role: string; state: string; model: string };
+            const devices: FoSwitch[] = (switchData as Array<Record<string, unknown>>).map((s) => {
+              const rawFabric = s['fabric'] ?? s['fabric_name'] ?? s['tenantName'];
+              const fabricStr = rawFabric && typeof rawFabric === 'object'
+                ? String((rawFabric as Record<string, unknown>)['name'] ?? (rawFabric as Record<string, unknown>)['id'] ?? 'unknown')
+                : (rawFabric ? String(rawFabric) : 'unknown');
+              return {
+                ip: String(s['ip_address'] ?? s['management_ip'] ?? s['ip'] ?? ''),
+                name: String(s['name'] ?? s['host_name'] ?? s['hostname'] ?? s['ip_address'] ?? 'unknown'),
+                fabric: fabricStr,
+                role: String(s['role'] ?? s['node_role'] ?? '').toLowerCase(),
+                state: String(s['app_state'] ?? s['status'] ?? s['state'] ?? ''),
+                model: String(s['model'] ?? s['chassis_type'] ?? ''),
+              };
+            });
+
+            // ── Fabric normalisation ────────────────────────────────────────────
+            const fabricHealthMap = new Map<string, string>();
+            for (const fh of fabricHealthData as Array<Record<string, unknown>>) {
+              const fname = String(fh['name'] ?? fh['fabric_name'] ?? '');
+              if (fname) fabricHealthMap.set(fname, String(fh['health'] ?? fh['status'] ?? ''));
+            }
+            const fabrics = (fabricData as Array<Record<string, unknown>>).map((f) => {
+              const name = String(f['name'] ?? '');
+              return {
+                name,
+                type: String(f['type'] ?? ''),
+                stage: f['stage'] != null ? String(f['stage']) : null,
+                status: String(f['status'] ?? ''),
+                health: fabricHealthMap.get(name) ?? String(f['health'] ?? ''),
+                device_count: devices.filter((d) => d.fabric === name).length,
+              };
+            });
+
+            // ── Alarm summary ───────────────────────────────────────────────────
+            const alarmSummary = { critical: 0, major: 0, minor: 0, warning: 0, info: 0 };
+            if (alarmRaw && typeof alarmRaw === 'object') {
+              const a = alarmRaw as Record<string, unknown>;
+              // Handle both flat { Critical: N } and nested { summary: { Critical: N } } shapes
+              const src = (a['summary'] && typeof a['summary'] === 'object') ? a['summary'] as Record<string, unknown> : a;
+              alarmSummary.critical = Number(src['Critical'] ?? src['critical'] ?? src['CRITICAL'] ?? 0);
+              alarmSummary.major    = Number(src['Major']    ?? src['major']    ?? src['MAJOR']    ?? 0);
+              alarmSummary.minor    = Number(src['Minor']    ?? src['minor']    ?? src['MINOR']    ?? 0);
+              alarmSummary.warning  = Number(src['Warning']  ?? src['warning']  ?? src['WARNING']  ?? 0);
+              alarmSummary.info     = Number(src['Info']     ?? src['info']     ?? src['INFO']     ?? 0);
+            }
+
+            // ── BGP sessions ────────────────────────────────────────────────────
+            const bgp_sessions = (bgpData as Array<Record<string, unknown>>).map((b) => ({
+              local_ip:    String(b['local_ip_address'] ?? b['local_ip'] ?? b['ip_address'] ?? ''),
+              peer_ip:     String(b['neighbor_ip_address'] ?? b['neighbor_ip'] ?? b['peer_ip'] ?? ''),
+              state:       String(b['state'] ?? b['bgp_state'] ?? '').toUpperCase(),
+              fabric:      String(b['fabric'] ?? b['fabric_name'] ?? ''),
+              local_asn:   String(b['local_asn'] ?? b['asn'] ?? ''),
+              peer_asn:    String(b['neighbor_asn'] ?? b['peer_asn'] ?? ''),
+            })).filter((s) => s.local_ip || s.peer_ip);
+
+            // ── Health score ────────────────────────────────────────────────────
+            const healthy  = devices.filter((d) => { const s = d.state.toLowerCase(); return s.includes('in-sync') || s.includes('insync') || s === 'provisioned'; }).length;
+            const failed   = devices.filter((d) => { const s = d.state.toLowerCase(); return s.includes('error') || s.includes('failed') || s.includes('unreachable'); }).length;
+            const degraded = devices.filter((d) => { const s = d.state.toLowerCase(); return s.includes('refresh') || s.includes('maintenance'); }).length;
+            const health_score = { total: devices.length, healthy, degraded, failed };
+
+            const overallStatus = (failed > 0 || alarmSummary.critical > 0) ? 'CRITICAL'
+              : (degraded > 0 || alarmSummary.major > 0) ? 'DEGRADED'
+              : devices.length === 0 ? 'UNKNOWN'
+              : 'HEALTHY';
+
+            const parts: string[] = [];
+            if (failed > 0)   parts.push(`${failed} device${failed > 1 ? 's' : ''} failed`);
+            if (degraded > 0) parts.push(`${degraded} degraded`);
+            if (alarmSummary.critical > 0) parts.push(`${alarmSummary.critical} critical alarm${alarmSummary.critical > 1 ? 's' : ''}`);
+            if (alarmSummary.major > 0)    parts.push(`${alarmSummary.major} major alarm${alarmSummary.major > 1 ? 's' : ''}`);
+            const headline = {
+              status: overallStatus,
+              message: parts.length > 0 ? parts.join(', ') : `${healthy} of ${devices.length} devices healthy`,
+            };
+
+            // ── Topology diagram (same render pipeline as xco_topology_mermaid) ─
+            const switchByIpFo = new Map<string, FoSwitch>();
+            for (const sw of devices) if (sw.ip) switchByIpFo.set(sw.ip, sw);
+
+            type FoLldpLink = { local: string; neighbor: string; localPort: string; neighborPort: string };
+            const lldpLinks: FoLldpLink[] = (lldpData as Array<Record<string, unknown>>).map((l) => ({
+              local: String(l['local_ip_address'] ?? l['local_ip'] ?? l['ip_address'] ?? ''),
+              neighbor: String(l['neighbor_ip_address'] ?? l['neighbor_ip'] ?? l['remote_ip'] ?? ''),
+              localPort: String(l['local_port'] ?? l['local_interface'] ?? ''),
+              neighborPort: String(l['neighbor_port'] ?? l['remote_port'] ?? l['remote_interface'] ?? ''),
+            })).filter((l) => l.local && l.neighbor && l.local !== l.neighbor);
+
+            const seenLinksFo = new Set<string>();
+            const uniqueLinksFo: FoLldpLink[] = [];
+            for (const link of lldpLinks) {
+              const key = [link.local, link.neighbor].sort().join('|');
+              if (!seenLinksFo.has(key)) { seenLinksFo.add(key); uniqueLinksFo.push(link); }
+            }
+
+            const foNodeId = (s: FoSwitch) =>
+              `sw_${(s.name || s.ip).replace(/[^a-zA-Z0-9]/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '')}`;
+
+            const foNodeShape = (sw: FoSwitch, id: string, label: string): string => {
+              const r = sw.role;
+              if (r.includes('super'))  return `${id}{{${label}}}`;
+              if (r.includes('spine'))  return `${id}([${label}])`;
+              if (r.includes('border') || r.includes('gateway')) return `${id}[/${label}/]`;
+              return `${id}[${label}]`;
+            };
+
+            const foEscape = (s: string) => s.replace(/["\n\r]/g, ' ').trim();
+
+            const topoLines: string[] = ['graph LR'];
+            const fabricGroupsFo = new Map<string, FoSwitch[]>();
+            for (const sw of devices) {
+              if (!fabricGroupsFo.has(sw.fabric)) fabricGroupsFo.set(sw.fabric, []);
+              fabricGroupsFo.get(sw.fabric)!.push(sw);
+            }
+            for (const [fabricName, fSwitches] of fabricGroupsFo) {
+              const subName = fabricName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_{2,}/g, '_').replace(/^_|_$/g, '') || 'fabric';
+              topoLines.push(`  subgraph ${subName}["${foEscape(fabricName)}"]`);
+              for (const sw of fSwitches) {
+                const id = foNodeId(sw);
+                const label = foEscape(`${sw.name}\\n${sw.role || 'switch'}\\n${sw.model || sw.ip}`);
+                topoLines.push(`    ${foNodeShape(sw, id, label)}`);
+              }
+              topoLines.push('  end');
+            }
+            if (uniqueLinksFo.length > 0) {
+              topoLines.push('');
+              for (const link of uniqueLinksFo) {
+                const localSw = switchByIpFo.get(link.local);
+                const neighborSw = switchByIpFo.get(link.neighbor);
+                if (localSw && neighborSw) {
+                  topoLines.push(`  ${foNodeId(localSw)} -- "${foEscape(link.localPort)}" --> ${foNodeId(neighborSw)}`);
+                }
+              }
+            } else if (devices.length > 1) {
+              topoLines.push('');
+              const spines = devices.filter((s) => s.role.includes('spine') && !s.role.includes('super'));
+              const leaves = devices.filter((s) => s.role.includes('leaf'));
+              if (spines.length > 0 && leaves.length > 0) {
+                topoLines.push('  %% Inferred topology (no LLDP data)');
+                for (const spine of spines) {
+                  for (const leaf of leaves) {
+                    topoLines.push(`  ${foNodeId(spine)} --> ${foNodeId(leaf)}`);
+                  }
+                }
+              }
+            }
+            // Role × state colour palette
+            topoLines.push('');
+            topoLines.push('  classDef spine_healthy fill:#1e3a5f,color:#bfdbfe,stroke:#3b82f6,stroke-width:2px');
+            topoLines.push('  classDef spine_warn    fill:#451a03,color:#fed7aa,stroke:#f97316,stroke-width:2px');
+            topoLines.push('  classDef spine_error   fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            topoLines.push('  classDef spine_unknown fill:#1e293b,color:#93c5fd,stroke:#3b82f6,stroke-width:1px');
+            topoLines.push('  classDef leaf_healthy  fill:#052e16,color:#bbf7d0,stroke:#22c55e,stroke-width:2px');
+            topoLines.push('  classDef leaf_warn     fill:#431407,color:#fde68a,stroke:#f59e0b,stroke-width:2px');
+            topoLines.push('  classDef leaf_error    fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            topoLines.push('  classDef leaf_unknown  fill:#0f2926,color:#5eead4,stroke:#14b8a6,stroke-width:1px');
+            topoLines.push('  classDef border_healthy fill:#1a1033,color:#ddd6fe,stroke:#8b5cf6,stroke-width:2px');
+            topoLines.push('  classDef border_warn    fill:#3b1506,color:#fed7aa,stroke:#f97316,stroke-width:2px');
+            topoLines.push('  classDef border_error   fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            topoLines.push('  classDef border_unknown fill:#1e1040,color:#c4b5fd,stroke:#7c3aed,stroke-width:1px');
+            topoLines.push('  classDef sw_healthy fill:#052e16,color:#bbf7d0,stroke:#22c55e,stroke-width:2px');
+            topoLines.push('  classDef sw_warn    fill:#431407,color:#fde68a,stroke:#f59e0b,stroke-width:2px');
+            topoLines.push('  classDef sw_error   fill:#450a0a,color:#fca5a5,stroke:#ef4444,stroke-width:2px');
+            topoLines.push('  classDef sw_unknown fill:#1e293b,color:#cbd5e1,stroke:#475569,stroke-width:1px');
+            for (const sw of devices) {
+              const id = foNodeId(sw);
+              const r = sw.role.toLowerCase();
+              const roleKey = r.includes('super') ? 'spine'
+                : (r.includes('border') || r.includes('gateway')) ? 'border'
+                : r.includes('spine') ? 'spine'
+                : r.includes('leaf') ? 'leaf'
+                : 'sw';
+              const st = sw.state.toLowerCase();
+              const stateKey = (st.includes('in-sync') || st.includes('insync') || st === 'provisioned') ? 'healthy'
+                : (st.includes('error') || st.includes('failed') || st.includes('unreachable')) ? 'error'
+                : (st.includes('refresh') || st.includes('maintenance')) ? 'warn'
+                : 'unknown';
+              topoLines.push(`  class ${id} ${roleKey}_${stateKey}`);
+            }
+
+            return {
+              topology_diagram: topoLines.join('\n'),
+              headline,
+              health_score,
+              alarm_summary: alarmSummary,
+              fabrics,
+              devices: devices.map((d) => ({ name: d.name, ip: d.ip, fabric: d.fabric, role: d.role, state: d.state, model: d.model })),
+              bgp_sessions,
+            };
+          } catch (e) {
+            return { error: `XCO fabric overview failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
+
         // Returns { sankey_diagram: "sankey-beta\n...", summary: {...}, flows: [...] }
         if (handlerType === 'xiq_policy_sankey') {
           if (!credentialId) return { error: 'xiq_policy_sankey requires a credentialId' };
