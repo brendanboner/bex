@@ -149,7 +149,7 @@ export function startLocalServices(root: string): void {
   const eco = resolve(root, ECOSYSTEM_FILE);
   // Always delete existing pm2 entries before starting — this ensures stale
   // script paths (e.g. from a renamed project directory) are never reused.
-  spawnSync('pm2', ['delete', 'bex-api', 'bex-registry', 'bex-admin', 'bex-worker', 'bex-dashboard', 'bex-telegram'],
+  spawnSync('pm2', ['delete', 'bex-api', 'bex-registry', 'bex-admin', 'bex-worker', 'bex-dashboard', 'bex-user-dashboards', 'bex-telegram'],
     { stdio: 'pipe', cwd: root });
   spawnSync('pm2', ['start', eco], { stdio: 'inherit', cwd: root });
 }

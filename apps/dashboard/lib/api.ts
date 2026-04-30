@@ -2,6 +2,7 @@ type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: { message?: st
 
 const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000';
 const ADMIN_URL = process.env['NEXT_PUBLIC_ADMIN_API_URL'] ?? 'http://localhost:4001';
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function getToken(): string {
   if (typeof window !== 'undefined') {
@@ -26,8 +27,10 @@ async function apiFetch<T>(
 ): Promise<T> {
   const token = getToken();
   const hasBody = options.body !== undefined && options.body !== null;
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const res = await fetch(`${base}${path}`, {
     ...options,
+    signal: options.signal ?? timeoutSignal,
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

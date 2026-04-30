@@ -2,7 +2,7 @@ import { input, password, select, confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
@@ -15,7 +15,7 @@ import {
 const LLM_MODELS: Record<string, string[]> = {
   openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
   anthropic: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229'],
-  azure: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo', 'gpt-4'],
+  'azure-openai': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-35-turbo', 'gpt-4'],
   ollama: ['llama3.2', 'llama3.1', 'mistral', 'gemma2', 'phi3', 'qwen2.5'],
 };
 
@@ -82,6 +82,26 @@ export async function initCommand(): Promise<void> {
 
   const root = findProjectRoot();
 
+  // One-time legacy migration helpers (safe, idempotent)
+  const legacyMigrations: string[] = [];
+  if (prev['LLM_PROVIDER'] === 'azure') {
+    writeEnv({ LLM_PROVIDER: 'azure-openai' });
+    prev['LLM_PROVIDER'] = 'azure-openai';
+    legacyMigrations.push('Normalized LLM provider from "azure" to "azure-openai"');
+  }
+  const legacyXcoOutput = resolve(root, 'xco-setup-output.json');
+  const xcoOutputDir = resolve(root, 'logs/xco');
+  const xcoOutputPath = resolve(xcoOutputDir, 'setup-output.json');
+  if (existsSync(legacyXcoOutput)) {
+    mkdirSync(xcoOutputDir, { recursive: true });
+    copyFileSync(legacyXcoOutput, xcoOutputPath);
+    unlinkSync(legacyXcoOutput);
+    legacyMigrations.push(`Moved legacy XCO setup output to ${xcoOutputPath}`);
+  }
+  for (const message of legacyMigrations) {
+    printSuccess(message);
+  }
+
   // Helper: appends a dim hint showing the current value (or "set" for secrets)
   const hasKey = (key: string) => !!prev[key];
   const hint = (key: string) => prev[key] ? chalk.dim(` [current: ${prev[key]}]`) : '';
@@ -90,14 +110,15 @@ export async function initCommand(): Promise<void> {
   // ── Step 1: LLM ─────────────────────────────────────────────────────────
   console.log(chalk.bold('Step 1 of 5 — LLM Provider\n'));
 
-  const prevProvider = prev['LLM_PROVIDER'] as string | undefined;
+  const prevProviderRaw = prev['LLM_PROVIDER'] as string | undefined;
+  const prevProvider = prevProviderRaw === 'azure' ? 'azure-openai' : prevProviderRaw;
   const llmProvider = await select({
     message: `LLM provider:${hint('LLM_PROVIDER')}`,
     choices: [
       { name: `OpenAI (GPT-4o)${prevProvider === 'openai' ? ' ✓' : ''}`, value: 'openai' },
       { name: `Anthropic (Claude)${prevProvider === 'anthropic' ? ' ✓' : ''}`, value: 'anthropic' },
       { name: `Ollama (local, no API key)${prevProvider === 'ollama' ? ' ✓' : ''}`, value: 'ollama' },
-      { name: `Azure OpenAI${prevProvider === 'azure' ? ' ✓' : ''}`, value: 'azure' },
+      { name: `Azure OpenAI${prevProvider === 'azure-openai' ? ' ✓' : ''}`, value: 'azure-openai' },
     ],
     default: prevProvider ?? 'openai',
   });
@@ -113,7 +134,7 @@ export async function initCommand(): Promise<void> {
       default: prev['OLLAMA_BASE_URL'] || 'http://localhost:11434',
     });
     console.log(chalk.dim('  Make sure Ollama is running and the model is pulled (e.g. ollama pull llama3.2)'));
-  } else if (llmProvider === 'azure') {
+  } else if (llmProvider === 'azure-openai') {
     // Azure requires endpoint + API key (+ optional API version)
     azureEndpoint = await input({
       message: `Azure OpenAI endpoint:${hint('AZURE_OPENAI_ENDPOINT')}`,
@@ -311,8 +332,8 @@ export async function initCommand(): Promise<void> {
     LLM_PROVIDER: llmProvider,
     LLM_MODEL: llmModel,
     OLLAMA_BASE_URL: llmProvider === 'ollama' ? ollamaBaseUrl : (prev['OLLAMA_BASE_URL'] ?? ''),
-    ...(llmProvider === 'azure' && azureEndpoint && { AZURE_OPENAI_ENDPOINT: azureEndpoint }),
-    ...(llmProvider === 'azure' && azureApiVersion && { AZURE_OPENAI_API_VERSION: azureApiVersion }),
+    ...(llmProvider === 'azure-openai' && azureEndpoint && { AZURE_OPENAI_ENDPOINT: azureEndpoint }),
+    ...(llmProvider === 'azure-openai' && azureApiVersion && { AZURE_OPENAI_API_VERSION: azureApiVersion }),
     PORT: '4000',
     ADMIN_API_PORT: '4001',
     DASHBOARD_PORT: '3000',
@@ -338,6 +359,13 @@ export async function initCommand(): Promise<void> {
 
   writeEnv(envVars);
   printSuccess('.env written');
+
+  const shouldCleanGenerated = (setupXiq || setupXco)
+    ? await confirm({
+      message: 'Remove previously generated XIQ/XCO agents and skills before provisioning?',
+      default: false,
+    })
+    : false;
 
   const shouldStart = await confirm({ message: 'Start the platform now?', default: true });
 
@@ -483,14 +511,16 @@ export async function initCommand(): Promise<void> {
         });
       }
 
-      // Store LLM key under the well-known system name so loadSystemSecrets
-      // can inject it into process.env on subsequent service restarts.
-      const llmKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
-        : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
-        : llmProvider === 'azure' ? 'AZURE_OPENAI_API_KEY'
-        : ''; // ollama has no API key to store
-      if (llmApiKey && llmKeyVar) {
-        await storeSystemCred(`system.${llmKeyVar.toLowerCase()}`, 'API_TOKEN', { [llmKeyVar.toLowerCase()]: llmApiKey });
+      // Store LLM settings under well-known system names so loadSystemSecrets
+      // can inject them into process.env on subsequent service restarts.
+      if (llmProvider === 'openai' && llmApiKey) {
+        await storeSystemCred('system.openai_api_key', 'API_TOKEN', { openai_api_key: llmApiKey });
+      } else if (llmProvider === 'anthropic' && llmApiKey) {
+        await storeSystemCred('system.anthropic_api_key', 'API_TOKEN', { anthropic_api_key: llmApiKey });
+      } else if (llmProvider === 'azure-openai' && llmApiKey) {
+        await storeSystemCred('system.azure_openai_api_key', 'API_TOKEN', { azure_openai_api_key: llmApiKey });
+      } else if (llmProvider === 'ollama' && ollamaBaseUrl) {
+        await storeSystemCred('system.ollama_base_url', 'API_TOKEN', { ollama_base_url: ollamaBaseUrl });
       }
       if (channelEnv['TELEGRAM_BOT_TOKEN']) {
         await storeSystemCred('system.telegram_bot_token', 'API_TOKEN', { telegram_bot_token: channelEnv['TELEGRAM_BOT_TOKEN'] });
@@ -608,20 +638,28 @@ export async function initCommand(): Promise<void> {
     if (opts.skillIds.length === 0) return false;
     const sp = ora(`Creating agent: ${opts.name}…`).start();
     try {
-      // Create agent
-      const agentRes = await fetch('http://localhost:4000/agents', {
-        method: 'POST',
-        headers: { ...registryAuthHeader, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: opts.name,
-          description: opts.description,
-          llmProvider,
-          llmModel,
-          permissions: opts.permissions,
-          skillIds: opts.skillIds,
-          persona: { systemPrompt: opts.systemPrompt },
-        }),
-      });
+      const allAgentsRes = await fetch('http://localhost:4000/agents', { headers: registryAuthHeader });
+      const allAgentsJson = (await allAgentsRes.json()) as { ok: boolean; data?: Array<{ id: string; name: string }> };
+      const existing = (allAgentsJson.data ?? []).find((a) => a.name === opts.name);
+
+      const payload = {
+        name: opts.name,
+        description: opts.description,
+        llmProvider,
+        llmModel,
+        permissions: opts.permissions,
+        skillIds: opts.skillIds,
+        persona: { systemPrompt: opts.systemPrompt },
+      };
+
+      const agentRes = await fetch(
+        existing ? `http://localhost:4000/agents/${existing.id}` : 'http://localhost:4000/agents',
+        {
+          method: existing ? 'PUT' : 'POST',
+          headers: { ...registryAuthHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
       const agentJson = (await agentRes.json()) as { ok: boolean; data?: { id?: string } };
       if (!agentJson.ok || !agentJson.data?.id) {
         sp.warn(`Could not create agent: ${opts.name}`);
@@ -649,7 +687,7 @@ export async function initCommand(): Promise<void> {
   // Derive the LLM API key env var name for passing to subprocesses
   const llmApiKeyVar = llmProvider === 'openai' ? 'OPENAI_API_KEY'
     : llmProvider === 'anthropic' ? 'ANTHROPIC_API_KEY'
-    : llmProvider === 'azure' ? 'AZURE_OPENAI_API_KEY'
+    : llmProvider === 'azure-openai' ? 'AZURE_OPENAI_API_KEY'
     : ''; // ollama has no API key
   const subprocEnvBase = {
     ...process.env,
@@ -669,6 +707,60 @@ export async function initCommand(): Promise<void> {
   let xcoReady = false;
 
   const hasAuth = Object.keys(registryAuthHeader).length > 0;
+
+  async function cleanupGeneratedAssets(): Promise<void> {
+    if (!hasAuth) return;
+    const cleanupSpinner = ora('Cleaning previously generated XIQ/XCO agents and skills…').start();
+    try {
+      const generatedAgentNames = new Set([
+        'ExtremeCloud IQ',
+        'ExtremeCloud IQ Monitor',
+        'ExtremeCloud Orchestrator',
+        'XCO Monitor',
+        'XCO Operator',
+        'XCO Provisioner',
+      ]);
+      const generatedDomainPrefixes = ['extremecloudiq.', 'networking.extreme-xco.'];
+
+      const agentsRes = await fetch('http://localhost:4000/agents', { headers: registryAuthHeader });
+      const agentsJson = (await agentsRes.json()) as { ok: boolean; data?: Array<{ id: string; name: string }> };
+      const agents = agentsJson.data ?? [];
+
+      let deletedAgents = 0;
+      for (const agent of agents) {
+        if (!generatedAgentNames.has(agent.name)) continue;
+        const delRes = await fetch(`http://localhost:4000/agents/${agent.id}`, {
+          method: 'DELETE',
+          headers: registryAuthHeader,
+        });
+        if (delRes.ok) deletedAgents += 1;
+      }
+
+      const skillsRes = await fetch('http://localhost:4000/skills', { headers: registryAuthHeader });
+      const skillsJson = (await skillsRes.json()) as { ok: boolean; data?: Array<{ id: string; domain?: string }> };
+      const skills = (skillsJson.data ?? []).filter((s) =>
+        generatedDomainPrefixes.some((prefix) => (s.domain ?? '').startsWith(prefix)),
+      );
+
+      let deletedSkills = 0;
+      for (const skill of skills) {
+        const delRes = await fetch(`http://localhost:4000/skills/${skill.id}`, {
+          method: 'DELETE',
+          headers: registryAuthHeader,
+        });
+        if (delRes.ok) deletedSkills += 1;
+      }
+
+      cleanupSpinner.succeed(`Cleanup complete (${deletedAgents} agents, ${deletedSkills} skills removed)`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      cleanupSpinner.warn(`Cleanup skipped (${message})`);
+    }
+  }
+
+  if (shouldCleanGenerated) {
+    await cleanupGeneratedAssets();
+  }
 
   if (setupXiq) {
     if (!hasAuth) {

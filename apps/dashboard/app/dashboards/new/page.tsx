@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   ArrowLeft, LayoutDashboard, Loader2, Sparkles,
-  CheckCircle2, AlertCircle, ChevronRight, Edit3,
+  CheckCircle2, AlertCircle, ChevronRight, Edit3, Info,
 } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -193,6 +193,7 @@ export default function NewDashboardPage() {
   const [confirmBuild, setConfirmBuild] = useState(false);
   const [preview, setPreview]         = useState<PreviewResult | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [showEntityHints, setShowEntityHints] = useState(false);
 
   function handleNameChange(value: string) {
     setName(value);
@@ -369,8 +370,32 @@ export default function NewDashboardPage() {
         </div>
 
         {/* Prompt */}
-        <div className="space-y-1.5">
-          <Label htmlFor="prompt">Agent Prompt <span className="text-red-400">*</span></Label>
+        <div className="space-y-1.5 relative">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="prompt">Agent Prompt <span className="text-red-400">*</span></Label>
+            <button
+              type="button"
+              onClick={() => setShowEntityHints((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md border border-[rgb(var(--border))] px-1.5 py-0.5 text-[11px] text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-primary))]"
+              title="Show supported entity types"
+            >
+              <Info className="h-3 w-3" />
+              Entities
+            </button>
+          </div>
+          {showEntityHints && (
+            <div className="rounded-lg border border-cyan-500/30 bg-[rgb(var(--bg-elevated))] p-3 text-xs text-[rgb(var(--text-secondary))]">
+              <p className="font-semibold text-cyan-300 mb-1">Entity types you can reference</p>
+              <p className="leading-relaxed">
+                <code>clients</code>, <code>devices</code>, <code>access_points</code>, <code>ssids</code>, <code>vlans</code>,
+                <code>alarms</code>, <code>events</code>, <code>fabrics</code>, <code>switches</code>, <code>bgp_sessions</code>,
+                <code>interfaces</code>, <code>topology_links</code>, <code>sites</code>, <code>policies</code>, <code>radios</code>.
+              </p>
+              <p className="mt-1 text-[rgb(var(--text-muted))]">
+                Tip: ask for explicit fields and JSON output, e.g. <code>clients[]: client_id, ap_name, ssid, vlan, rssi</code>.
+              </p>
+            </div>
+          )}
           <Textarea
             id="prompt"
             value={prompt}

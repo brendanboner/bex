@@ -9,6 +9,7 @@ const SYSTEM_CREDENTIAL_MAP: Record<string, string[]> = {
   'system.openai_api_key':        ['OPENAI_API_KEY'],
   'system.anthropic_api_key':     ['ANTHROPIC_API_KEY'],
   'system.azure_openai_api_key':  ['AZURE_OPENAI_API_KEY'],
+  'system.ollama_base_url':       ['OLLAMA_BASE_URL'],
   'system.telegram_bot_token':    ['TELEGRAM_BOT_TOKEN'],
   'system.xiq_credentials':       ['XIQ_USERNAME', 'XIQ_PASSWORD'],
   'system.xco_credentials':       ['XCO_HOST', 'XCO_USERNAME', 'XCO_PASSWORD'],
@@ -43,8 +44,12 @@ export async function loadSystemSecrets(prisma: PrismaClient): Promise<void> {
     try {
       const values = decrypt({ encryptedValue: cred.encryptedValue, iv: cred.iv, authTag: cred.authTag });
       for (const envKey of envKeys) {
-        if (!process.env[envKey] && values[envKey.toLowerCase()] !== undefined) {
-          process.env[envKey] = String(values[envKey.toLowerCase()]);
+        const lower = values[envKey.toLowerCase()];
+        const exact = values[envKey];
+        if (!process.env[envKey] && lower !== undefined) {
+          process.env[envKey] = String(lower);
+        } else if (!process.env[envKey] && exact !== undefined) {
+          process.env[envKey] = String(exact);
         }
       }
     } catch {

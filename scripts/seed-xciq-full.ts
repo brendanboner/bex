@@ -44,7 +44,8 @@ const XIQ_USERNAME    = process.env['XIQ_USERNAME'] ?? process.env['XCIQ_USERNAM
 const XIQ_PASSWORD    = process.env['XIQ_PASSWORD'] ?? process.env['XCIQ_PASSWORD'] ?? '';
 
 // LLM config — use caller's provider so agents match the rest of the platform
-const LLM_PROVIDER    = (process.env['LLM_PROVIDER'] ?? 'openai') as 'openai' | 'anthropic' | 'azure' | 'ollama';
+const llmProviderRaw  = process.env['LLM_PROVIDER'] ?? 'openai';
+const LLM_PROVIDER    = (llmProviderRaw === 'azure' ? 'azure-openai' : llmProviderRaw) as 'openai' | 'anthropic' | 'azure-openai' | 'ollama';
 const LLM_MODEL       = process.env['LLM_MODEL'] ?? 'gpt-4o';
 
 // Tags to consolidate into fewer meaningful skills instead of one-per-tag

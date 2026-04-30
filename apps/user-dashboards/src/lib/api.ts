@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
-const API_BASE = (import.meta.env['VITE_API_URL'] as string | undefined) || '/api';
+const API_BASE = (import.meta.env['VITE_API_URL'] as string | undefined) || 'http://localhost:4000';
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export type Widget = {
   id: string;
@@ -49,8 +50,10 @@ type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: { message?: st
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body !== undefined && options.body !== null;
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
+    signal: options.signal ?? timeoutSignal,
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,

@@ -119,8 +119,7 @@ module.exports = {
       error_file: path.join(root, 'logs/user-dashboards.error.log'),
       out_file:   path.join(root, 'logs/user-dashboards.log'),
       env: {
-        // Set VITE_API_URL to the full API URL for production (e.g. https://api.example.com).
-        // Leave unset (or empty) to use the Vite dev-server /api proxy pointing at localhost:4000.
+        VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:4000',
       },
     },
     {

@@ -11,7 +11,8 @@ const { PrismaClient } = require('@prisma/client');
 const { SkillBuilderService } = require('@bclaw/skill-engine');
 
 // LLM config — read from env so agents match the platform's configured provider
-const LLM_PROVIDER = process.env.LLM_PROVIDER || 'openai';
+const LLM_PROVIDER_RAW = process.env.LLM_PROVIDER || 'openai';
+const LLM_PROVIDER = LLM_PROVIDER_RAW === 'azure' ? 'azure-openai' : LLM_PROVIDER_RAW;
 const LLM_MODEL    = process.env.LLM_MODEL    || 'gpt-4o';
 
 // Registry config for publishing skills
@@ -490,7 +491,7 @@ certificate expiry timeline, firmware inventory, and recommended maintenance act
   console.log(`       POST /requests  { agentId: "${provisionerAgent.id}",`);
   console.log('         input: "Create a new 5-stage CLOS fabric named PROD-DC1 with spine/leaf details..." }');
   console.log('');
-  console.log('  IDs saved to: ./xco-setup-output.json');
+  console.log('  IDs saved to: ./logs/xco/setup-output.json');
 
   const output = {
     skills: {
@@ -508,7 +509,11 @@ certificate expiry timeline, firmware inventory, and recommended maintenance act
     },
   };
 
-  require('fs').writeFileSync('./xco-setup-output.json', JSON.stringify(output, null, 2));
+  const fs = require('fs');
+  const path = require('path');
+  const outputDir = path.resolve(process.cwd(), 'logs', 'xco');
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.writeFileSync(path.join(outputDir, 'setup-output.json'), JSON.stringify(output, null, 2));
 
   await prisma.$disconnect();
 }

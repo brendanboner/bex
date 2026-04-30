@@ -13,7 +13,7 @@ import { PrismaClient } from '@prisma/client';
 import { CredentialVaultService } from '../packages/credential-vault/src/service.js';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
 const envPath = resolve(process.cwd(), '.env');
 if (existsSync(envPath)) config({ path: envPath });
@@ -32,7 +32,8 @@ const XCO_AUTH_URL = 'https://{xco-host}/v1/auth/token/access-token';
 
 const REGISTRY_URL   = process.env['SKILL_REGISTRY_URL']   ?? 'http://localhost:5050';
 const REGISTRY_TOKEN = process.env['SKILL_REGISTRY_TOKEN'] ?? 'bex-registry-dev';
-const LLM_PROVIDER   = (process.env['LLM_PROVIDER'] ?? 'openai') as 'openai' | 'anthropic' | 'azure' | 'ollama';
+const llmProviderRaw = process.env['LLM_PROVIDER'] ?? 'openai';
+const LLM_PROVIDER   = (llmProviderRaw === 'azure' ? 'azure-openai' : llmProviderRaw) as 'openai' | 'anthropic' | 'azure-openai' | 'ollama';
 const LLM_MODEL      = process.env['LLM_MODEL'] ?? 'gpt-4o';
 
 function log(msg: string)  { console.log(`\n[XCO-SEED] ${msg}`); }
@@ -798,9 +799,10 @@ Do NOT wrap the diagram string in markdown fences — return it as a plain strin
   console.log('');
 
   // Write output file
+  const xcoBaseUrlResolved = XCO_HOST ? `https://${XCO_HOST}/v1` : XCO_BASE_URL;
   const output = {
     xcoHost: XCO_HOST,
-    xcoBaseUrl: XCO_BASE_URL,
+    xcoBaseUrl: xcoBaseUrlResolved,
     credentials: { system: credId, agent: agentCredId },
     skills: {
       monitor:     { id: monitorSkill.id,     domain: monitorSkill.domain },
@@ -814,9 +816,11 @@ Do NOT wrap the diagram string in markdown fences — return it as a plain strin
     },
   };
 
-  const { writeFileSync } = await import('node:fs');
-  writeFileSync('xco-setup-output.json', JSON.stringify(output, null, 2));
-  ok('Output written to xco-setup-output.json');
+  const outputDir = resolve(process.cwd(), 'logs', 'xco');
+  mkdirSync(outputDir, { recursive: true });
+  const outputPath = resolve(outputDir, 'setup-output.json');
+  writeFileSync(outputPath, JSON.stringify(output, null, 2));
+  ok(`Output written to ${outputPath}`);
 
   await prisma.$disconnect();
 }

@@ -8,7 +8,7 @@ import { KnowledgeStore } from '@bex/knowledge-store';
 const SetupSchema = z.object({
   adminEmail: z.string().email(),
   adminPassword: z.string().min(8),
-  llmProvider: z.enum(['openai', 'anthropic', 'azure', 'ollama']),
+  llmProvider: z.enum(['openai', 'anthropic', 'azure-openai', 'azure', 'ollama']),
   llmApiKey: z.string().optional().default(''),
   llmModel: z.string().optional().default('gpt-4o'),
   ollamaBaseUrl: z.string().optional(),
@@ -54,6 +54,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
       }
 
       const { adminEmail, adminPassword, llmProvider, llmApiKey, llmModel, ollamaBaseUrl, channel, channelConfig } = body.data;
+      const resolvedProvider = llmProvider === 'azure' ? 'azure-openai' : llmProvider;
       const passwordHash = await bcrypt.hash(adminPassword, 12);
 
       await prisma.user.upsert({
@@ -74,12 +75,12 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
 
       await vault.create({
         name: 'bex.llm.primary',
-        description: `${llmProvider} LLM configuration`,
+        description: `${resolvedProvider} LLM configuration`,
         scope: 'SYSTEM',
         credentialType: 'API_TOKEN',
-        value: llmProvider === 'ollama'
-          ? { provider: llmProvider, model: llmModel, baseUrl: ollamaBaseUrl ?? 'http://localhost:11434' }
-          : { provider: llmProvider, apiKey: llmApiKey, model: llmModel },
+        value: resolvedProvider === 'ollama'
+          ? { provider: resolvedProvider, model: llmModel, baseUrl: ollamaBaseUrl ?? 'http://localhost:11434' }
+          : { provider: resolvedProvider, apiKey: llmApiKey, model: llmModel },
         allowedAgentPermissions: [],
       });
 
@@ -101,7 +102,7 @@ export async function adminRoutes(app: FastifyInstance, prisma: PrismaClient): P
           `# BEX Platform Configuration`,
           ``,
           `## LLM`,
-          `- Provider: ${llmProvider}`,
+          `- Provider: ${resolvedProvider}`,
           `- Model: ${llmModel}`,
           ``,
           `## Interface Channel`,
