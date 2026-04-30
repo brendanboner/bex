@@ -1,71 +1,45 @@
 # BEX Test Commands
 
 A reference of natural-language queries to exercise the platform end-to-end.
-Send these via Telegram (prefix with `@bex` for Nexus/system queries, or plain text for the default XIQ/XCO agent), or via the Dashboard chat.
+Send via Telegram, the Dashboard chat, or directly against the REST API.
+
+## When to use `@bex` (Nexus)
+
+`@bex` routes your message to the **Nexus** system management agent. Use it **only** for managing the BEX platform itself:
+
+| Use `@bex` for… | Don't use `@bex` for… |
+|---|---|
+| Viewing/managing scheduled jobs | Querying devices, clients, APs |
+| Checking/pausing/resuming agents | Network health or alarms |
+| Verifying credentials are configured | Fabric, VLAN, BGP state |
+| Listing available skills | Any live network data |
+| System status & version | Dashboard creation |
+
+> **Note:** `NEXUS_AGENT_ID` must be set in `.env` to enable a dedicated Nexus agent.
+> Without it, `@bex` falls back to the default XIQ agent.
 
 ---
 
-## 1. Nexus — XIQ Questions
-> Send with `@bex` prefix to route to the Nexus system agent. These test Nexus's ability to introspect the XIQ agent's state, skills, and live data.
+## 1. System Management (Nexus — use `@bex` prefix)
+> Send with `@bex` prefix. These are genuine management/admin operations.
 
 ```
-@bex list all active ExtremeCloud IQ skills
-@bex how many devices does the XIQ agent know about?
-@bex what capabilities does the XIQ agent have?
-@bex show me the XIQ agent's current status
+@bex system status
+@bex show me all scheduled jobs
+@bex pause all scheduled jobs
+@bex resume the XIQ Monitor scheduled job
 @bex has the XIQ credential been configured?
-@bex what XIQ skills are currently published?
-@bex show a summary of all skills loaded for ExtremeCloud IQ
-```
-
----
-
-## 2. Nexus — XCO Questions
-> Send with `@bex` prefix to test Nexus's visibility into XCO state and operations.
-
-```
-@bex list all ExtremeCloud Orchestrator skills
-@bex is the XCO agent healthy?
-@bex what XCO tools are available?
-@bex show the XCO Monitor agent's skill inventory
 @bex has the XCO credential been configured?
+@bex what capabilities does the XIQ agent have?
+@bex what XIQ skills are currently published?
+@bex list all ExtremeCloud Orchestrator skills
 @bex what is the current status of the XCO Operator agent?
+@bex show the XCO Monitor agent's skill inventory
 ```
 
 ---
 
-## 3. Nexus — Networking Questions
-> General networking questions routed through Nexus or the networking-capable agents.
-
-```
-@bex what IP fabrics are currently defined in XCO?
-@bex show me all BGP sessions across the fabric
-@bex are there any active network alarms?
-@bex show LLDP neighbours for the spine switches
-@bex what is the current interface utilisation on the fabric?
-@bex show me all VTEP endpoints in the fabric
-@bex are there any devices with config drift in XCO?
-@bex show me the audit log for the last 24 hours
-```
-
----
-
-## 4. Nexus — Complex Skill Questions
-> Multi-step queries that require Nexus to coordinate across multiple skills or agents.
-
-```
-@bex show me all Apple clients and which APs they are connected to, including SSID and VLAN
-@bex give me a health report for all wireless clients with poor connectivity
-@bex show me the full topology — which SSIDs are on which VLANs and how many clients are connected to each
-@bex find all devices in XCO with config drift and tell me what changed
-@bex show me radio quality for all 5GHz radios and flag any APs with SNR below 20
-@bex correlate all active alarms in XCO with the devices that have unreachable status
-@bex summarise the health of the entire network — APs, clients, fabric, alarms
-```
-
----
-
-## 5. XIQ Agent — Direct Questions
+## 2. XIQ Agent — Direct Questions
 > Send without `@bex` prefix (routes to default XIQ agent). Tests the XIQ skill set end-to-end.
 
 ### Clients
@@ -107,7 +81,7 @@ Show me the client health dashboard
 
 ---
 
-## 6. XCO Agent — Direct Questions
+## 3. XCO Agent — Direct Questions
 > Tests the XCO Monitor and Operations skill sets end-to-end.
 
 ### Inventory & Health
@@ -156,7 +130,7 @@ What is the current fabric-wide bandwidth utilisation?
 
 ---
 
-## 7. Skill Generation Questions
+## 4. Skill Generation Questions
 > Questions that should trigger the skill discovery pipeline when no matching skill exists. The system should generate a new skill, run tests, and present it.
 
 ```
@@ -174,7 +148,7 @@ Pull all IoT devices connected to the guest SSID
 
 ---
 
-## 8. Dashboard Creation Queries
+## 5. Dashboard Creation Queries
 > Paste these directly into the "Create Dashboard" prompt in the dashboard UI. Each should result in a multi-widget dashboard.
 
 ### Apple / Client Dashboards
