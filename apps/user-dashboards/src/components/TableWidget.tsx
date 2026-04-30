@@ -1,5 +1,7 @@
 /**
  * TableWidget — sortable, searchable table rendering an array from lastData.
+ * Supports dot-path columns (e.g. "ssids.clients.hostname") and automatically
+ * unwinds nested arrays into flat rows.
  */
 
 import { useState, useMemo } from 'react';
@@ -17,10 +19,53 @@ interface TableWidgetProps {
 type SortDir = 'asc' | 'desc';
 
 function cellValue(row: Record<string, unknown>, col: string): string {
-  const v = row[col];
+  // Direct key first (handles pre-flattened dot-key names), then resolveDataKey
+  const v = Object.prototype.hasOwnProperty.call(row, col)
+    ? row[col]
+    : resolveDataKey(row, col);
   if (v == null) return '—';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
+}
+
+/**
+ * Unwinds nested arrays into flat rows so dot-path columns render correctly.
+ * E.g. {ap_name, ssids:[{ssid_name, clients:[{hostname,ip_address}]}]}
+ * with cols ["ap_name","ssids.ssid_name","ssids.clients.hostname"]
+ * produces one row per (ap, ssid, client) combination.
+ */
+function flattenRows(
+  rows: Record<string, unknown>[],
+  cols: string[],
+): Record<string, unknown>[] {
+  let result = [...rows];
+  // Up to 5 passes to handle multi-level nesting
+  for (let pass = 0; pass < 5; pass++) {
+    let changed = false;
+    const expanded: Record<string, unknown>[] = [];
+    for (const row of result) {
+      let unwound = false;
+      for (const [key, val] of Object.entries(row)) {
+        if (Array.isArray(val) && cols.some((c) => c === key || c.startsWith(`${key}.`))) {
+          for (const item of val as Record<string, unknown>[]) {
+            const newRow = { ...row };
+            delete newRow[key];
+            for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
+              newRow[`${key}.${k}`] = v;
+            }
+            expanded.push(newRow);
+          }
+          unwound = true;
+          changed = true;
+          break;
+        }
+      }
+      if (!unwound) expanded.push(row);
+    }
+    result = expanded;
+    if (!changed) break;
+  }
+  return result;
 }
 
 export function TableWidget({ title, dataKey, columns, data, colSpan = 2 }: TableWidgetProps) {
@@ -29,15 +74,22 @@ export function TableWidget({ title, dataKey, columns, data, colSpan = 2 }: Tabl
   const [search, setSearch] = useState('');
 
   const raw = resolveDataKey(data, dataKey);
-  const rows: Record<string, unknown>[] = Array.isArray(raw)
+  const rawRows: Record<string, unknown>[] = Array.isArray(raw)
     ? (raw as Record<string, unknown>[])
     : raw && typeof raw === 'object'
     ? [raw as Record<string, unknown>]
     : [];
 
-  const cols: string[] = columns?.length
-    ? columns
-    : rows[0] ? Object.keys(rows[0]).slice(0, 10) : [];
+  const explicitCols = columns?.length ? columns : undefined;
+
+  // Flatten nested arrays when explicit columns with dot-paths are provided
+  const rows = useMemo(
+    () => (explicitCols ? flattenRows(rawRows, explicitCols) : rawRows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(rawRows), JSON.stringify(explicitCols)],
+  );
+
+  const cols: string[] = explicitCols ?? (rows[0] ? Object.keys(rows[0]).slice(0, 10) : []);
 
   const filtered = useMemo(() => {
     if (!search) return rows;
@@ -118,7 +170,7 @@ export function TableWidget({ title, dataKey, columns, data, colSpan = 2 }: Tabl
                   className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-400 cursor-pointer select-none whitespace-nowrap hover:text-slate-200 transition-colors"
                 >
                   <span className="inline-flex items-center gap-1">
-                    {col}
+                    {col.split('.').pop()}
                     {sortCol === col ? (
                       sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
                     ) : (
