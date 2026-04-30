@@ -90,7 +90,11 @@ export function MermaidWidget({ title, dataKey, data, colSpan = 4 }: MermaidWidg
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load Mermaid');
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // Clear stale SVG so the next render starts fresh
+      if (containerRef.current) containerRef.current.innerHTML = '';
+    };
   }, [diagramText]);
 
   const colClass = cn(
@@ -120,16 +124,19 @@ export function MermaidWidget({ title, dataKey, data, colSpan = 4 }: MermaidWidg
       )}
 
       {diagramText && !error && (
-        <div
-          ref={containerRef}
-          className={cn(
-            'overflow-x-auto flex justify-center',
-            !rendered && 'min-h-[120px] flex items-center justify-center',
-          )}
-        >
+        <div className="relative">
+          {/* Spinner lives OUTSIDE containerRef — avoids React/innerHTML conflict where
+              React's removeChild would throw because innerHTML already wiped the spinner. */}
           {!rendered && (
-            <div className="h-6 w-6 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />
+            <div className="min-h-[120px] flex items-center justify-center">
+              <div className="h-6 w-6 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />
+            </div>
           )}
+          {/* containerRef is only touched by Mermaid via innerHTML — no React children inside */}
+          <div
+            ref={containerRef}
+            className="overflow-x-auto flex justify-center"
+          />
         </div>
       )}
     </div>
