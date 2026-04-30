@@ -46,7 +46,18 @@ async function buildApp() {
 
   const prisma = new PrismaClient();
   await loadSystemSecrets(prisma);
-  validateEnv(); // validate after vault secrets are injected into process.env
+  
+  // Detect if this is first-run setup: if no non-system admin user exists yet, skip LLM key requirement
+  let isFirstRun = false;
+  try {
+    const adminUser = await prisma.user.findFirst({ where: { isSystemUser: false } });
+    isFirstRun = !adminUser;
+  } catch {
+    // DB might not be ready yet, assume not first run to be safe
+    isFirstRun = false;
+  }
+  
+  validateEnv({ isFirstRun });
   const vault = new CredentialVaultService(prisma);
   const sshExecutor = new SshExecutorService(prisma, vault);
 

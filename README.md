@@ -45,9 +45,66 @@ bex logs dashboard
 
 ---
 
-## Architecture
+## Versioning System
 
+Forge uses **commit-based versioning** that ties version numbers to actual deployed changes:
+
+### Version Format
+
+`v1.YYYYMMDD.commitcount`
+
+- `v1` — Versioning scheme identifier (allows future evolution)
+- `YYYYMMDD` — Date of the last commit affecting that service
+- `commitcount` — Total commits to that date (simple tiebreaker)
+
+**Example:** `v1.20260430.143` = April 30, 2026 with 143 commits to that date
+
+### Version Visibility
+
+Versions are displayed in three places:
+
+1. **CLI status command** — `bex status` shows global version and last update time
+2. **Health API endpoint** — `GET /admin/status` includes `versions` object with:
+   - `global` — Latest change across entire system
+   - `services` — Per-service versions for each package
+3. **Admin Dashboard** — Status page displays version information
+
+### How It Works
+
+- **Runtime calculation** — Versions are computed on-demand using git queries
+- **Smart caching** — Results cached for 30 seconds to avoid excessive git operations
+- **Per-package tracking** — Each service in `packages/` has its own version based on its last commit
+- **Global version** — Reflects the most recent commit across all services
+
+### Examples
+
+```bash
+# View system versions
+$ bex status
+  ● API Gateway          healthy (45ms) http://localhost:4000/health
+  ● Admin API            healthy (32ms) http://localhost:4001/health
+  ● Dashboard            healthy (18ms) http://localhost:3000
+  
+  System Versions
+  ────────────────────────────────────────────────────
+  Global v1.20260430.143                Apr 30, 1:45 PM
 ```
+
+```bash
+# Query via API
+$ curl http://localhost:4001/admin/status | jq .data.versions
+{
+  "global": "v1.20260430.143",
+  "timestamp": "2026-04-30T13:45:00Z",
+  "services": {
+    "api-gateway": {"version": "v1.20260428.140", "timestamp": "2026-04-28T10:20:00Z"},
+    "cli": {"version": "v1.20260430.143", "timestamp": "2026-04-30T13:45:00Z"},
+    "credential-vault": {"version": "v1.20260428.139", "timestamp": "2026-04-28T09:15:00Z"}
+  }
+}
+```
+
+---
 ┌──────────────────────────────────────────────────────────────────────┐
 │                      Communication Channels                          │
 │            Telegram · Teams · WhatsApp · Dashboard Chat · API        │

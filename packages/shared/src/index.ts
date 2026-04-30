@@ -2,6 +2,7 @@ import type { ApiError, ApiResponse, ApiSuccess } from './types/index.js';
 
 export * from './schemas/index.js';
 export * from './types/index.js';
+export * from './version-calculator.js';
 
 // ─── Response helpers ─────────────────────────────────────────────────────────
 

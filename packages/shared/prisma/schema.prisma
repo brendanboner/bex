@@ -1,6 +1,3 @@
-// This is the bclaw Prisma schema.
-// All services share this schema via the @bclaw/shared package.
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,7 +7,369 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Enums ────────────────────────────────────────────────────────────────────
+model User {
+  id           String            @id @default(cuid())
+  externalId   String            @unique
+  displayName  String            @default("")
+  email        String?           @unique
+  passwordHash String?
+  isSystemUser Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  agents       Agent[]
+  requests     AgentRequest[]
+  approvals    ApprovalRequest[]
+  credentials  Credential[]
+}
+
+model Agent {
+  id           String         @id @default(cuid())
+  name         String
+  description  String?
+  status       AgentStatus    @default(DRAFT)
+  persona      Json           @default("{}")
+  llmProvider  String         @default("openai")
+  llmModel     String         @default("gpt-4o")
+  llmConfig    Json           @default("{}")
+  permissions  String[]       @default([])
+  ownerId      String
+  personaId    String?
+  charterId    String?        @unique
+  credentialId String?
+  isDefault    Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  charter      AgentCharter?  @relation(fields: [charterId], references: [id])
+  credential   Credential?    @relation(fields: [credentialId], references: [id])
+  owner        User           @relation(fields: [ownerId], references: [id])
+  persona_ref  Persona?       @relation(fields: [personaId], references: [id])
+  requests     AgentRequest[]
+  agentSkills  AgentSkill[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([isDefault])
+}
+
+model AgentCharter {
+  id                 String         @id @default(cuid())
+  mandate            String
+  posture            AgentPosture   @default(SUPERVISED)
+  bearing            AgentBearing   @default(CONCISE)
+  verbosity          AgentVerbosity @default(STANDARD)
+  conductBoundaries  String[]       @default([])
+  escalationTriggers String[]       @default([])
+  scopeLimits        Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  agent              Agent?
+}
+
+model Skill {
+  id                     String            @id @default(cuid())
+  name                   String
+  domain                 String
+  description            String?
+  version                String
+  status                 SkillStatus       @default(DRAFT)
+  capabilities           String[]
+  tools                  Json              @default("[]")
+  systemPrompt           String?
+  learnedNotes           String?
+  requiredCredentialType String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  agentSkills            AgentSkill[]
+  knowledgeSources       KnowledgeSource[]
+
+  @@unique([domain, version])
+  @@index([domain])
+  @@index([status])
+}
+
+model AgentSkill {
+  agentId String
+  skillId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  skill   Skill  @relation(fields: [skillId], references: [id])
+
+  @@id([agentId, skillId])
+}
+
+model KnowledgeSource {
+  id         String              @id @default(cuid())
+  skillId    String
+  type       KnowledgeSourceType
+  label      String
+  rawContent Bytes?
+  url        String?
+  parsedAt   DateTime?
+  createdAt  DateTime            @default(now())
+  skill      Skill               @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@index([skillId])
+}
+
+model Credential {
+  id                      String          @id @default(cuid())
+  name                    String
+  description             String?
+  scope                   CredentialScope
+  credentialType          CredentialType  @default(API_TOKEN)
+  encryptedValue          String
+  iv                      String
+  authTag                 String
+  allowedAgentPermissions String[]        @default([])
+  userId                  String?
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+  agents                  Agent[]
+  user                    User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  llmConfigs              LLMConfig[]
+
+  @@index([scope])
+  @@index([userId])
+}
+
+model ApprovalRequest {
+  id           String         @id @default(cuid())
+  requestId    String         @unique
+  reason       String
+  status       ApprovalStatus @default(PENDING)
+  requestedBy  String
+  channel      String
+  channelRef   String?
+  expiresAt    DateTime
+  respondedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  agentRequest AgentRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  requestor    User           @relation(fields: [requestedBy], references: [id])
+
+  @@index([status])
+  @@index([requestedBy])
+}
+
+model AgentRequest {
+  id          String           @id @default(cuid())
+  agentId     String
+  userId      String
+  status      RequestStatus    @default(QUEUED)
+  input       String
+  channel     String           @default("api")
+  turns       Json             @default("[]")
+  toolCalls   Json             @default("[]")
+  output      String?
+  errorMsg    String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  agent       Agent            @relation(fields: [agentId], references: [id])
+  user        User             @relation(fields: [userId], references: [id])
+  approval    ApprovalRequest?
+
+  @@index([agentId])
+  @@index([userId])
+  @@index([status])
+  @@index([channel])
+}
+
+model Endpoint {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  description  String?
+  baseUrl      String?
+  tags         String[] @default([])
+  aliases      String[] @default([])
+  notes        String?
+  sshEnabled   Boolean  @default(false)
+  hostname     String?
+  sshPort      Int      @default(22)
+  credentialId String?
+  sshVerified  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tags])
+  @@index([sshEnabled])
+}
+
+model ScheduledJob {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  agentId     String
+  cronExpr    String
+  input       String
+  enabled     Boolean   @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([agentId])
+  @@index([enabled])
+}
+
+model Target {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  description  String?
+  hostname     String
+  sshPort      Int      @default(22)
+  tags         String[] @default([])
+  notes        String?
+  credentialId String?
+  sshVerified  Boolean  @default(false)
+  apiVerified  Boolean  @default(false)
+  apiBaseUrl   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tags])
+}
+
+model SkillRegistryEntry {
+  id          String   @id @default(cuid())
+  domain      String
+  version     String
+  name        String
+  description String?
+  manifest    Json
+  registryUrl String?
+  publishedAt DateTime @default(now())
+
+  @@unique([domain, version])
+  @@index([domain])
+}
+
+model Persona {
+  id                   String   @id @default(cuid())
+  name                 String
+  goal                 String
+  domain               String?
+  systemPrompt         String
+  requiredSkills       String[] @default([])
+  suggestedPermissions String[] @default([])
+  schedule             String?
+  tags                 String[] @default([])
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  agents               Agent[]
+
+  @@index([domain])
+}
+
+model DomainConstraint {
+  id           String             @id @default(cuid())
+  sourceDomain String
+  targetDomain String
+  compatible   CompatibilityLevel
+  notes        String?
+  conditions   Json?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([sourceDomain, targetDomain])
+  @@index([sourceDomain])
+  @@index([targetDomain])
+}
+
+model DynamicTool {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String
+  parameters  Json
+  handlerType String
+  config      Json
+  skillId     String?
+  domain      String?
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([domain])
+  @@index([handlerType])
+}
+
+model CoordinatorSession {
+  id              String        @id @default(cuid())
+  userId          String
+  turns           Json          @default("[]")
+  agentRequestIds String[]      @default([])
+  status          RequestStatus @default(RUNNING)
+  channel         String        @default("api")
+  output          String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model MeshEvent {
+  id                   String         @id @default(cuid())
+  sessionId            String?
+  taskType             String
+  taskPayload          Json
+  requiredCapabilities String[]       @default([])
+  assignedAgentId      String?
+  status               MeshTaskStatus @default(PENDING)
+  result               Json?
+  errorMsg             String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([assignedAgentId])
+}
+
+model LLMConfig {
+  id           String      @id @default(cuid())
+  name         String      @unique
+  provider     String
+  model        String
+  baseUrl      String?
+  apiVersion   String?
+  isDefault    Boolean     @default(false)
+  credentialId String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  credential   Credential? @relation(fields: [credentialId], references: [id])
+
+  @@index([isDefault])
+}
+
+model UserDashboard {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+  agentId     String?
+  prompt      String
+  widgets     Json      @default("[]")
+  refreshMode String    @default("manual")
+  cronExpr    String?
+  lastData    Json?
+  lastRunAt   DateTime?
+  status      String    @default("active")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  meta        Json?
+
+  @@index([slug])
+  @@index([status])
+}
+
+model DomainKnowledge {
+  domain      String   @id
+  docIndex    Json     @default("[]")
+  entityGraph Json     @default("{}")
+  playbooks   Json     @default("[]")
+  updatedAt   DateTime @updatedAt
+}
 
 enum SkillStatus {
   DRAFT
@@ -25,12 +384,12 @@ enum CredentialScope {
 }
 
 enum CredentialType {
-  API_TOKEN          // Single bearer/header token or API key
-  USERNAME_PASSWORD  // username + password (e.g. XCO REST API, web UI login)
-  SSH_KEY            // privateKey + optional passphrase (for SSH executor)
-  BASIC_AUTH         // username + password sent as HTTP Basic Auth
-  OAUTH2_CLIENT      // clientId + clientSecret (+ optional tokenUrl)
-  USER_PREFERENCE    // Arbitrary key/value preferences usable by agents
+  API_TOKEN
+  USERNAME_PASSWORD
+  SSH_KEY
+  BASIC_AUTH
+  OAUTH2_CLIENT
+  USER_PREFERENCE
 }
 
 enum ApprovalStatus {
@@ -62,25 +421,20 @@ enum AgentStatus {
   DRAFT
 }
 
-// ─── Charter enums ────────────────────────────────────────────────────────────
-
-// How autonomously the agent operates — the interactivity axis.
 enum AgentPosture {
-  AUTONOMOUS    // Acts independently; notifies on completion only
-  SUPERVISED    // Plans independently; approval gates for writes and destructive ops
-  INTERACTIVE   // Confirms before each significant action; presents decision options
-  DELIBERATE    // Analysis and planning only; awaits explicit instruction before each execution step
+  AUTONOMOUS
+  SUPERVISED
+  INTERACTIVE
+  DELIBERATE
 }
 
-// How the agent communicates — the bearing axis.
 enum AgentBearing {
-  ANALYTICAL    // Structured findings, data-forward, minimal commentary
-  CONCISE       // Brief, action-oriented responses
-  NARRATIVE     // Explanatory prose with reasoning
-  FORMAL        // Professional, structured, no colloquialisms
+  ANALYTICAL
+  CONCISE
+  NARRATIVE
+  FORMAL
 }
 
-// How much detail the agent includes in its responses.
 enum AgentVerbosity {
   TERSE
   STANDARD
@@ -100,619 +454,4 @@ enum MeshTaskStatus {
   AGGREGATING
   COMPLETED
   FAILED
-}
-
-// ─── Users & Access Control ───────────────────────────────────────────────────
-
-model User {
-  id           String   @id @default(cuid())
-  externalId   String   @unique          // identity from IDP / Telegram / Teams
-  displayName  String   @default("")
-  email        String?  @unique
-  passwordHash String?                   // bcrypt hash for local auth
-  isSystemUser Boolean  @default(false)  // system users can publish/update skills
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  credentials  Credential[]
-  agents       Agent[]
-  requests     AgentRequest[]
-  approvals    ApprovalRequest[]
-}
-
-// ─── Agents ───────────────────────────────────────────────────────────────────
-
-model Agent {
-  id          String      @id @default(cuid())
-  name        String
-  description String?
-  status      AgentStatus @default(DRAFT)
-
-  // Persona & behaviour (free-form JSON, validated by skill-engine)
-  persona     Json        @default("{}")
-  // e.g. { "name": "NetOps", "tone": "concise", "maxTokens": 4096 }
-
-  // LLM configuration
-  llmProvider String      @default("openai")  // openai | anthropic | azure-openai
-  llmModel    String      @default("gpt-4o")
-  llmConfig   Json        @default("{}")       // extra provider params
-
-  // Permissions this agent has been granted
-  permissions String[]    @default([])         // e.g. ["read:network", "schedule:jobs"]
-
-  // Skills this agent uses (pinned versions)
-  agentSkills AgentSkill[]
-
-  ownerId     String
-  owner       User         @relation(fields: [ownerId], references: [id])
-
-  // Optional persona template this agent was spawned from
-  personaId   String?
-  persona_ref Persona?     @relation(fields: [personaId], references: [id])
-
-  // Optional operating charter — defines mandate, posture, bearing
-  charterId   String?      @unique
-  charter     AgentCharter? @relation(fields: [charterId], references: [id])
-
-  // Explicitly assigned credential — takes priority over permission-based lookup.
-  // Named credentials make it easy to switch between e.g. "XCO Lab" and "XCO Production".
-  credentialId String?
-  credential   Credential?  @relation(fields: [credentialId], references: [id])
-
-  requests    AgentRequest[]
-
-  // System default — exactly one agent can have this set. It handles requests when no
-  // specific agent is selected, and gets all published skills automatically linked.
-  isDefault   Boolean     @default(false)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([ownerId])
-  @@index([status])
-  @@index([isDefault])
-}
-
-// ─── Agent Charter ────────────────────────────────────────────────────────────
-// The AgentCharter defines an agent's operating mandate, behavioral posture,
-// and authority boundaries. It is the enterprise equivalent of a behavioral
-// framework — every deployed agent should have one.
-
-model AgentCharter {
-  id       String @id @default(cuid())
-
-  // What this agent exists to do — injected into every system prompt
-  mandate  String
-
-  // How autonomously the agent operates (the interactivity axis)
-  posture  AgentPosture @default(SUPERVISED)
-
-  // How the agent communicates
-  bearing  AgentBearing @default(CONCISE)
-
-  // How much detail is included in responses
-  verbosity AgentVerbosity @default(STANDARD)
-
-  // Actions that always require human approval regardless of posture
-  // e.g. ["delete.*", "write:fabric-config", "ssh:exec:reboot"]
-  conductBoundaries String[] @default([])
-
-  // Conditions that force immediate escalation
-  // e.g. ["severity:CRITICAL", "alarm_count > 10", "config drift detected"]
-  escalationTriggers String[] @default([])
-
-  // Optional hard limits on the scope of action
-  // e.g. { "maxTargets": 5, "allowedDomains": ["networking.*"] }
-  scopeLimits Json?
-
-  agent    Agent?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// ─── Skills ───────────────────────────────────────────────────────────────────
-
-model Skill {
-  id          String      @id @default(cuid())
-  name        String
-  domain      String      // e.g. "networking.extreme-xco"
-  description String?
-  version     String      // semver e.g. "1.2.0"
-  status      SkillStatus @default(DRAFT)
-
-  // Capabilities offered by this skill (discoverable by orchestrator)
-  capabilities String[]
-
-  // Tools (function definitions the LLM can call)
-  tools       Json        @default("[]")
-  // Array of { name, description, parameters (JSON Schema), endpoint? }
-
-  // System prompt fragment injected when this skill is active
-  systemPrompt String?
-
-  // Accumulated learnings from real interactions — appended by the agent when it discovers
-  // API quirks, correct parameter values, pagination patterns, etc.
-  // Injected after systemPrompt so it overrides/refines generated guidance.
-  learnedNotes String?
-
-  // What type of credential agents need when using this skill
-  // Matches CredentialType enum: API_TOKEN | USERNAME_PASSWORD | SSH_KEY | BASIC_AUTH | OAUTH2_CLIENT | USER_PREFERENCE
-  requiredCredentialType String?
-
-  knowledgeSources KnowledgeSource[]
-  agentSkills      AgentSkill[]
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([domain, version])
-  @@index([domain])
-  @@index([status])
-}
-
-// Join table: Agent ↔ Skill (with pinned version)
-model AgentSkill {
-  agentId  String
-  skillId  String
-  agent    Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  skill    Skill  @relation(fields: [skillId], references: [id])
-
-  @@id([agentId, skillId])
-}
-
-// ─── Knowledge Sources ────────────────────────────────────────────────────────
-
-model KnowledgeSource {
-  id          String              @id @default(cuid())
-  skillId     String
-  skill       Skill               @relation(fields: [skillId], references: [id], onDelete: Cascade)
-
-  type        KnowledgeSourceType
-  label       String              // Human-readable label
-  rawContent  Bytes?              // For PDFs / uploaded files
-  url         String?             // For URL / OpenAPI sources
-  parsedAt    DateTime?           // When it was last processed
-
-  createdAt   DateTime @default(now())
-
-  @@index([skillId])
-}
-
-// ─── Credentials ──────────────────────────────────────────────────────────────
-
-model Credential {
-  id              String          @id @default(cuid())
-  name            String
-  description     String?
-  scope           CredentialScope
-
-  // What kind of secret this is — determines fields inside encryptedValue
-  credentialType  CredentialType  @default(API_TOKEN)
-
-  // AES-256-GCM encrypted JSON blob (key management in credential-vault service)
-  encryptedValue  String
-  iv              String          // base64-encoded initialisation vector
-  authTag         String          // base64-encoded GCM auth tag
-
-  // Which agent permissions can request this credential
-  allowedAgentPermissions String[] @default([])
-
-  userId    String?
-  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Agents that have this credential directly assigned
-  agents    Agent[]
-  // LLM configs that reference this credential
-  llmConfigs LLMConfig[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([scope])
-  @@index([userId])
-}
-
-// ─── Approval Requests ────────────────────────────────────────────────────────
-
-model ApprovalRequest {
-  id            String         @id @default(cuid())
-  requestId     String         @unique  // links to AgentRequest
-  agentRequest  AgentRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  reason        String         // Human-readable reason for the request
-  status        ApprovalStatus @default(PENDING)
-
-  requestedBy   String
-  requestor     User           @relation(fields: [requestedBy], references: [id])
-
-  // Notification channel used (telegram | teams | email)
-  channel       String
-  channelRef    String?        // e.g. Telegram message_id for editing the message
-
-  expiresAt     DateTime       // TTL for the approval
-  respondedAt   DateTime?
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([status])
-  @@index([requestedBy])
-}
-
-// ─── Agent Requests (execution log) ──────────────────────────────────────────
-
-model AgentRequest {
-  id          String        @id @default(cuid())
-  agentId     String
-  agent       Agent         @relation(fields: [agentId], references: [id])
-
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
-
-  status      RequestStatus @default(QUEUED)
-
-  // The original user input
-  input       String
-  // Channel: api | telegram | teams | dashboard
-  channel     String        @default("api")
-
-  // LLM conversation turns stored as JSON
-  turns       Json          @default("[]")
-
-  // Tool calls made during this request
-  toolCalls   Json          @default("[]")
-
-  // Final response
-  output      String?
-  errorMsg    String?
-
-  approval    ApprovalRequest?
-
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([agentId])
-  @@index([userId])
-  @@index([status])
-  @@index([channel])
-}
-
-// ─── Endpoints / Systems Registry ────────────────────────────────────────────
-// Loaded from a markdown endpoints file; also editable via dashboard.
-// Endpoints can be pure REST API endpoints OR SSH-accessible hosts (or both).
-
-model Endpoint {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  baseUrl     String?
-  // Tags for discovery (e.g. ["networking", "extreme-xco"])
-  tags        String[] @default([])
-  // Natural-language aliases for smart routing (e.g. ["office network", "home xco"])
-  aliases     String[] @default([])
-  // Markdown notes / connection hints
-  notes       String?
-
-  // ── SSH (optional) ────────────────────────────────────────────────────────
-  sshEnabled   Boolean  @default(false)
-  hostname     String?             // FQDN or IP address
-  sshPort      Int      @default(22)
-  credentialId String?             // Reference to vault credential (username + key/password)
-  sshVerified  Boolean  @default(false)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([tags])
-  @@index([sshEnabled])
-}
-
-// ─── Scheduled Jobs ───────────────────────────────────────────────────────────
-
-model ScheduledJob {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  agentId     String
-  cronExpr    String   // e.g. "0 * * * *"
-  input       String   // JSON-encoded agent input
-  enabled     Boolean  @default(true)
-  lastRunAt   DateTime?
-  nextRunAt   DateTime?
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([agentId])
-  @@index([enabled])
-}
-
-// ─── Targets (network devices, servers) ──────────────────────────────────────
-// Targets represent managed devices/hosts. Credentials are stored in the vault.
-
-model Target {
-  id           String   @id @default(cuid())
-  name         String   @unique
-  description  String?
-  hostname     String   // FQDN or IP address
-  sshPort      Int      @default(22)
-  // Tags for grouping/discovery (e.g. ["xco", "core-switch", "site:london"])
-  tags         String[] @default([])
-  // Notes / connection hints
-  notes        String?
-  // Reference to the credential in the vault (username + password/key)
-  credentialId String?
-  // Whether SSH access has been verified
-  sshVerified  Boolean  @default(false)
-  // Whether REST API access has been verified
-  apiVerified  Boolean  @default(false)
-  // Base URL for the target's REST API (if applicable)
-  apiBaseUrl   String?
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([tags])
-}
-
-// ─── Skill Registry Manifest ──────────────────────────────────────────────────
-// Tracks skills published to / pulled from the central skill registry.
-
-model SkillRegistryEntry {
-  id          String   @id @default(cuid())
-  domain      String
-  version     String
-  name        String
-  description String?
-  // JSON manifest payload (tools, systemPrompt, capabilities, checksum)
-  manifest    Json
-  // Registry URL this was pulled from (null = locally published)
-  registryUrl String?
-  publishedAt DateTime @default(now())
-
-  @@unique([domain, version])
-  @@index([domain])
-}
-
-// ─── Personas ─────────────────────────────────────────────────────────────────
-// Reusable agent templates generated from a goal description by the PersonaFactory.
-// Agents can be spawned directly from a Persona.
-
-model Persona {
-  id           String   @id @default(cuid())
-  name         String
-  goal         String   // Natural-language goal that drove persona creation
-  domain       String?  // Optional domain hint (e.g. "networking.extreme-xco")
-
-  // LLM-generated system prompt for agents spawned from this persona
-  systemPrompt String
-
-  // Required skill domains (resolved at spawn time)
-  requiredSkills String[] @default([])
-
-  // Suggested permissions
-  suggestedPermissions String[] @default([])
-
-  // Optional cron expression if this persona should run on a schedule
-  schedule     String?
-
-  // Tags for discovery
-  tags         String[] @default([])
-
-  agents       Agent[]
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([domain])
-}
-
-// ─── Domain Constraints ───────────────────────────────────────────────────────
-// Records compatibility between two domain skill sets.
-// The Coordinator checks this before composing multi-domain agent tasks.
-
-model DomainConstraint {
-  id           String             @id @default(cuid())
-  sourceDomain String             // e.g. "networking.extreme-xiq"
-  targetDomain String             // e.g. "networking.extreme-xco"
-  compatible   CompatibilityLevel // FULL | PARTIAL | NONE
-
-  // Human-readable explanation of the constraint
-  notes        String?
-
-  // Optional structured conditions (JSON). E.g. { "minXcoVersion": "3.0", "excludedModels": ["X435"] }
-  conditions   Json?
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@unique([sourceDomain, targetDomain])
-  @@index([sourceDomain])
-  @@index([targetDomain])
-}
-
-// ─── Dynamic Tools ────────────────────────────────────────────────────────────
-// Runtime-generated tools stored in DB so they survive restarts.
-// Created by ToolFactory.generate() or via skill builder.
-
-model DynamicTool {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String
-
-  // JSON Schema for tool parameters
-  parameters  Json
-
-  // How this tool is executed: http_call | skill_invoke | agent_delegate | ssh_exec
-  handlerType String
-
-  // Handler-specific configuration (URL template, skillId, agentId, targetId etc.)
-  config      Json
-
-  // Optional skill this tool was generated from
-  skillId     String?
-
-  // Domain this tool belongs to (for capability routing)
-  domain      String?
-
-  enabled     Boolean  @default(true)
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([domain])
-  @@index([handlerType])
-}
-
-// ─── Coordinator Sessions ────────────────────────────────────────────────────
-// A CoordinatorSession tracks a multi-turn, potentially multi-agent conversation
-// routed through the Coordinator Agent (smart gateway node).
-
-model CoordinatorSession {
-  id              String         @id @default(cuid())
-  userId          String
-
-  // Serialised conversation turns (coordinator + user + sub-agent results)
-  turns           Json           @default("[]")
-
-  // IDs of AgentRequests spawned by this session
-  agentRequestIds String[]       @default([])
-
-  // Current high-level status
-  status          RequestStatus  @default(RUNNING)
-
-  // Channel this session came in on
-  channel         String         @default("api")
-
-  // Final synthesised answer (once COMPLETED)
-  output          String?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([userId])
-  @@index([status])
-}
-
-// ─── Agent Mesh Events ────────────────────────────────────────────────────────
-// Observability log of inter-agent tasks routed through the mesh.
-
-model MeshEvent {
-  id              String         @id @default(cuid())
-
-  // The coordinator session that triggered this
-  sessionId       String?
-
-  // Task type / description
-  taskType        String
-  taskPayload     Json
-
-  // Which agent capabilities were required
-  requiredCapabilities String[]  @default([])
-
-  // Which agent was selected to handle this
-  assignedAgentId String?
-
-  status          MeshTaskStatus @default(PENDING)
-
-  result          Json?
-  errorMsg        String?
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([sessionId])
-  @@index([status])
-  @@index([assignedAgentId])
-}
-
-// ─── LLM Configurations ──────────────────────────────────────────────────────
-// Named LLM configs allowing multiple providers to be registered and switched.
-
-model LLMConfig {
-  id           String   @id @default(cuid())
-  name         String   @unique    // e.g. "OpenAI Production", "Anthropic Dev", "Local Ollama"
-  provider     String              // openai | anthropic | azure-openai | ollama
-  model        String              // e.g. gpt-4o, claude-3-5-sonnet-20241022, llama3
-  baseUrl      String?             // optional base URL — Ollama host or Azure endpoint
-  apiVersion   String?             // Azure OpenAI API version (e.g. 2024-08-01-preview)
-  isDefault    Boolean  @default(false)
-  // FK to Credential (API_TOKEN type) holding the API key — optional for Ollama
-  credentialId String?
-  credential   Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([isDefault])
-}
-
-// ─── Domain Knowledge Index ───────────────────────────────────────────────────
-// Per-domain structured intelligence: doc references, entity relationships,
-// and analysis playbooks. Populated automatically during skill builds and
-// editable via the dashboard.
-
-// ─── User Dashboards ──────────────────────────────────────────────────────────
-// Dynamic data dashboards backed by agent skill output.
-// Each dashboard has a URL-friendly slug, an agent query (prompt), cached data,
-// and a JSON widget layout (headlines, tables, charts, actions).
-
-model UserDashboard {
-  id          String    @id @default(cuid())
-  slug        String    @unique
-  name        String
-  description String?
-
-  // Which agent provides the data (null = use default agent)
-  agentId     String?
-
-  // The query/prompt sent to the agent to produce dashboard data
-  prompt      String
-
-  // Widget layout — array of { id, type, title, dataKey, ... }
-  widgets     Json      @default("[]")
-
-  // Refresh mode: "manual" | "scheduled" | "realtime"
-  refreshMode String    @default("manual")
-
-  // Cron expression for scheduled refresh (e.g. "*/5 * * * *")
-  cronExpr    String?
-
-  // Cached latest response data from the agent (raw parsed JSON)
-  lastData    Json?
-
-  lastRunAt   DateTime?
-  status      String    @default("active")  // "active" | "paused" | "archived" | "provisioning" | "error"
-
-  // Provisioning metadata: { provisioningMessage, errorDetail, skillsInstalled }
-  meta        Json?
-
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([slug])
-  @@index([status])
-}
-
-model DomainKnowledge {
-  // Domain key — matches Skill.domain prefix (e.g. "extremecloudiq", "networking.extreme-xco")
-  domain      String   @id
-
-  // Catalogued documentation references discovered during skill builds.
-  // Array of { url, title, type, description, discoveredAt }
-  // type: "api_guide" | "cli" | "troubleshooting" | "release_notes" | "user_guide" | "other"
-  docIndex    Json     @default("[]")
-
-  // Explicit entity relationship graph.
-  // { entities: { EntityName: { idField, links: { RelatedEntity: "foreignKeyField" } } }, computations: { name: "description" } }
-  entityGraph Json     @default("{}")
-
-  // Named analysis playbooks triggered by keyword matching against user queries.
-  // Array of { name, description, triggerPatterns: string[], steps: Step[] }
-  playbooks   Json     @default("[]")
-
-  updatedAt   DateTime @updatedAt
 }

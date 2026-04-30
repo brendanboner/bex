@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import chalk from 'chalk';
 import ora from 'ora';
 import { findProjectRoot, printError } from '../utils.js';
+import { getGlobalVersion } from '@bex/shared';
 
 interface ServiceStatus {
   name: string;
@@ -66,6 +67,19 @@ export async function statusCommand(): Promise<void> {
     if (svc.error && !svc.healthy) {
       console.log(`    ${chalk.dim(svc.error)}`);
     }
+  }
+
+  // Show version information
+  console.log('');
+  console.log(chalk.bold('  System Versions'));
+  console.log(chalk.dim('  ' + '─'.repeat(52)));
+  const globalVersion = getGlobalVersion(root);
+  if (globalVersion) {
+    const date = new Date(globalVersion.timestamp);
+    const dateStr = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    console.log(`  ${chalk.cyan('Global')} ${globalVersion.version.padEnd(20)} ${chalk.dim(dateStr)}`);
+  } else {
+    console.log(`  ${chalk.dim('Global version unavailable (not in git repo)')}`);
   }
 
   // Show pm2 process table

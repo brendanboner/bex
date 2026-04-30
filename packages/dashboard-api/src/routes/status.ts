@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 
-import { ok } from '@bex/shared';
+import { ok, getServiceVersions } from '@bex/shared';
 
 export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
 
@@ -73,11 +73,21 @@ export async function statusRoutes(app: FastifyInstance, prisma: PrismaClient): 
       recentRequests.map((r: { status: string; _count: { status: number } }) => [r.status, r._count.status]),
     );
 
+    // Get version information
+    const versions = getServiceVersions();
+
     return reply.send(
       ok({
         counts: { agents, skills, credentials, requests, users, endpoints, scheduledJobs: jobs },
         queue: queueStats,
         requestsByStatus,
+        versions: versions ? {
+          global: versions.global.version,
+          timestamp: versions.global.timestamp,
+          services: Object.fromEntries(
+            Object.entries(versions.services).map(([name, info]) => [name, { version: info.version, timestamp: info.timestamp }]),
+          ),
+        } : undefined,
       }),
     );
   });
