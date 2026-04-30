@@ -925,7 +925,8 @@ Be concise and technical in your responses.`,
       const agentsJson = (await agentsRes.json()) as { ok: boolean; data?: Array<{ id: string; name: string }> };
       const agents = agentsJson.data ?? [];
       const bestAgent =
-        agents.find((a) => a.name === 'ExtremeCloud IQ Monitor' || a.name === 'ExtremeCloud IQ') ??
+        agents.find((a) => a.name === 'ExtremeCloud IQ') ??
+        agents.find((a) => a.name === 'ExtremeCloud IQ Monitor') ??
         agents[0];
       if (bestAgent) {
         writeEnv({ TELEGRAM_DEFAULT_AGENT_ID: bestAgent.id });

@@ -718,6 +718,7 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     }
 
     await provisionSystemOpsSkill(prisma);
+    await deduplicateLegacyAgents(prisma);
     await assignSystemOpsSkillToMonitorAgents(prisma);
     await provisionApSsidMonitorJob(prisma);
     await syncSkillsFromRegistry(prisma);
@@ -831,6 +832,40 @@ async function provisionSystemOpsSkill(prisma: PrismaClient): Promise<void> {
   console.info('[provision] system.operations skill created');
 }
 
+/**
+ * Deactivates legacy-named agents when their canonical counterpart exists.
+ * Safe to run on every startup — idempotent. Handles existing installs that
+ * were set up before the canonical naming convention was enforced.
+ */
+async function deduplicateLegacyAgents(prisma: PrismaClient): Promise<void> {
+  const LEGACY_MAP: Array<{ canonical: string; legacy: string[] }> = [
+    {
+      canonical: 'ExtremeCloud IQ',
+      legacy: ['ExtremeCloud IQ Monitor'],
+    },
+    {
+      canonical: 'ExtremeCloud Orchestrator',
+      legacy: ['XCO Monitor', 'XCO Operator', 'XCO Provisioner'],
+    },
+  ];
+
+  for (const { canonical, legacy } of LEGACY_MAP) {
+    const canonicalAgent = await prisma.agent.findFirst({
+      where: { name: canonical, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (!canonicalAgent) continue;
+
+    const deactivated = await prisma.agent.updateMany({
+      where: { name: { in: legacy }, status: 'ACTIVE' },
+      data: { status: 'INACTIVE' },
+    });
+    if (deactivated.count > 0) {
+      console.info(`[provision] Deactivated ${deactivated.count} legacy agent(s) superseded by "${canonical}"`);
+    }
+  }
+}
+
 async function assignSystemOpsSkillToMonitorAgents(prisma: PrismaClient): Promise<void> {
   const sysOps = await prisma.skill.findFirst({
     where: { domain: 'system.operations' },
@@ -838,10 +873,12 @@ async function assignSystemOpsSkillToMonitorAgents(prisma: PrismaClient): Promis
   });
   if (!sysOps) return;
 
-  // Find all monitoring agents and assign system ops skill
+  // Target canonical agent names and legacy name-based patterns
   const monitorAgents = await prisma.agent.findMany({
     where: {
+      status: 'ACTIVE',
       OR: [
+        { name: { in: ['ExtremeCloud IQ', 'ExtremeCloud Orchestrator'] } },
         { name: { contains: 'Monitor' } },
         { name: { contains: 'Operator' } },
       ],

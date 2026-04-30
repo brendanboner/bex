@@ -156,14 +156,16 @@ async function main() {
 
   // ── 4. Create/update the main monitoring agent ────────────────────────────
   let agentId: string;
+  // Find by canonical name first, then legacy name as fallback for upgrades
   const existingAgent = await prisma.agent.findFirst({
-    where: { name: 'ExtremeCloud IQ Monitor' },
+    where: { name: { in: ['ExtremeCloud IQ', 'ExtremeCloud IQ Monitor'] } },
+    orderBy: { name: 'asc' }, // 'ExtremeCloud IQ' sorts before 'ExtremeCloud IQ Monitor'
     select: { id: true, charterId: true },
   });
 
   const agentPayload = {
-    name: 'ExtremeCloud IQ Monitor',
-    description: 'Full-featured ExtremeCloud IQ agent: manage devices, clients, VLANs, SSIDs, policies, and more.',
+    name: 'ExtremeCloud IQ',
+    description: 'Manages and monitors your ExtremeCloud IQ wireless network — devices, clients, alerts, policies, and more.',
     llmProvider: LLM_PROVIDER,
     llmModel: LLM_MODEL,
     permissions: ['xiq:read', 'xiq:write', '*'],

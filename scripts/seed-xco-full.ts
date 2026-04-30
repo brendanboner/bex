@@ -342,7 +342,7 @@ async function main() {
   // ── 3. Clean up old XCO skills / agents ────────────────────────────────────
   log('Cleaning up any existing XCO agents and skills...');
   const oldAgents = await prisma.agent.findMany({
-    where: { name: { in: ['XCO Monitor', 'XCO Operator', 'XCO Provisioner'] } },
+    where: { name: { in: ['XCO Monitor', 'XCO Operator', 'XCO Provisioner', 'ExtremeCloud Orchestrator'] } },
     select: { id: true, name: true },
   });
   for (const a of oldAgents) {
@@ -657,64 +657,29 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
     info(`learnedNotes seeding skipped: ${(e as Error).message}`);
   }
 
-  // ── 5. Create agents ────────────────────────────────────────────────────────
-  log('Creating XCO Monitor Agent (AUTONOMOUS, read-only)...');
-  const monitorCharter = await prisma.agentCharter.create({
+  // ── 5. Create canonical agent ───────────────────────────────────────────────
+  log('Creating ExtremeCloud Orchestrator agent...');
+  const xcoCharter = await prisma.agentCharter.create({
     data: {
-      mandate: 'Monitor ExtremeCloud Orchestrator fabric health. Collect alarm data, fabric topology, device inventory and platform health. Flag Critical/Major issues immediately. Never write.',
-      posture: 'AUTONOMOUS',
+      mandate: 'Monitor and manage ExtremeCloud Orchestrator. Read operations (fabric health, alarms, topology, inventory, diagnostics, telemetry) are autonomous. Write operations require human approval.',
+      posture: 'SUPERVISED',
       bearing: 'ANALYTICAL',
       verbosity: 'STANDARD',
-      conductBoundaries: ['write:*', 'delete:*'],
+      conductBoundaries: ['delete:*', 'fabric:reset', 'switch:remove', 'alarm.purge'],
       escalationTriggers: ['Critical alarm', 'fabric provisioning failed', 'service unhealthy', 'configuration drift'],
     },
   });
 
-  const monitorAgent = await prisma.agent.create({
+  const xcoAgent = await prisma.agent.create({
     data: {
-      name: 'XCO Monitor',
-      description: 'Autonomous read-only agent for monitoring XCO fabrics, alarms, devices, platform health, BGP/interface diagnostics, and telemetry.',
+      name: 'ExtremeCloud Orchestrator',
+      description: 'Monitors and manages your ExtremeCloud Orchestrator fabric network — health, alarms, topology, and operations.',
       llmProvider: LLM_PROVIDER,
       llmModel: LLM_MODEL,
-      permissions: ['read:data', 'read:metrics'],
+      permissions: ['xco:read', 'xco:write'],
       status: 'ACTIVE',
       ownerId: systemUser.id,
-      charterId: monitorCharter.id,
-      credentialId: credId,
-      agentSkills: {
-        create: [
-          { skillId: monitorSkill.id },
-          { skillId: diagnosticsSkill.id },
-          { skillId: telemetrySkill.id },
-          { skillId: topoCompositeId },
-        ],
-      },
-    },
-  });
-  ok(`XCO Monitor agent: ${monitorAgent.id}`);
-
-  log('Creating XCO Operator Agent (SUPERVISED)...');
-  const operatorCharter = await prisma.agentCharter.create({
-    data: {
-      mandate: 'Operate ExtremeCloud Orchestrator. Read all data autonomously. For alarm ack/close/fabric ops, request approval. Never provision or delete without explicit instruction.',
-      posture: 'SUPERVISED',
-      bearing: 'FORMAL',
-      verbosity: 'DETAILED',
-      conductBoundaries: ['fabric.create', 'fabric.delete', 'device.register', 'device.remove', 'alarm.purge'],
-      escalationTriggers: ['Critical alarm unacknowledged', 'fabric provisioning failed', 'multiple devices offline'],
-    },
-  });
-
-  const operatorAgent = await prisma.agent.create({
-    data: {
-      name: 'XCO Operator',
-      description: 'Supervised operator for XCO. Reads freely (inventory, alarms, BGP/interface diagnostics, telemetry), writes require approval.',
-      llmProvider: LLM_PROVIDER,
-      llmModel: LLM_MODEL,
-      permissions: ['read:data', 'read:metrics', 'write:alarms'],
-      status: 'ACTIVE',
-      ownerId: systemUser.id,
-      charterId: operatorCharter.id,
+      charterId: xcoCharter.id,
       credentialId: credId,
       agentSkills: {
         create: [
@@ -727,7 +692,7 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
       },
     },
   });
-  ok(`XCO Operator agent: ${operatorAgent.id}`);
+  ok(`ExtremeCloud Orchestrator agent: ${xcoAgent.id}`);
 
   // ── 6. Target for XCO host ──────────────────────────────────────────────────
   log('Creating XCO target (for SSH exec)...');
@@ -802,11 +767,10 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
   console.log(`    networking.extreme-xco.telemetry     ${telemetrySkill.id}  (${TELEMETRY_TOOLS.length} tools)`);
   console.log('');
   console.log('  Agents (ACTIVE):');
-  console.log(`    XCO Monitor   ${monitorAgent.id}  (AUTONOMOUS)`);
-  console.log(`    XCO Operator  ${operatorAgent.id}  (SUPERVISED)`);
+  console.log(`    ExtremeCloud Orchestrator  ${xcoAgent.id}  (SUPERVISED)`);
   console.log('');
   console.log('  Test with:');
-  console.log(`    POST /requests  { agentId: "${monitorAgent.id}", input: "List all devices on this XCO network" }`);
+  console.log(`    POST /requests  { agentId: "${xcoAgent.id}", input: "List all devices on this XCO network" }`);
   console.log('');
 
   // Write output file
@@ -822,8 +786,7 @@ OUTPUT FORMAT: Respond with a single JSON object using the tool's return keys �
       telemetry:   { id: telemetrySkill.id,   domain: telemetrySkill.domain },
     },
     agents: {
-      monitor: monitorAgent.id,
-      operator: operatorAgent.id,
+      xco: xcoAgent.id,
     },
   };
 
