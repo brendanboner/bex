@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { ok, err, ErrorCodes } from '@bex/shared';
 import { CoordinatorAgent, SessionManager } from '@bex/coordinator';
+import { createAgentQueue, type AgentJobData } from '@bex/scheduler';
 
 const ChatBodySchema = z.object({
   message: z.string().min(1),
@@ -16,10 +17,22 @@ const PlanBodySchema = z.object({
 });
 
 export async function coordinatorRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
+  const queue = createAgentQueue();
+
   const coordinator = new CoordinatorAgent(prisma, {
     knowledgeDir: process.env['KNOWLEDGE_DIR'] ?? './knowledge',
     ...(process.env['LLM_PROVIDER'] !== undefined ? { llmProvider: process.env['LLM_PROVIDER'] } : {}),
     ...(process.env['LLM_MODEL'] !== undefined ? { llmModel: process.env['LLM_MODEL'] } : {}),
+    enqueueRequest: async (data: { requestId: string; agentId: string; userId: string; input: string; channel: string }) => {
+      const jobData: AgentJobData = {
+        requestId: data.requestId,
+        agentId: data.agentId,
+        userId: data.userId,
+        input: data.input,
+        channel: data.channel as AgentJobData['channel'],
+      };
+      await queue.add(data.requestId, jobData);
+    },
   });
 
   const sessionManager = new SessionManager(prisma);

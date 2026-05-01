@@ -5,6 +5,34 @@ import { CreateCredentialSchema, ok, err, ErrorCodes } from '@bex/shared';
 import { CredentialVaultService } from '@bex/credential-vault';
 import { resolveUserId } from '../user-resolver.js';
 
+// Serialized re-provision: only one run at a time; if a run is in-flight when
+// another credential is stored, we set a pending flag so a second run fires
+// immediately after the first completes — ensuring no domain is ever dropped.
+let reprovisionRunning = false;
+let reprovisionPending = false;
+
+async function runReprovision(prisma: PrismaClient): Promise<void> {
+  if (reprovisionRunning) {
+    reprovisionPending = true;
+    return;
+  }
+  reprovisionRunning = true;
+  try {
+    do {
+      reprovisionPending = false;
+      const { provision } = await import('../provision.js');
+      const { CredentialVaultService: CVS } = await import('@bex/credential-vault');
+      const v = new CVS(prisma);
+      await provision(prisma, v);
+      console.info('[credentials] Re-provisioned after credential creation');
+    } while (reprovisionPending);
+  } catch (e) {
+    console.warn('[credentials] Re-provision failed (non-fatal):', (e as Error).message);
+  } finally {
+    reprovisionRunning = false;
+  }
+}
+
 export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const vault = new CredentialVaultService(prisma);
 
@@ -29,20 +57,10 @@ export async function credentialRoutes(app: FastifyInstance, prisma: PrismaClien
     if (!userId) return reply.status(401).send(err(ErrorCodes.UNAUTHORIZED, 'User not found'));
     const credential = await vault.create(parsed.data, userId);
 
-    // Fire-and-forget re-provision when XIQ or XCO credentials are added
+    // Fire-and-forget serialized re-provision when XIQ or XCO credentials are added
     const credLower = (parsed.data.name + ' ' + (parsed.data.description ?? '')).toLowerCase();
     if (credLower.includes('xiq') || credLower.includes('extremecloudiq') || credLower.includes('xco') || credLower.includes('orchestrator')) {
-      void (async () => {
-        try {
-          const { provision } = await import('../provision.js');
-          const { CredentialVaultService: CVS } = await import('@bex/credential-vault');
-          const v = new CVS(prisma);
-          await provision(prisma, v);
-          console.info('[credentials] Re-provisioned after credential creation');
-        } catch (e) {
-          console.warn('[credentials] Re-provision failed (non-fatal):', (e as Error).message);
-        }
-      })();
+      void runReprovision(prisma);
     }
 
     return reply.status(201).send(ok(credential));

@@ -507,11 +507,12 @@ export async function initCommand(): Promise<void> {
         name: string,
         credentialType: 'API_TOKEN' | 'USERNAME_PASSWORD',
         value: Record<string, string>,
+        allowedAgentPermissions?: string[],
       ): Promise<void> {
         const response = await fetch('http://localhost:4000/credentials', {
           method: 'POST',
           headers: authHeader,
-          body: JSON.stringify({ name, scope: 'SYSTEM', credentialType, value }),
+          body: JSON.stringify({ name, scope: 'SYSTEM', credentialType, value, ...(allowedAgentPermissions ? { allowedAgentPermissions } : {}) }),
         });
 
         if (!response.ok) {
@@ -548,7 +549,7 @@ export async function initCommand(): Promise<void> {
         await storeSystemCred('system.xiq_credentials', 'USERNAME_PASSWORD', {
           xiq_username: domainEnv['XIQ_USERNAME'] ?? '',
           xiq_password: domainEnv['XIQ_PASSWORD'] ?? '',
-        });
+        }, ['xiq:read', 'xiq:write', '*']);
         console.info('[init] ✓ Stored XIQ credentials');
       }
       if (domainEnv['XCO_HOST']) {
@@ -556,7 +557,7 @@ export async function initCommand(): Promise<void> {
           xco_host: domainEnv['XCO_HOST'] ?? '',
           xco_username: domainEnv['XCO_USERNAME'] ?? '',
           xco_password: domainEnv['XCO_PASSWORD'] ?? '',
-        });
+        }, ['xco:read', 'xco:write', '*']);
         console.info('[init] ✓ Stored XCO credentials');
       }
       if (channelEnv['TWILIO_ACCOUNT_SID']) {

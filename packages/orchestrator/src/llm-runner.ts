@@ -153,7 +153,7 @@ export function buildTools(
   skillTools: SkillTool[],
   vault: CredentialVaultService,
   agentPermissions: string[],
-  credentialId: string | undefined,
+  agentCredentialId: string | undefined,
 ): Record<string, CoreTool> {
   const tools: Record<string, CoreTool> = {};
 
@@ -190,6 +190,9 @@ export function buildTools(
       execute: async (args: Record<string, unknown>): Promise<unknown> => {
         const handlerType = skillTool.handlerType;
         const config = skillTool.config ?? {};
+        // Resolve effective credential: domain-level (resolvedCredentialId injected by
+        // orchestrator's domain cred map) takes priority; fall back to agent-level credential.
+        const credentialId = (config['resolvedCredentialId'] as string | undefined) ?? agentCredentialId;
 
         // ── xiq_http_call: ExtremeCloud IQ login-then-call pattern ───────────
         // Logs in via POST /login with username/password credential, then calls

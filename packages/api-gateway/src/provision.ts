@@ -720,9 +720,8 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     await provisionSystemOpsSkill(prisma);
     await deduplicateLegacyAgents(prisma);
     await assignSystemOpsSkillToMonitorAgents(prisma);
-    if (xiqEnabled) {
-      await provisionApSsidMonitorJob(prisma);
-    }
+    // NOTE: provisionApSsidMonitorJob is intentionally NOT called here.
+    // Scheduled jobs are created by users via the dashboard, not auto-provisioned on startup.
     await syncSkillsFromRegistry(prisma);
     await syncKnowledgeFromRegistry();
   } catch (e) {

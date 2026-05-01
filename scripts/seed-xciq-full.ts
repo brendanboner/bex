@@ -122,16 +122,18 @@ async function main() {
 
   if (canonicalCred) {
     credentialId = canonicalCred.id;
+    const updateData: Record<string, unknown> = {
+      // Always ensure permissions are set to the canonical set
+      allowedAgentPermissions: ['xiq:read', 'xiq:write', '*'],
+    };
     if (XIQ_USERNAME && XIQ_PASSWORD) {
       const blob = encrypt({ username: XIQ_USERNAME, password: XIQ_PASSWORD });
-      await prisma.credential.update({
-        where: { id: credentialId },
-        data: { encryptedValue: blob.encryptedValue, iv: blob.iv, authTag: blob.authTag },
-      });
+      Object.assign(updateData, { encryptedValue: blob.encryptedValue, iv: blob.iv, authTag: blob.authTag });
       console.log(`✔ Updated system.xiq_credentials (${credentialId}) with new values`);
     } else {
-      console.log(`✔ Using existing system.xiq_credentials: ${credentialId}`);
+      console.log(`✔ Patching allowedAgentPermissions on existing system.xiq_credentials: ${credentialId}`);
     }
+    await prisma.credential.update({ where: { id: credentialId }, data: updateData });
   } else if (XIQ_USERNAME && XIQ_PASSWORD) {
     // bex init not run yet — create the canonical credential now
     const cred = await vault.create({
@@ -287,10 +289,10 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
     console.log(`  ${icon} [${domain}] ${mergedTools.length} tools (${readCount}R/${writeCount}W) — DB: ${skillId.slice(-8)} Registry: ${pushed ? '✅' : '⚠️'}`);
   }
 
-  // Update credential permissions to include wildcard for new agent
+  // Update credential permissions to include the canonical permission set
   await prisma.credential.update({
     where: { id: credentialId },
-    data: { allowedAgentPermissions: ['xciq:read', 'xciq:write', '*'] },
+    data: { allowedAgentPermissions: ['xiq:read', 'xiq:write', '*'] },
   });
 
   console.log(`\n══════════════════════════════════════════════════`);

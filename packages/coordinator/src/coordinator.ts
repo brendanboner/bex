@@ -16,7 +16,10 @@ import {
   makeWriteKnowledgeTool,
   makeListKnowledgeTopicsTool,
   makeCreateSkillTool,
+  type EnqueueRequestFn,
 } from './meta-tools.js';
+
+export type { EnqueueRequestFn };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +27,7 @@ export type CoordinatorConfig = {
   llmProvider?: string;
   llmModel?: string;
   knowledgeDir?: string;
+  enqueueRequest?: EnqueueRequestFn;
 };
 
 export type ChatResult = {
@@ -105,8 +109,8 @@ export class CoordinatorAgent {
 
     const tools = {
       list_agents: makeListAgentsTool(this.prisma),
-      spawn_agent: makeSpawnAgentTool(this.prisma),
-      delegate_task: makeDelegateTaskTool(this.prisma),
+      spawn_agent: makeSpawnAgentTool(this.prisma, this.config.enqueueRequest),
+      delegate_task: makeDelegateTaskTool(this.prisma, this.config.enqueueRequest),
       check_domain_constraint: makeCheckConstraintTool(this.prisma),
       plan_workflow: makePlanWorkflowTool(this.prisma),
       read_knowledge: makeReadKnowledgeTool(knowledgeDir),

@@ -6,6 +6,14 @@ import { join, dirname } from 'node:path';
 import { WorkflowPlanner } from './planner.js';
 import { SkillBuilderService } from '@bex/skill-engine';
 
+export type EnqueueRequestFn = (data: {
+  requestId: string;
+  agentId: string;
+  userId: string;
+  input: string;
+  channel: string;
+}) => Promise<void>;
+
 async function resolveSystemLlmProvider(prisma: PrismaClient): Promise<{ provider: string; model: string }> {
   try {
     const cfg = await prisma.lLMConfig.findFirst({ where: { isDefault: true } });
@@ -48,7 +56,7 @@ export function makeListAgentsTool(prisma: PrismaClient): CoreTool {
 
 // ─── spawn_agent ──────────────────────────────────────────────────────────────
 
-export function makeSpawnAgentTool(prisma: PrismaClient): CoreTool {
+export function makeSpawnAgentTool(prisma: PrismaClient, enqueueRequest?: EnqueueRequestFn): CoreTool {
   return {
     description:
       'Spawn a new AgentRequest from an existing Agent (by agentId) or create one from a matching Persona (by goal).',
@@ -124,6 +132,15 @@ export function makeSpawnAgentTool(prisma: PrismaClient): CoreTool {
         select: { id: true, status: true },
       });
 
+      if (enqueueRequest) {
+        try {
+          await enqueueRequest({ requestId: request.id, agentId: resolvedAgentId, userId, input, channel: channel ?? 'api' });
+        } catch (e) {
+          await prisma.agentRequest.update({ where: { id: request.id }, data: { status: 'FAILED', output: `Enqueue failed: ${(e as Error).message}` } });
+          return { error: `Failed to enqueue request: ${(e as Error).message}` };
+        }
+      }
+
       return { requestId: request.id, status: request.status };
     },
   };
@@ -131,7 +148,7 @@ export function makeSpawnAgentTool(prisma: PrismaClient): CoreTool {
 
 // ─── delegate_task ────────────────────────────────────────────────────────────
 
-export function makeDelegateTaskTool(prisma: PrismaClient): CoreTool {
+export function makeDelegateTaskTool(prisma: PrismaClient, enqueueRequest?: EnqueueRequestFn): CoreTool {
   return {
     description:
       'Delegate a sub-task to a specific agent and wait for completion (up to 60 s). Returns the agent output.',
@@ -158,8 +175,22 @@ export function makeDelegateTaskTool(prisma: PrismaClient): CoreTool {
         select: { id: true },
       });
 
-      const result = await pollForCompletion(prisma, request.id);
-      return { requestId: request.id, output: result };
+      if (enqueueRequest) {
+        try {
+          await enqueueRequest({ requestId: request.id, agentId, userId, input: task, channel: channel ?? 'api' });
+        } catch (e) {
+          await prisma.agentRequest.update({ where: { id: request.id }, data: { status: 'FAILED', output: `Enqueue failed: ${(e as Error).message}` } });
+          return { requestId: request.id, error: `Failed to enqueue task: ${(e as Error).message}` };
+        }
+      }
+
+      try {
+        const result = await pollForCompletion(prisma, request.id);
+        return { requestId: request.id, output: result };
+      } catch (e) {
+        // Return structured error so the coordinator LLM can handle it gracefully
+        return { requestId: request.id, error: (e as Error).message };
+      }
     },
   };
 }

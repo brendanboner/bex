@@ -364,10 +364,15 @@ export class OrchestratorService {
       if (agent.credentialId) {
         credentialRecord = { id: agent.credentialId };
       } else {
+        // Credentials with empty allowedAgentPermissions are universally accessible
+        // (consistent with CredentialVaultService.resolve() semantics).
         credentialRecord = await this.prisma.credential.findFirst({
           where: {
             scope: 'SYSTEM',
-            allowedAgentPermissions: { hasSome: agent.permissions.length > 0 ? agent.permissions : ['*'] },
+            OR: [
+              { allowedAgentPermissions: { hasSome: agent.permissions.length > 0 ? agent.permissions : ['*'] } },
+              { allowedAgentPermissions: { isEmpty: true } },
+            ],
           },
           select: { id: true },
         });

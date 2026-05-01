@@ -1,5 +1,5 @@
 export { CoordinatorAgent } from './coordinator.js';
-export type { CoordinatorConfig, ChatResult } from './coordinator.js';
+export type { CoordinatorConfig, ChatResult, EnqueueRequestFn } from './coordinator.js';
 
 export { SessionManager } from './session-manager.js';
 export type { CoordinatorSession, CoordinatorTurn } from './session-manager.js';
