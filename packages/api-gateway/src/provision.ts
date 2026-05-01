@@ -851,6 +851,8 @@ async function deduplicateLegacyAgents(prisma: PrismaClient): Promise<void> {
     },
   ];
 
+  const CANONICAL_NAMES = LEGACY_MAP.map((e) => e.canonical);
+
   for (const { canonical, legacy } of LEGACY_MAP) {
     const canonicalAgent = await prisma.agent.findFirst({
       where: { name: canonical, status: 'ACTIVE' },
@@ -865,6 +867,25 @@ async function deduplicateLegacyAgents(prisma: PrismaClient): Promise<void> {
     if (deactivated.count > 0) {
       console.info(`[provision] Deactivated ${deactivated.count} legacy agent(s) superseded by "${canonical}"`);
     }
+  }
+
+  // Deduplicate same-name canonical agents: if more than one ACTIVE agent shares a
+  // canonical name, keep the most recently updated one and deactivate the rest.
+  for (const canonical of CANONICAL_NAMES) {
+    const duplicates = await prisma.agent.findMany({
+      where: { name: canonical, status: 'ACTIVE' },
+      select: { id: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (duplicates.length <= 1) continue;
+
+    const [, ...stale] = duplicates; // keep first (most recent), deactivate the rest
+    const staleIds = stale.map((a) => a.id);
+    await prisma.agent.updateMany({
+      where: { id: { in: staleIds } },
+      data: { status: 'INACTIVE' },
+    });
+    console.info(`[provision] Deactivated ${staleIds.length} duplicate(s) of canonical agent "${canonical}"`);
   }
 }
 

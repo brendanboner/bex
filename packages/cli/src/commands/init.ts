@@ -678,7 +678,7 @@ export async function initCommand(): Promise<void> {
       const agentRes = await fetch(
         existing ? `http://localhost:4000/agents/${existing.id}` : 'http://localhost:4000/agents',
         {
-          method: existing ? 'PUT' : 'POST',
+          method: existing ? 'PATCH' : 'POST',
           headers: { ...registryAuthHeader, 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         },
