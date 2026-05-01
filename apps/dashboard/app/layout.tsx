@@ -4,7 +4,6 @@ import { cookies } from 'next/headers';
 import './globals.css';
 import { Sidebar } from '@/components/sidebar';
 import { Providers } from '@/components/providers';
-import { StatusBar } from '@/components/StatusBar';
 import { Background } from '@/components/Background';
 
 const sourceSans = Source_Sans_3({
@@ -33,7 +32,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Sidebar />
               {/* Content starts at 72px (rail width) to avoid overlap */}
               <div className="ml-[72px] flex h-screen flex-col overflow-hidden">
-                <StatusBar />
                 <main className="flex-1 overflow-y-auto">
                   <div className="px-8 py-6">{children}</div>
                 </main>
