@@ -20,11 +20,19 @@ type ChatMessage = {
 };
 type RequestRecord = { id: string; status: string; output?: string; errorMsg?: string };
 
+const SESSION_STORAGE_KEY = 'nexus_coordinator_session_id';
+
 export default function NexusPage() {
   // mode: 'coordinator' = smart routing (default), 'direct' = pinned agent
   const [mode, setMode] = useState<ChatMode>('coordinator');
   const [pinnedAgent, setPinnedAgent] = useState<Agent | null>(null);
-  const [coordinatorSessionId, setCoordinatorSessionId] = useState<string | null>(null);
+  const [coordinatorSessionId, setCoordinatorSessionId] = useState<string | null>(() => {
+    // Restore session across page navigations
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(SESSION_STORAGE_KEY);
+    }
+    return null;
+  });
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -34,6 +42,15 @@ export default function NexusPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Persist sessionId to localStorage whenever it changes
+  useEffect(() => {
+    if (coordinatorSessionId) {
+      localStorage.setItem(SESSION_STORAGE_KEY, coordinatorSessionId);
+    } else {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }, [coordinatorSessionId]);
 
   const { data: agents = [], isLoading } = useQuery({
     queryKey: ['agents'],
@@ -74,7 +91,7 @@ export default function NexusPage() {
   function startNewCoordinatorChat() {
     setMode('coordinator');
     setPinnedAgent(null);
-    setCoordinatorSessionId(null);
+    setCoordinatorSessionId(null); // useEffect will remove from localStorage
     setMessages([]);
     setPollingId(null);
     setSending(false);

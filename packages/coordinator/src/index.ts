@@ -11,6 +11,7 @@ export {
   makeListAgentsTool,
   makeSpawnAgentTool,
   makeDelegateTaskTool,
+  makeCheckTaskStatusTool,
   makeCheckConstraintTool,
   makePlanWorkflowTool,
   makeReadKnowledgeTool,

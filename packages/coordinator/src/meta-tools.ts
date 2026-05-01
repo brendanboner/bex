@@ -151,7 +151,7 @@ export function makeSpawnAgentTool(prisma: PrismaClient, enqueueRequest?: Enqueu
 export function makeDelegateTaskTool(prisma: PrismaClient, enqueueRequest?: EnqueueRequestFn): CoreTool {
   return {
     description:
-      'Delegate a sub-task to a specific agent and wait for completion (up to 60 s). Returns the agent output.',
+      'Delegate a sub-task to a specific agent. Quick-polls for up to 10 s — if the agent finishes in time the result is returned immediately. If still running, returns { requestId, status: "PENDING" } so you can tell the user you\'ve started the task and they can ask for an update (use check_task_status to follow up).',
     parameters: z.object({
       agentId: z.string().describe('ID of the agent to delegate the task to'),
       task: z.string().describe('The task description / input for the agent'),
@@ -184,12 +184,41 @@ export function makeDelegateTaskTool(prisma: PrismaClient, enqueueRequest?: Enqu
         }
       }
 
+      // Quick-poll: wait up to 10 s for a fast response. If not done, return PENDING
+      // so the coordinator can tell the user to ask for an update via check_task_status.
       try {
-        const result = await pollForCompletion(prisma, request.id);
+        const result = await pollForCompletion(prisma, request.id, 10_000);
         return { requestId: request.id, output: result };
       } catch (e) {
-        // Return structured error so the coordinator LLM can handle it gracefully
-        return { requestId: request.id, error: (e as Error).message };
+        const msg = (e as Error).message;
+        if (msg.includes('timed out')) {
+          return { requestId: request.id, status: 'PENDING' };
+        }
+        return { requestId: request.id, error: msg };
+      }
+    },
+  };
+}
+
+// ─── check_task_status ────────────────────────────────────────────────────────
+
+export function makeCheckTaskStatusTool(prisma: PrismaClient): CoreTool {
+  return {
+    description:
+      'Check the status of a previously delegated task by its requestId. Waits up to 15 s for completion. Use this when a delegate_task returned { status: "PENDING" } and the user asks for an update.',
+    parameters: z.object({
+      requestId: z.string().describe('The requestId returned by a previous delegate_task call'),
+    }),
+    execute: async ({ requestId }: { requestId: string }) => {
+      try {
+        const result = await pollForCompletion(prisma, requestId, 15_000);
+        return { requestId, status: 'COMPLETED', output: result };
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes('timed out')) {
+          return { requestId, status: 'PENDING', message: 'Still processing — check again shortly.' };
+        }
+        return { requestId, status: 'FAILED', error: msg };
       }
     },
   };

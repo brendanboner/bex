@@ -10,6 +10,7 @@ import {
   makeListAgentsTool,
   makeSpawnAgentTool,
   makeDelegateTaskTool,
+  makeCheckTaskStatusTool,
   makeCheckConstraintTool,
   makePlanWorkflowTool,
   makeReadKnowledgeTool,
@@ -48,6 +49,13 @@ For EVERY user message, your first action MUST be:
 3. Only answer directly from your own reasoning if NO specialist agent exists for the topic.
 
 This applies to SINGLE-domain questions too — if a user asks about XIQ, XCO, Kubernetes, networking, or any other domain and a specialist agent is active, route to that agent rather than answering yourself.
+
+## Handling long-running tasks
+delegate_task quick-polls for 10 s. If the agent is still working it returns { status: "PENDING", requestId }.
+When this happens:
+- Tell the user: "I've started that — [agent name] is working on it. Ask me for an update when you're ready."
+- Remember the requestId so you can use check_task_status when the user follows up.
+When the user asks for an update (e.g. "any update?", "is it done?", "what happened?"), call check_task_status with the requestId.
 
 ## Multi-domain questions
 When a question spans multiple domains (e.g. comparing XIQ + XCO + K8s data):
@@ -111,6 +119,7 @@ export class CoordinatorAgent {
       list_agents: makeListAgentsTool(this.prisma),
       spawn_agent: makeSpawnAgentTool(this.prisma, this.config.enqueueRequest),
       delegate_task: makeDelegateTaskTool(this.prisma, this.config.enqueueRequest),
+      check_task_status: makeCheckTaskStatusTool(this.prisma),
       check_domain_constraint: makeCheckConstraintTool(this.prisma),
       plan_workflow: makePlanWorkflowTool(this.prisma),
       read_knowledge: makeReadKnowledgeTool(knowledgeDir),
