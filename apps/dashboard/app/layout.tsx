@@ -5,6 +5,7 @@ import './globals.css';
 import { Sidebar } from '@/components/sidebar';
 import { Providers } from '@/components/providers';
 import { StatusBar } from '@/components/StatusBar';
+import { Background } from '@/components/Background';
 
 const sourceSans = Source_Sans_3({
   subsets: ['latin'],
@@ -26,7 +27,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-[rgb(var(--bg-base))] text-[rgb(var(--text-primary))] antialiased">
         <Providers>
           {isAuthenticated ? (
-            <div className="h-screen overflow-hidden bg-radial-glow">
+            <div className="h-screen overflow-hidden">
+              <Background />
               {/* Fixed glass icon-rail sidebar — never pushes content */}
               <Sidebar />
               {/* Content starts at 72px (rail width) to avoid overlap */}
@@ -38,8 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
             </div>
           ) : (
-            <div className="bg-radial-glow min-h-screen">{children}</div>
-          )}
+            <div className="relative min-h-screen"><Background />{children}</div>          )}
         </Providers>
       </body>
     </html>
