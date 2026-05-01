@@ -214,9 +214,9 @@ export default function NexusPage() {
                   <button
                     key={s}
                     onClick={() => { setInput(s); inputRef.current?.focus(); }}
-                    className="rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]
-                      px-4 py-1.5 text-sm text-[rgb(var(--text-secondary))]
-                      hover:border-[rgba(137,129,229,0.3)] hover:text-[rgb(var(--text-primary))]
+                    className="rounded-full bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)]
+                      px-4 py-1.5 text-sm text-[#e8e9f2]
+                      hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)]
                       transition-all"
                   >
                     {s}

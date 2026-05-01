@@ -144,7 +144,7 @@ export default function MarketplacePage() {
                   {!platform.configured && (
                     <a
                       href="/credentials"
-                      className="flex items-center gap-1.5 rounded-lg border border-[rgba(77,79,99,0.35)] bg-[rgba(45,47,62,0.6)] px-3 py-1.5 text-xs font-medium text-[#c4c5d4] hover:bg-[rgba(45,47,62,0.8)] hover:text-[#e8e9f2] transition-all"
+                      className="flex items-center gap-1.5 rounded-lg bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)] px-3 py-1.5 text-xs font-medium text-[#e8e9f2] hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)] transition-all"
                     >
                       <Settings className="h-3.5 w-3.5" />
                       Configure
@@ -154,7 +154,7 @@ export default function MarketplacePage() {
                     <button
                       onClick={() => provisionMutation.mutate(platform.id)}
                       disabled={isProvisioningThis}
-                      className="flex items-center gap-1.5 rounded-lg border border-[rgba(137,129,229,0.3)] bg-[rgba(137,129,229,0.1)] px-3 py-1.5 text-xs font-medium text-[#8981e5] hover:bg-[rgba(137,129,229,0.18)] hover:text-[#a09ae0] transition-all disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-lg bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)] px-3 py-1.5 text-xs font-medium text-[#e8e9f2] hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)] transition-all disabled:opacity-50"
                     >
                       {isProvisioningThis
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -6,6 +6,7 @@ import { ArrowUpFromLine, Brain, CheckCircle, Cloud, CloudDownload, Link, Plus, 
 import { api } from '@/lib/api';
 import { formatDate, STATUS_COLOURS } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
 
 type Skill = {
   id: string;
@@ -292,7 +293,7 @@ export default function CapabilityMarketplacePage() {
                   <button
                     onClick={() => { publishMutation.mutate({ id: confirmState.skillId, force: true }); setConfirmState(null); }}
                     disabled={publishMutation.isPending}
-                    className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-3.5 py-2 text-xs font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors"
+                    className="rounded-lg bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)] px-3.5 py-2 text-xs font-semibold text-[#e8e9f2] hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)] disabled:opacity-40 transition-all"
                   >
                     {publishMutation.isPending ? 'Replacing…' : 'Replace & Activate'}
                   </button>
@@ -350,7 +351,7 @@ export default function CapabilityMarketplacePage() {
               <button
                 onClick={() => saveCredMutation.mutate({ id: credSkill.id, fields: credFields })}
                 disabled={saveCredMutation.isPending || Object.keys(credFields).length === 0}
-                className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-3.5 py-2 text-xs font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors"
+                className="rounded-lg bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)] px-3.5 py-2 text-xs font-semibold text-[#e8e9f2] hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)] disabled:opacity-40 transition-all"
               >
                 {saveCredMutation.isPending ? 'Saving…' : 'Save Credential'}
               </button>
@@ -373,12 +374,9 @@ export default function CapabilityMarketplacePage() {
             Build, publish, and pull versioned agent skills. Share capabilities across BEX instances via the central registry.
           </p>
         </div>
-        <button
-          onClick={() => setShowDiscover(v => !v)}
-          className="flex items-center gap-2 rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-4 py-2.5 text-sm font-medium text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] transition-all shrink-0"
-        >
+        <Button onClick={() => setShowDiscover(v => !v)} className="shrink-0">
           <Plus className="h-4 w-4" /> Build Skill
-        </button>
+        </Button>
       </div>
 
       {/* Build / Discover panel */}
@@ -467,7 +465,7 @@ export default function CapabilityMarketplacePage() {
 
               <div className="flex justify-end">
                 <button onClick={() => buildMutation.mutate()} disabled={!buildValid || buildMutation.isPending}
-                  className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-5 py-2.5 text-sm font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors">
+                  className="rounded-lg bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)] px-5 py-2.5 text-sm font-semibold text-[#e8e9f2] hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)] disabled:opacity-40 transition-all">
                   {buildMutation.isPending ? 'Building skill…' : 'Build Skill'}
                 </button>
               </div>
@@ -479,7 +477,7 @@ export default function CapabilityMarketplacePage() {
                 placeholder="e.g. Monitor fabric drift in an Extreme XCO environment"
                 className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors" />
               <button onClick={() => discoverMutation.mutate(intent)} disabled={!intent.trim() || discoverMutation.isPending}
-                className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-4 py-2.5 text-sm font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors">
+                className="rounded-lg bg-[rgba(39,34,51,0.85)] border border-[rgba(153,156,179,0.4)] px-4 py-2.5 text-sm font-semibold text-[#e8e9f2] hover:bg-[rgba(39,34,51,1)] hover:border-[rgba(137,129,229,0.65)] disabled:opacity-40 transition-all">
                 {discoverMutation.isPending ? 'Generating…' : 'Generate'}
               </button>
             </div>
