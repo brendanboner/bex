@@ -3,6 +3,8 @@
  *
  * Commands:
  *   bex skill list              — list skills in the local registry
+ *   bex skill search <keyword>  — search registry by keyword (domain/name/description)
+ *   bex skill get <app>         — import a Composio toolkit as a BEX skill (needs COMPOSIO_API_KEY)
  *   bex skill push <domain>     — push a DB skill to the registry
  *   bex skill push --all        — push all DB skills to the registry
  *   bex skill pull <domain>     — pull a skill from the registry into DB
@@ -262,6 +264,178 @@ export async function skillInfoCommand(domain: string, opts: { version?: string 
   console.log();
 }
 
+// ── search ─────────────────────────────────────────────────────────────────
+export async function skillSearchCommand(keyword: string): Promise<void> {
+  const { fetch } = await import('undici');
+  const env = loadEnv();
+  const registryUrl = await getRegistryUrl(env);
+  const token = await getRegistryToken(env);
+
+  const res = await fetch(`${registryUrl}/registry/skills`, { headers: headers(token) });
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error(`Registry error ${res.status}: ${txt.slice(0, 200)}`);
+    process.exit(1);
+  }
+  const data = await res.json() as { ok: boolean; data: Array<{ domain: string; version: string; name: string; description?: string; published_at: string }> };
+  if (!data.ok || !Array.isArray(data.data)) {
+    console.log('No skills in registry.');
+    return;
+  }
+
+  const q = keyword.toLowerCase();
+  const matches = data.data.filter(s =>
+    s.domain.toLowerCase().includes(q) ||
+    s.name.toLowerCase().includes(q) ||
+    (s.description ?? '').toLowerCase().includes(q)
+  );
+
+  if (matches.length === 0) {
+    console.log(`\nNo skills matched "${keyword}" in registry at ${registryUrl}`);
+    console.log(`\nTo import from Composio (1000+ integrations), set COMPOSIO_API_KEY in .env then run:`);
+    console.log(`  bex skill get ${keyword}\n`);
+    return;
+  }
+
+  console.log(`\n${'DOMAIN'.padEnd(45)} ${'VERSION'.padEnd(10)} NAME`);
+  console.log('─'.repeat(90));
+  for (const s of matches) {
+    console.log(`${s.domain.padEnd(45)} ${s.version.padEnd(10)} ${s.name}`);
+    if (s.description) console.log(`  ${s.description.slice(0, 85)}`);
+  }
+  console.log(`\n${matches.length} match(es) — pull with: bex skill pull <domain>\n`);
+}
+
+// ── get (Composio import) ──────────────────────────────────────────────────
+interface ComposioTool {
+  name: string;
+  display_name?: string;
+  description?: string;
+  input_schema?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
+  no_auth?: boolean;
+}
+
+export async function skillGetCommand(appName: string, opts: { dryRun?: boolean; limit?: string }): Promise<void> {
+  const { fetch } = await import('undici');
+  const env = loadEnv();
+  const apiKey = env['COMPOSIO_API_KEY'] ?? process.env['COMPOSIO_API_KEY'] ?? '';
+
+  if (!apiKey) {
+    console.error(`\n❌ COMPOSIO_API_KEY not set.`);
+    console.error(`\nGet a free key at https://app.composio.dev then add to .env:`);
+    console.error(`  COMPOSIO_API_KEY=your-key-here\n`);
+    process.exit(1);
+  }
+
+  const composioBase = 'https://backend.composio.dev/api/v3';
+  const hdrs = { 'x-api-key': apiKey, 'Content-Type': 'application/json' };
+  const maxTools = parseInt(opts.limit ?? '20', 10);
+
+  console.log(`\nFetching tools for "${appName}" from Composio...`);
+
+  // Find matching toolkit
+  const toolkitRes = await fetch(`${composioBase}/toolkits?search=${encodeURIComponent(appName)}&limit=5`, { headers: hdrs });
+  if (!toolkitRes.ok) {
+    if (toolkitRes.status === 401) {
+      console.error(`❌ Invalid COMPOSIO_API_KEY — check your key at https://app.composio.dev`);
+    } else {
+      const txt = await toolkitRes.text();
+      console.error(`Composio error ${toolkitRes.status}: ${txt.slice(0, 200)}`);
+    }
+    process.exit(1);
+  }
+
+  const toolkitData = await toolkitRes.json() as { items?: Array<{ slug: string; name: string; description?: string; no_auth?: boolean }> };
+  const toolkits = toolkitData.items ?? [];
+  if (toolkits.length === 0) {
+    console.error(`❌ No Composio toolkit found matching "${appName}"`);
+    console.error(`\nBrowse all 1000+ toolkits at: https://composio.dev/toolkits`);
+    process.exit(1);
+  }
+
+  const toolkit = toolkits[0]!;
+  console.log(`  Found: ${toolkit.name} (${toolkit.slug})${toolkit.no_auth ? ' — no auth required' : ' — requires credentials'}`);
+  if (toolkit.description) console.log(`  ${toolkit.description.slice(0, 100)}`);
+
+  // Fetch tools for the toolkit
+  const toolsRes = await fetch(`${composioBase}/tools?toolkit=${encodeURIComponent(toolkit.slug)}&limit=${maxTools}`, { headers: hdrs });
+  if (!toolsRes.ok) {
+    const txt = await toolsRes.text();
+    console.error(`Composio tools error ${toolsRes.status}: ${txt.slice(0, 200)}`);
+    process.exit(1);
+  }
+
+  const toolsData = await toolsRes.json() as { items?: ComposioTool[] };
+  const tools: ComposioTool[] = toolsData.items ?? [];
+  if (tools.length === 0) {
+    console.error(`❌ No tools found for toolkit "${toolkit.slug}"`);
+    process.exit(1);
+  }
+
+  console.log(`  Tools: ${tools.length} available (importing first ${Math.min(tools.length, maxTools)})`);
+
+  // Convert Composio tool schemas to BEX SkillTool format
+  const bexTools = tools.slice(0, maxTools).map((t: ComposioTool) => ({
+    name: t.name.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^[^a-z_]/, '_$&'),
+    description: (t.description ?? t.display_name ?? t.name).slice(0, 500),
+    parameters: t.input_schema ?? t.parameters ?? { type: 'object', properties: {}, required: [] },
+    handlerType: 'composio_call',
+    composioAction: t.name,
+    composioToolkit: toolkit.slug,
+  }));
+
+  const domain = `composio.${toolkit.slug.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+  const skillName = `Composio — ${toolkit.name}`;
+  const capabilities = tools.slice(0, maxTools).map((t: ComposioTool) => t.display_name ?? t.name);
+
+  const systemPrompt = [
+    `You have access to ${toolkit.name} via Composio.`,
+    toolkit.description ? toolkit.description : '',
+    toolkit.no_auth
+      ? 'No authentication is required for these tools.'
+      : `These tools require the user to have connected their ${toolkit.name} account via Composio (OAuth/API key).`,
+    `Always confirm the action before writing or deleting data.`,
+  ].filter(Boolean).join(' ');
+
+  if (opts.dryRun) {
+    console.log(`\n[dry-run] Would create skill:`);
+    console.log(`  Domain:  ${domain}`);
+    console.log(`  Name:    ${skillName}`);
+    console.log(`  Tools:   ${bexTools.length}`);
+    bexTools.forEach(t => console.log(`    - ${t.name}`));
+    console.log();
+    return;
+  }
+
+  const prisma = await getPrisma(env);
+  try {
+    const existing = await prisma.skill.findFirst({ where: { domain }, select: { id: true } });
+    if (existing) {
+      await prisma.skill.update({
+        where: { id: existing.id },
+        data: { name: skillName, version: '1.0.0', capabilities, systemPrompt, tools: bexTools as never },
+      });
+      console.log(`\n✅ Updated skill: ${domain} (${bexTools.length} tools)`);
+    } else {
+      const created = await prisma.skill.create({
+        data: { domain, name: skillName, version: '1.0.0', description: toolkit.description ?? null, capabilities, systemPrompt, tools: bexTools as never },
+      });
+      console.log(`\n✅ Created skill: ${domain} (id: ${created.id}, ${bexTools.length} tools)`);
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+
+  console.log(`\nNext steps:`);
+  if (!toolkit.no_auth) {
+    console.log(`  1. Connect ${toolkit.name} at: https://app.composio.dev/connections`);
+    console.log(`  2. Set COMPOSIO_API_KEY in .env (already done)`);
+  }
+  console.log(`  Assign skill to an agent in the dashboard, or create a new agent for ${toolkit.name}.`);
+  console.log(`  Note: composio_call handler must be present in llm-runner for tools to execute.\n`);
+}
+
 // ── Command builder ────────────────────────────────────────────────────────
 export function buildSkillCommand(): Command {
   const skill = new Command('skill').description('Manage skills in the registry');
@@ -270,6 +444,18 @@ export function buildSkillCommand(): Command {
     .command('list')
     .description('List all skills in the registry')
     .action(skillListCommand);
+
+  skill
+    .command('search <keyword>')
+    .description('Search registry by keyword (domain, name, or description)')
+    .action(skillSearchCommand);
+
+  skill
+    .command('get <app>')
+    .description('Import a Composio toolkit as a BEX skill (requires COMPOSIO_API_KEY in .env)')
+    .option('--dry-run', 'Preview tools without importing')
+    .option('--limit <n>', 'Max tools to import (default: 20)')
+    .action(skillGetCommand);
 
   skill
     .command('push [domain]')

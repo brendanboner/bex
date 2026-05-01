@@ -36,6 +36,7 @@ export const LlmConfigSchema = z.object({
 export const CreateAgentSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).optional(),
+  status: z.enum(['DRAFT', 'ACTIVE', 'INACTIVE']).optional(),
   persona: PersonaSchema.optional(),
   llmProvider: z.enum(['openai', 'anthropic', 'azure-openai']).default(
     (process.env['LLM_PROVIDER'] as 'openai' | 'anthropic' | 'azure-openai') ?? 'openai',

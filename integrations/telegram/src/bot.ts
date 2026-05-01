@@ -442,11 +442,15 @@ bot.on('message:text', async (ctx) => {
     return;
   }
 
-  // @bex prefix → route to Nexus system admin agent (falls back to DEFAULT_AGENT_ID if not configured)
+  // @bex prefix → route to Nexus system admin agent, or coordinator if NEXUS_AGENT_ID not set
   const bexPrefixMatch = input.match(/^@bex\s+(.+)/i);
   if (bexPrefixMatch) {
     const bexInput = bexPrefixMatch[1]!.trim();
-    await routeToAgent(ctx, bexInput, NEXUS_AGENT_ID || undefined);
+    if (NEXUS_AGENT_ID) {
+      await routeToAgent(ctx, bexInput, NEXUS_AGENT_ID);
+    } else {
+      await routeToCoordinator(ctx, bexInput);
+    }
     return;
   }
 
@@ -467,7 +471,30 @@ bot.on('message:text', async (ctx) => {
     return;
   }
 
-  await routeToAgent(ctx, input);
+  // Soft keyword prefixes — "xiq <query>", "iq <query>", "xco <query>" (no @ required)
+  const softPrefixMatch = input.match(/^(xiq|xco|iq|daneel|weather)\s+([\s\S]+)/i);
+  if (softPrefixMatch) {
+    const softHint = softPrefixMatch[1]!.toLowerCase();
+    const softInput = softPrefixMatch[2]!.trim();
+    // Map soft prefixes to agent name patterns
+    const nameMap: Record<string, string> = {
+      xiq: 'xiq', iq: 'xiq',
+      xco: 'xco',
+      daneel: 'daneel', weather: 'daneel',
+    };
+    const agentHint = nameMap[softHint] ?? softHint;
+    const foundId = await resolveAgentByName(agentHint);
+    if (foundId) {
+      await routeToAgent(ctx, softInput, foundId);
+      return;
+    }
+    // No match — fall through to coordinator with original input
+  }
+
+  // Default: route through coordinator for intelligent intent routing.
+  // This ensures weather, multi-domain, and novel queries reach the right agent
+  // rather than always landing on the default agent.
+  await routeToCoordinator(ctx, input);
 });
 
 /**
@@ -523,7 +550,58 @@ async function routeToAgent(ctx: BotContext, input: string, agentId?: string): P
 }
 
 /**
- * Background poller — runs entirely outside grammY's update handler.
+ * Route a message through the coordinator for intelligent intent-based routing.
+ * The coordinator determines which agent (XIQ, XCO, Weather, etc.) best handles
+ * the query and delegates to it. Handles PENDING sub-tasks via backgroundPoll.
+ */
+async function routeToCoordinator(ctx: BotContext, input: string): Promise<void> {
+  const telegramUserId = String(ctx.from?.id ?? 'unknown');
+  const chatId = ctx.chat?.id ?? 0;
+
+  // Send immediate feedback so the user knows the message was received
+  await ctx.reply('⏳ Thinking…', { parse_mode: 'Markdown' });
+
+  try {
+    const res = await fetch(`${API_GATEWAY_URL}/coordinator/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${BOT_API_KEY}`,
+        'X-Bclaw-User-External-Id': telegramUserId,
+      },
+      body: JSON.stringify({ message: input, channel: 'telegram' }),
+    });
+
+    const data = (await res.json()) as {
+      ok: boolean;
+      data?: { output: string; pendingRequestIds?: string[] };
+    };
+
+    if (!data.ok || !data.data) {
+      await bot.api.sendMessage(chatId, '❌ Failed to reach the system coordinator. Please try again.');
+      return;
+    }
+
+    const { output, pendingRequestIds } = data.data;
+
+    // Send the coordinator's own text response
+    if (output && output.trim()) {
+      await safeSendDirect(chatId, output);
+    }
+
+    // If sub-agent tasks are still running, poll them and deliver when ready
+    if (pendingRequestIds && pendingRequestIds.length > 0) {
+      for (const requestId of pendingRequestIds) {
+        void backgroundPoll(chatId, requestId);
+      }
+    }
+  } catch (err) {
+    console.error('[telegram] Error routing to coordinator:', err);
+    await bot.api.sendMessage(chatId, '❌ An error occurred reaching the coordinator. Please try again.');
+  }
+}
+
+/**
  * Polls until COMPLETED/FAILED/AWAITING_APPROVAL or timeout (10 min),
  * then delivers result via bot.api.sendMessage().
  */

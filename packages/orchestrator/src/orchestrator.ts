@@ -689,6 +689,9 @@ export class OrchestratorService {
         }
       }
 
+      // Channel-specific formatting instructions injected into every system prompt
+      const channelFormatting = buildChannelFormattingPrompt(ctx.channel);
+
       const systemParts = [
         charterPrompt,
         personaPrompt,
@@ -696,6 +699,7 @@ export class OrchestratorService {
         domainIntelParts,
         disambiguationNote,
         workspaceDocs,
+        channelFormatting,
       ].filter(Boolean);
 
 
@@ -901,5 +905,44 @@ export class OrchestratorService {
   }
 }
 
+/**
+ * Returns a system prompt section that tells the LLM how to format its response
+ * based on the delivery channel. This is injected at the end of every system prompt
+ * so it takes precedence over more general instructions.
+ */
+function buildChannelFormattingPrompt(channel: string): string {
+  switch (channel) {
+    case 'telegram':
+    case 'whatsapp':
+      return `## CRITICAL: Response Format — ${channel}
+You are responding in a CHAT MESSAGING APP. These rules OVERRIDE all previous formatting instructions:
+- **NEVER output raw JSON, code blocks, or \`\`\`json … \`\`\` sections** — not even for structured data.
+- Write in plain, conversational prose only.
+- Use short bullet points (•) for lists. Do NOT use markdown tables or ## headings.
+- Keep responses concise — under 400 words unless the user explicitly asks for detail.
+- For alarms/events: state the count and severity in one sentence, then list the top 3–5 by name only (e.g. "• Critical: Link down on spine-01").
+- For device/AP tables: one line per item — "• <Name>: <key stat>". Max 10 items; note total if more.
+- If a tool returns raw JSON or a data structure, translate it into plain English before responding.
+- Never say "here is the JSON" or "the raw output is" — always interpret and summarise.`;
 
 
+    case 'dashboard':
+      return `## Response Format — dashboard
+You are responding in a web dashboard with markdown rendering. Follow these rules:
+- Use markdown: ## headings, **bold**, tables (| col | col |), bullet lists.
+- For alarms/events: use a markdown table with columns for Severity, Name, Device, Time.
+- For device lists: use a markdown table.
+- For summaries: lead with a one-line summary, then a table or structured list.
+- You may include detail — the UI can scroll. Aim for completeness over brevity.
+- Never output raw JSON — format all data into markdown tables or lists.`;
+
+    case 'scheduler':
+    case 'api':
+    default:
+      return `## Response Format — text/api
+Format your response in clean markdown suitable for programmatic consumption or display:
+- Use markdown tables for structured data (alarms, devices, clients).
+- Lead with a one-line executive summary.
+- Never output raw JSON — translate API data into readable markdown.`;
+  }
+}

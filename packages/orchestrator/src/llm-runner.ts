@@ -192,7 +192,10 @@ export function buildTools(
         const config = skillTool.config ?? {};
         // Resolve effective credential: domain-level (resolvedCredentialId injected by
         // orchestrator's domain cred map) takes priority; fall back to agent-level credential.
-        const credentialId = (config['resolvedCredentialId'] as string | undefined) ?? agentCredentialId;
+        // Only apply agent-level credentials for tools that explicitly declare a handler type —
+        // plain endpoint tools (no handlerType) are public and must not inherit agent credentials.
+        const credentialId = (config['resolvedCredentialId'] as string | undefined) ??
+          (handlerType ? agentCredentialId : undefined);
 
         // ── xiq_http_call: ExtremeCloud IQ login-then-call pattern ───────────
         // Logs in via POST /login with username/password credential, then calls
@@ -426,7 +429,23 @@ export function buildTools(
           const apiText = await apiResp.text();
           console.info(`[xco_http_call] ${method} ${url} → ${apiResp.status}`);
           if (!apiResp.ok) {
-            return { error: `XCO API error ${apiResp.status}`, url, detail: apiText.slice(0, 500) };
+            // Detect HTML error pages (XCO reverse proxy / SPA fallback on non-2xx)
+            const isHtml = apiText.trimStart().startsWith('<');
+            return {
+              error: `XCO API error ${apiResp.status}`,
+              url,
+              detail: isHtml
+                ? `XCO returned an HTML error page — this endpoint may not exist on your XCO version (${apiResp.status})`
+                : apiText.slice(0, 500),
+            };
+          }
+          // Detect 200-OK HTML (SPA index.html served for unknown paths)
+          if (apiText.trimStart().startsWith('<')) {
+            return {
+              error: 'XCO endpoint returned HTML instead of JSON',
+              url,
+              hint: 'This API path does not exist on your XCO version or the host is a web UI. Verify the endpoint is correct.',
+            };
           }
           try { return JSON.parse(apiText); } catch { return { result: apiText.slice(0, 2000) }; }
         }
@@ -497,6 +516,7 @@ export function buildTools(
             const { fetch } = await import('undici');
             const opts: Parameters<typeof fetch>[1] = { method, headers: { 'Accept': 'application/json' } };
             if (method !== 'GET' && method !== 'HEAD') opts.body = JSON.stringify(args);
+            console.info(`[llm-runner] public GET: ${publicUrl}`);
             const resp = await fetch(publicUrl, opts);
             const text = await resp.text();
             if (!resp.ok) return { error: `HTTP ${resp.status}`, detail: text.slice(0, 500) };
@@ -526,6 +546,36 @@ export function buildTools(
             agentPermissions,
           );
           return result.body;
+        }
+
+        // ── composio_call: proxy a tool action through Composio's execute API ─
+        if (handlerType === 'composio_call') {
+          const composioApiKey = process.env['COMPOSIO_API_KEY'] ?? '';
+          if (!composioApiKey) {
+            return { error: 'COMPOSIO_API_KEY not configured. Add it to .env and restart.' };
+          }
+          const action = (skillTool as Record<string, unknown>)['composioAction'] as string | undefined;
+          if (!action) return { error: 'composio_call: no composioAction defined on this tool' };
+
+          const entityId = (args['composioEntityId'] as string | undefined) ?? 'default';
+          try {
+            const res = await fetch(`https://backend.composio.dev/api/v2/actions/${encodeURIComponent(action)}/execute`, {
+              method: 'POST',
+              headers: {
+                'x-api-key': composioApiKey,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ entityId, input: args }),
+            });
+            const data = await res.json() as Record<string, unknown>;
+            if (!res.ok) {
+              const msg = (data['message'] as string | undefined) ?? (data['error'] as string | undefined) ?? `HTTP ${res.status}`;
+              return { error: `Composio error: ${msg}` };
+            }
+            return (data['data'] ?? data['response'] ?? data) as Record<string, unknown>;
+          } catch (e) {
+            return { error: `Composio call failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
         }
 
         // ── bex_api_call: call the BEX api-gateway with a system-signed JWT ─
@@ -829,8 +879,13 @@ export function buildTools(
               console.info(`[xiq_radio_quality_report] GET /devices/radio-information → ${resp.status}`);
               if (resp.ok) {
                 const body = await resp.json() as { data?: unknown[] } | unknown[];
+                console.info(`[xiq_radio_quality_report] radio-information body keys: ${Object.keys(body as object).join(', ')} | isArray: ${Array.isArray(body)} | sample: ${JSON.stringify(body).slice(0, 300)}`);
                 const items = Array.isArray(body) ? body : ((body as { data?: unknown[] }).data ?? []);
+                console.info(`[xiq_radio_quality_report] items extracted: ${items.length}`);
                 radioResults.push(...(items as Array<Record<string, unknown>>));
+              } else {
+                const errText = await resp.text().catch(() => '');
+                console.warn(`[xiq_radio_quality_report] radio-information error body: ${errText.slice(0, 300)}`);
               }
             }
 
@@ -845,16 +900,23 @@ export function buildTools(
               const deviceId = r['device_id'] as number;
               const device = deviceMap.get(deviceId) ?? { hostname: `Device ${deviceId}`, location: 'Unknown', mac: '' };
               const location = device.location || 'Unknown';
-              const radioList = (r['radio_list'] as Array<Record<string, unknown>>) ?? [];
+              // API returns 'radios' array (not 'radio_list')
+              const radioList = (r['radios'] as Array<Record<string, unknown>>) ?? (r['radio_list'] as Array<Record<string, unknown>>) ?? [];
 
               const radios = radioList.map((radio) => ({
-                type: String(radio['radio_type'] ?? radio['type'] ?? ''),
-                channel: Number(radio['channel'] ?? 0),
-                tx_power: Number(radio['tx_power'] ?? 0),
+                // API uses: name (wifi0/wifi1), frequency (2.4GHz/5GHz), channel_number, power, channel_width
+                type: String(radio['name'] ?? radio['frequency'] ?? radio['radio_type'] ?? radio['type'] ?? ''),
+                channel: Number(radio['channel_number'] ?? radio['channel'] ?? 0),
+                tx_power: Number(radio['power'] ?? radio['tx_power'] ?? 0),
                 noise_floor: Number(radio['noise_floor'] ?? 0),
                 utilization: Number(radio['channel_utilization'] ?? 0),
+                channel_width: String(radio['channel_width'] ?? ''),
+                mode: String(radio['mode'] ?? ''),
+                client_count: Array.isArray(radio['clients']) ? (radio['clients'] as unknown[]).length : 0,
               }));
 
+              // Skip devices with no active radios (e.g. controllers)
+              if (radios.length === 0) continue;
               if (!locationMap.has(location)) locationMap.set(location, []);
               locationMap.get(location)!.push({ hostname: device.hostname, mac: device.mac, radios });
             }
@@ -864,7 +926,7 @@ export function buildTools(
             return {
               summary: {
                 total_devices: deviceIds.length,
-                devices_with_radio_data: radioResults.length,
+                aps_with_radio_data: Array.from(locationMap.values()).reduce((sum, aps) => sum + aps.length, 0),
                 total_locations: locations.length,
                 timestamp: new Date().toISOString(),
               },
@@ -873,14 +935,18 @@ export function buildTools(
               radio_details: radioResults.map((r) => {
                 const deviceId = r['device_id'] as number;
                 const device = deviceMap.get(deviceId) ?? { hostname: `Device ${deviceId}`, location: 'Unknown', mac: '' };
-                const radios = (r['radio_list'] as Array<Record<string, unknown>>) ?? [];
+                const radios = (r['radios'] as Array<Record<string, unknown>>) ?? (r['radio_list'] as Array<Record<string, unknown>>) ?? [];
                 return radios.map((radio) => ({
                   hostname: device.hostname,
                   location: device.location,
-                  radio_type: String(radio['radio_type'] ?? ''),
-                  channel: Number(radio['channel'] ?? 0),
-                  tx_power_dbm: Number(radio['tx_power'] ?? 0),
+                  radio: String(radio['name'] ?? radio['frequency'] ?? radio['radio_type'] ?? ''),
+                  frequency: String(radio['frequency'] ?? ''),
+                  channel: Number(radio['channel_number'] ?? radio['channel'] ?? 0),
+                  channel_width: String(radio['channel_width'] ?? ''),
+                  tx_power_dbm: Number(radio['power'] ?? radio['tx_power'] ?? 0),
                   noise_floor_dbm: Number(radio['noise_floor'] ?? 0),
+                  mode: String(radio['mode'] ?? ''),
+                  client_count: Array.isArray(radio['clients']) ? (radio['clients'] as unknown[]).length : 0,
                 }));
               }).flat(),
             };
@@ -2963,7 +3029,8 @@ export async function runLlm(options: RunLlmOptions): Promise<RunLlmResult> {
     const stepToolCalls = step.toolCalls as Array<{ toolCallId: string; toolName: string; args?: unknown }>;
     const stepToolResults = step.toolResults as Array<{ toolCallId: string; result: unknown }> | undefined;
     for (const tc of stepToolCalls) {
-      console.info(`[llm-runner] Tool call: ${tc.toolName}`);
+      const argsStr = tc.args ? ` args=${JSON.stringify(tc.args).slice(0, 200)}` : (tc as Record<string,unknown>)['input'] ? ` input=${JSON.stringify((tc as Record<string,unknown>)['input']).slice(0, 200)}` : '';
+      console.info(`[llm-runner] Tool call: ${tc.toolName}${argsStr}`);
       const matchingResult = stepToolResults?.find((r) => r.toolCallId === tc.toolCallId);
       if (matchingResult?.result && typeof matchingResult.result === 'object' && 'error' in (matchingResult.result as object)) {
         console.info(`[llm-runner] Tool error: ${JSON.stringify(matchingResult.result)}`);

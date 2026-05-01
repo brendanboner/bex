@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
-const API_BASE = (import.meta.env['VITE_API_URL'] as string | undefined) || 'http://localhost:4000';
+// In dev (Vite), use the proxy path so requests go /api → localhost:4000 (no CORS).
+// In production, VITE_API_URL must be set to the API gateway URL.
+const API_BASE = (import.meta.env['VITE_API_URL'] as string | undefined) || '/api';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 export type Widget = {

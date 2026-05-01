@@ -46,7 +46,7 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
       return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'Invalid input', parsed.error.issues));
     }
     const externalId = (request.user as { sub: string }).sub;
-    const { skillIds, ...data } = parsed.data;
+    const { skillIds, status: agentStatus, ...data } = parsed.data;
 
     // Resolve DB user id from JWT sub (externalId)
     const user = await prisma.user.findUnique({ where: { externalId }, select: { id: true } });
@@ -56,6 +56,7 @@ export async function agentRoutes(app: FastifyInstance, prisma: PrismaClient): P
       data: {
         ...data,
         description: data.description ?? null,
+        ...(agentStatus !== undefined ? { status: agentStatus } : {}),
         persona: (data.persona ?? {}) as Prisma.InputJsonValue,
         llmConfig: (data.llmConfig ?? {}) as Prisma.InputJsonValue,
         ownerId: user.id,

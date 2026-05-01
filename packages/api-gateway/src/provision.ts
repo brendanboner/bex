@@ -236,12 +236,18 @@ async function createXcoSkillsLocally(prisma: PrismaClient): Promise<boolean> {
   ];
 
   const diagnosticsTools = [
-    makeXcoTool('xco_get_bgp_sessions', 'Get BGP session states for all fabric underlay peers', 'GET', '/monitor/bgp'),
+    makeXcoTool('xco_get_bgp_sessions', 'Get BGP session states for all fabric underlay peers. Returns array of sessions with local_ip, peer_ip, state, fabric, local_asn, peer_asn. If XCO returns an error, report it clearly.', 'GET', '/monitor/bgp', {
+      fabric_name: { type: 'string', description: 'Filter by fabric name (optional)' },
+      ip_address:  { type: 'string', description: 'Filter by switch management IP (optional)' },
+    }),
     makeXcoTool('xco_get_interface_status', 'Get interface status and utilization per switch', 'GET', '/monitor/interface', {
       ip_address: { type: 'string', description: 'Filter by switch management IP (optional)' },
     }),
     makeXcoTool('xco_get_vtep_status', 'Get VXLAN VTEP tunnel health for the fabric overlay', 'GET', '/monitor/vtep'),
-    makeXcoTool('xco_get_lldp_neighbors', 'Get LLDP neighbour table for physical topology verification', 'GET', '/monitor/lldp'),
+    makeXcoTool('xco_get_lldp_neighbors', 'Get LLDP neighbour table for all switches in the fabric for physical topology verification. Returns array of neighbour records with local_port, remote_hostname, remote_port, remote_ip. If XCO returns an error, report it clearly.', 'GET', '/monitor/lldp', {
+      fabric_name: { type: 'string', description: 'Filter by fabric name (optional)' },
+      ip_address:  { type: 'string', description: 'Filter by switch management IP (optional)' },
+    }),
     makeXcoTool('xco_get_event_log', 'Get time-bounded event history', 'GET', '/event', {
       start_time: { type: 'string', description: 'Start time ISO 8601 (optional)' },
       end_time:   { type: 'string', description: 'End time ISO 8601 (optional)' },
@@ -301,56 +307,59 @@ async function createXcoSkillsLocally(prisma: PrismaClient): Promise<boolean> {
     },
   ];
 
-  await prisma.skill.createMany({
-    data: [
-      {
-        name: 'ExtremeCloud Orchestrator — Monitor',
-        domain: 'networking.extreme-xco.monitor',
-        version: '1.0.0',
-        description: 'Read-only monitoring for XCO: device inventory, fabric health, alarms, topology validation, platform health.',
-        capabilities: ['inventory', 'alarms', 'fabric-health', 'topology-validation', 'system-health'],
-        tools: monitorTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        systemPrompt: 'You are a read-only XCO monitoring agent. Use the available tools to retrieve device inventory, alarm summaries, fabric health, and platform status. Never perform write operations. When the request mentions "dashboard", "JSON", "structured data", or "export": respond with a single JSON object only — no markdown, no prose. Use snake_case keys. Arrays of objects should have consistent flat keys.',
-        status: 'PUBLISHED',
-      },
-      {
-        name: 'ExtremeCloud Orchestrator — Operations',
-        domain: 'networking.extreme-xco.operations',
-        version: '1.0.0',
-        description: 'Write operations for XCO: alarm management, fabric lifecycle, device registration.',
-        capabilities: ['alarm-management', 'fabric-lifecycle', 'device-registration'],
-        tools: operationsTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        systemPrompt: 'You are an XCO operations agent. All write operations (acknowledge/close alarms, create/delete fabrics, register devices) require explicit user approval before executing.',
-        status: 'PUBLISHED',
-      },
-      {
-        name: 'ExtremeCloud Orchestrator — Diagnostics',
-        domain: 'networking.extreme-xco.diagnostics',
-        version: '1.0.0',
-        description: 'Deep diagnostic tools for XCO: BGP sessions, interface status, VTEP health, LLDP neighbours, event and audit logs.',
-        capabilities: ['bgp-diagnostics', 'interface-status', 'vtep-health', 'lldp-topology', 'event-log', 'audit-log'],
-        tools: diagnosticsTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        systemPrompt: 'You are a read-only XCO diagnostics agent. Use the available tools to investigate BGP session states, interface health, VTEP tunnels, LLDP topology, events, and audit logs. Never perform write operations.',
-        status: 'PUBLISHED',
-      },
-      {
-        name: 'ExtremeCloud Orchestrator — Telemetry',
-        domain: 'networking.extreme-xco.telemetry',
-        version: '1.0.0',
-        description: 'Real-time telemetry for XCO: CPU/memory/temperature per switch, interface utilization, fabric east-west traffic.',
-        capabilities: ['device-telemetry', 'interface-utilization', 'fabric-utilization'],
-        tools: telemetryTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        systemPrompt: 'You are a read-only XCO telemetry agent. Use the available tools to retrieve real-time performance metrics. Never perform write operations.',
-        status: 'PUBLISHED',
-      },
-      {
-        name: 'ExtremeCloud Orchestrator — Composite',
-        domain: 'networking.extreme-xco.composite',
-        version: '1.0.0',
-        description: 'Multi-step composite tools for XCO: full fabric overview (devices, health, alarms, BGP, topology in one call) and standalone topology diagram generation.',
-        capabilities: ['fabric-overview', 'topology-diagram', 'mermaid-visualisation', 'alarm-summary', 'bgp-health'],
-        tools: compositeTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
-        systemPrompt: `You are an XCO composite analysis agent with access to pre-built multi-step tools.
+  // Upsert each skill so that system-prompt / tool changes in code are applied on every restart.
+  // (createMany + skipDuplicates never updates existing rows.)
+  const xcoSkills = [
+    {
+      name: 'ExtremeCloud Orchestrator — Monitor',
+      domain: 'networking.extreme-xco.monitor',
+      version: '1.0.0',
+      description: 'Read-only monitoring for XCO: device inventory, fabric health, alarms, topology validation, platform health.',
+      capabilities: ['inventory', 'alarms', 'fabric-health', 'topology-validation', 'system-health'],
+      tools: monitorTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+      systemPrompt: 'You are a read-only XCO monitoring agent. Use the available tools to retrieve device inventory, alarm summaries, fabric health, and platform status. Never perform write operations. Always present results clearly — format will be specified by the channel context. If a tool returns an object with an "error" field, report the failure in plain English — never show raw error objects or HTML to the user.',
+      status: 'PUBLISHED' as const,
+    },
+    {
+      name: 'ExtremeCloud Orchestrator — Operations',
+      domain: 'networking.extreme-xco.operations',
+      version: '1.0.0',
+      description: 'Write operations for XCO: alarm management, fabric lifecycle, device registration.',
+      capabilities: ['alarm-management', 'fabric-lifecycle', 'device-registration'],
+      tools: operationsTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+      systemPrompt: 'You are an XCO operations agent. All write operations (acknowledge/close alarms, create/delete fabrics, register devices) require explicit user approval before executing.',
+      status: 'PUBLISHED' as const,
+    },
+    {
+      name: 'ExtremeCloud Orchestrator — Diagnostics',
+      domain: 'networking.extreme-xco.diagnostics',
+      version: '1.0.0',
+      description: 'Deep diagnostic tools for XCO: BGP sessions, interface status, VTEP health, LLDP neighbours, event and audit logs.',
+      capabilities: ['bgp-diagnostics', 'interface-status', 'vtep-health', 'lldp-topology', 'event-log', 'audit-log'],
+      tools: diagnosticsTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+      systemPrompt: `You are a read-only XCO diagnostics agent. Use the available tools to investigate BGP session states, interface health, VTEP tunnels, LLDP topology, events, and audit logs. Never perform write operations.
+
+If a tool returns an error with an "error" field (e.g. { "error": "XCO endpoint returned HTML instead of JSON" } or { "error": "XCO API error 404" }), do NOT show the raw error object to the user. Instead, clearly state that the data could not be retrieved, explain the likely reason (e.g. "this endpoint may not be available in your XCO version"), and suggest checking the XCO version or API configuration. Always respond in clear English prose.`,
+      status: 'PUBLISHED' as const,
+    },
+    {
+      name: 'ExtremeCloud Orchestrator — Telemetry',
+      domain: 'networking.extreme-xco.telemetry',
+      version: '1.0.0',
+      description: 'Real-time telemetry for XCO: CPU/memory/temperature per switch, interface utilization, fabric east-west traffic.',
+      capabilities: ['device-telemetry', 'interface-utilization', 'fabric-utilization'],
+      tools: telemetryTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+      systemPrompt: 'You are a read-only XCO telemetry agent. Use the available tools to retrieve real-time performance metrics. Never perform write operations.',
+      status: 'PUBLISHED' as const,
+    },
+    {
+      name: 'ExtremeCloud Orchestrator — Composite',
+      domain: 'networking.extreme-xco.composite',
+      version: '1.0.0',
+      description: 'Multi-step composite tools for XCO: full fabric overview (devices, health, alarms, BGP, topology in one call) and standalone topology diagram generation.',
+      capabilities: ['fabric-overview', 'topology-diagram', 'mermaid-visualisation', 'alarm-summary', 'bgp-health'],
+      tools: compositeTools as unknown as import('@prisma/client').Prisma.InputJsonValue,
+      systemPrompt: `You are an XCO composite analysis agent with access to pre-built multi-step tools.
 
 ALWAYS use composite tools when they cover the query:
 - "overview", "dashboard", "health summary", "how is my network", "full picture" → xco_fabric_overview
@@ -365,12 +374,23 @@ xco_fabric_overview returns:
   - "devices": array of { name, ip, fabric, role, state, model }
   - "bgp_sessions": array of { local_ip, peer_ip, state, fabric, local_asn, peer_asn }
 
-OUTPUT FORMAT: Respond with a single JSON object using exactly these top-level keys — no markdown, no prose.`,
-        status: 'PUBLISHED',
+Present results according to the channel formatting instructions provided in the system context.`,
+      status: 'PUBLISHED' as const,
+    },
+  ];
+
+  for (const skill of xcoSkills) {
+    await prisma.skill.upsert({
+      where: { domain_version: { domain: skill.domain, version: skill.version } },
+      create: skill,
+      update: {
+        systemPrompt: skill.systemPrompt,
+        tools: skill.tools,
+        description: skill.description,
+        capabilities: skill.capabilities,
       },
-    ],
-    skipDuplicates: true,
-  });
+    });
+  }
 
   return true;
 }
@@ -401,6 +421,7 @@ async function provisionXiqAgent(prisma: PrismaClient): Promise<boolean> {
     data: {
       name: 'ExtremeCloud IQ',
       description: 'Manages and monitors your ExtremeCloud IQ wireless network — devices, clients, alerts, policies, and more.',
+      status: 'ACTIVE',
       llmProvider: process.env['LLM_PROVIDER'] ?? 'openai',
       llmModel: process.env['LLM_MODEL'] ?? 'gpt-4o',
       permissions: ['xiq:read', 'xiq:write'],
@@ -477,6 +498,7 @@ async function provisionXcoAgent(prisma: PrismaClient): Promise<boolean> {
     data: {
       name: 'ExtremeCloud Orchestrator',
       description: 'Monitors and manages your ExtremeCloud Orchestrator fabric network — health, alarms, topology, and operations.',
+      status: 'ACTIVE',
       llmProvider: process.env['LLM_PROVIDER'] ?? 'openai',
       llmModel: process.env['LLM_MODEL'] ?? 'gpt-4o',
       permissions: ['xco:read', 'xco:write'],
@@ -720,6 +742,7 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
     await provisionSystemOpsSkill(prisma);
     await deduplicateLegacyAgents(prisma);
     await assignSystemOpsSkillToMonitorAgents(prisma);
+    await activateDraftProvisionedAgents(prisma);
     // NOTE: provisionApSsidMonitorJob is intentionally NOT called here.
     // Scheduled jobs are created by users via the dashboard, not auto-provisioned on startup.
     await syncSkillsFromRegistry(prisma);
@@ -952,6 +975,42 @@ async function provisionApSsidMonitorJob(prisma: PrismaClient): Promise<void> {
   });
 
   console.info(`[provision] Created AP/SSID Client Monitor (15 min) job for ${agent.name}`);
+}
+
+/**
+ * Activates any DRAFT agents that were provisioned by bex init or provisionDefaults
+ * but never set to ACTIVE due to the missing status field in the create payload.
+ * Only activates well-known provisioned agent names that have at least one skill assigned.
+ */
+async function activateDraftProvisionedAgents(prisma: PrismaClient): Promise<void> {
+  const PROVISIONED_NAMES = [
+    'ExtremeCloud IQ',
+    'ExtremeCloud IQ Monitor',
+    'ExtremeCloud Orchestrator',
+    'XCO Monitor',
+    'XCO Operator',
+    'XCO Provisioner',
+  ];
+
+  const stuck = await prisma.agent.findMany({
+    where: {
+      name: { in: PROVISIONED_NAMES },
+      status: 'DRAFT',
+      agentSkills: { some: {} },
+    },
+    select: { id: true, name: true },
+  });
+
+  if (stuck.length === 0) return;
+
+  await prisma.agent.updateMany({
+    where: { id: { in: stuck.map((a) => a.id) } },
+    data: { status: 'ACTIVE' },
+  });
+
+  for (const a of stuck) {
+    console.info(`[provision] Activated stuck DRAFT agent: "${a.name}" (${a.id})`);
+  }
 }
 
 export { provisionDefaults as provision };

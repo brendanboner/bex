@@ -23,8 +23,11 @@ export async function buildDashboardApi() {
   const prisma = new PrismaClient();
 
   await app.register(helmet);
+  // Support comma-separated list of allowed origins (matches api-gateway behaviour)
+  const rawOrigin = process.env['CORS_ORIGIN'] ?? 'http://localhost:3000,http://localhost:8800,http://localhost:8801';
+  const allowedOrigins = rawOrigin.split(',').map((o) => o.trim()).filter(Boolean);
   await app.register(cors, {
-    origin: process.env['CORS_ORIGIN'] ?? 'http://localhost:3001',
+    origin: allowedOrigins.length === 1 ? allowedOrigins[0]! : allowedOrigins,
     credentials: true,
   });
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });

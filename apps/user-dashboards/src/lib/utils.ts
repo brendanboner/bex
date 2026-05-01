@@ -26,6 +26,10 @@ export function statusColor(status: string): string {
 
 /** Resolve a value from nested data using a dot-path + bracket-index key.
  *  Supports: "summary.total", "access_points[0].clients", "rows[2].name"
+ *  Fallback chain for each lookup:
+ *    1. Exact nested path:       data.headline.status
+ *    2. Literal dot key:         data["headline.status"]
+ *    3. Underscore-joined key:   data["headline_status"]
  */
 export function resolveDataKey(data: Record<string, unknown> | unknown, key: string | undefined): unknown {
   if (!key || !data) return data;
@@ -45,16 +49,30 @@ export function resolveDataKey(data: Record<string, unknown> | unknown, key: str
     }
   }
 
+  // 1. Try exact nested dot-path traversal
   let cur: unknown = data;
   for (const token of tokens) {
-    if (cur == null) return undefined;
+    if (cur == null) { cur = undefined; break; }
     if (typeof token === 'number') {
-      if (!Array.isArray(cur)) return undefined;
+      if (!Array.isArray(cur)) { cur = undefined; break; }
       cur = (cur as unknown[])[token];
     } else {
-      if (typeof cur !== 'object' || Array.isArray(cur)) return undefined;
+      if (typeof cur !== 'object' || Array.isArray(cur)) { cur = undefined; break; }
       cur = (cur as Record<string, unknown>)[token];
     }
   }
-  return cur;
+  if (cur !== undefined) return cur;
+
+  // 2. Try literal dot key: data["headline.status"]
+  if (typeof data === 'object' && !Array.isArray(data) && data !== null) {
+    const flat = (data as Record<string, unknown>)[key];
+    if (flat !== undefined) return flat;
+
+    // 3. Try underscore-joined key: "headline.status" → "headline_status"
+    const underscoreKey = key.replace(/\./g, '_');
+    const underscored = (data as Record<string, unknown>)[underscoreKey];
+    if (underscored !== undefined) return underscored;
+  }
+
+  return undefined;
 }

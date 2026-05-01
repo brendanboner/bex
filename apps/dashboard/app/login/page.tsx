@@ -1,13 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { BexLogo } from '@/components/bex-logo';
 
 const API_URL = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -34,7 +32,9 @@ export default function LoginPage() {
       localStorage.setItem('bforge_token', json.data.token);
       // Set cookie so middleware can protect routes server-side
       document.cookie = `bex_token=${json.data.token}; path=/; max-age=${7 * 24 * 3600}; SameSite=Lax`;
-      router.replace('/');
+      // Hard navigate so the server re-evaluates the root layout with the new cookie.
+      // router.replace('/') is a soft navigation that reuses the cached unauthenticated layout.
+      window.location.replace('/');
     } catch {
       setError('Could not reach the API gateway. Is BEX running?');
       setLoading(false);

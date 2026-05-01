@@ -31,14 +31,14 @@ export function makeListAgentsTool(prisma: PrismaClient): CoreTool {
   return {
     description: 'List all ACTIVE agents with their skills and capabilities',
     parameters: z.object({
-      domain: z.string().optional().describe('Optional domain filter (substring match on skill domain)'),
+      domain: z.string().optional().describe('Optional domain filter (case-insensitive substring match on skill domain)'),
     }),
     execute: async ({ domain }: { domain?: string }) => {
       const agents = await prisma.agent.findMany({
         where: {
           status: 'ACTIVE',
           ...(domain !== undefined
-            ? { agentSkills: { some: { skill: { domain: { contains: domain } } } } }
+            ? { agentSkills: { some: { skill: { domain: { contains: domain, mode: 'insensitive' } } } } }
             : {}),
         },
         include: {
@@ -151,7 +151,7 @@ export function makeSpawnAgentTool(prisma: PrismaClient, enqueueRequest?: Enqueu
 export function makeDelegateTaskTool(prisma: PrismaClient, enqueueRequest?: EnqueueRequestFn): CoreTool {
   return {
     description:
-      'Delegate a sub-task to a specific agent. Quick-polls for up to 10 s — if the agent finishes in time the result is returned immediately. If still running, returns { requestId, status: "PENDING" } so you can tell the user you\'ve started the task and they can ask for an update (use check_task_status to follow up).',
+      'Delegate a sub-task to a specific agent. Quick-polls for up to 30 s — if the agent finishes in time the result is returned immediately. If still running, returns { requestId, status: "PENDING" } — the caller will automatically receive the result when it completes.',
     parameters: z.object({
       agentId: z.string().describe('ID of the agent to delegate the task to'),
       task: z.string().describe('The task description / input for the agent'),
@@ -184,10 +184,10 @@ export function makeDelegateTaskTool(prisma: PrismaClient, enqueueRequest?: Enqu
         }
       }
 
-      // Quick-poll: wait up to 10 s for a fast response. If not done, return PENDING
-      // so the coordinator can tell the user to ask for an update via check_task_status.
+      // Quick-poll: wait up to 30 s for a fast response. If not done, return PENDING
+      // — the dashboard/bot will auto-poll /requests/:id and surface the result automatically.
       try {
-        const result = await pollForCompletion(prisma, request.id, 10_000);
+        const result = await pollForCompletion(prisma, request.id, 30_000);
         return { requestId: request.id, output: result };
       } catch (e) {
         const msg = (e as Error).message;
@@ -376,7 +376,150 @@ export function makeListKnowledgeTopicsTool(knowledgeDir: string): CoreTool {
   };
 }
 
-// ─── create_skill ────────────────────────────────────────────────────────────
+// ─── get_agent_capabilities ───────────────────────────────────────────────────
+
+export function makeGetAgentCapabilitiesTool(prisma: PrismaClient): CoreTool {
+  return {
+    description: 'Get the full capabilities of a specific agent by name. Use this to answer "what can the XIQ agent do?" or "what capabilities does the XCO agent have?". Searches by agent name (case-insensitive).',
+    parameters: z.object({
+      name: z.string().describe('Agent name or keyword to search for (case-insensitive substring match, e.g. "XIQ", "XCO", "monitor")'),
+    }),
+    execute: async ({ name }: { name: string }) => {
+      const agents = await prisma.agent.findMany({
+        where: { name: { contains: name, mode: 'insensitive' } },
+        include: {
+          agentSkills: {
+            include: {
+              skill: {
+                select: { name: true, domain: true, capabilities: true, status: true },
+              },
+            },
+          },
+        },
+      });
+
+      if (agents.length === 0) {
+        return { found: false, message: `No agent matching "${name}" found.` };
+      }
+
+      return {
+        found: true,
+        agents: agents.map(a => ({
+          name: a.name,
+          status: a.status,
+          isDefault: a.isDefault,
+          llmModel: a.llmModel,
+          permissions: a.permissions,
+          skills: a.agentSkills.map(as => ({
+            name: as.skill.name,
+            domain: as.skill.domain,
+            status: as.skill.status,
+            capabilities: as.skill.capabilities,
+          })),
+        })),
+      };
+    },
+  };
+}
+
+// ─── get_credential_status ────────────────────────────────────────────────────
+
+export function makeGetCredentialStatusTool(prisma: PrismaClient): CoreTool {
+  return {
+    description: 'Check whether a named credential is configured in the BEX vault. Use this to answer questions like "has the XCO credential been configured?" or "is the XIQ credential set up?". Returns existence, type, and scope — never returns the secret value.',
+    parameters: z.object({
+      name: z.string().describe('Credential name or keyword to search for (case-insensitive substring match, e.g. "XCO", "XIQ", "OpenAI")'),
+    }),
+    execute: async ({ name }: { name: string }) => {
+      const credentials = await prisma.credential.findMany({
+        where: { name: { contains: name, mode: 'insensitive' } },
+        select: {
+          id: true,
+          name: true,
+          credentialType: true,
+          scope: true,
+          description: true,
+          // Check iv is non-empty as a proxy for "value was actually stored"
+          iv: true,
+          createdAt: true,
+          updatedAt: true,
+          agents: { select: { id: true, name: true } },
+        },
+      });
+
+      if (credentials.length === 0) {
+        return {
+          found: false,
+          message: `No credential matching "${name}" found in the vault. It has not been configured.`,
+        };
+      }
+
+      return {
+        found: true,
+        credentials: credentials.map(c => ({
+          name: c.name,
+          type: c.credentialType,
+          scope: c.scope,
+          description: c.description ?? null,
+          configured: c.iv.length > 0,
+          assignedToAgents: c.agents.map(a => a.name),
+          createdAt: c.createdAt,
+          updatedAt: c.updatedAt,
+        })),
+      };
+    },
+  };
+}
+
+
+
+export function makeGetSystemStatusTool(prisma: PrismaClient): CoreTool {
+  return {
+    description: 'Get BEX platform system status: agent counts, skill counts, credential counts, endpoint counts, scheduled job counts, and recent request queue health.',
+    parameters: z.object({}),
+    execute: async () => {
+      const [agents, skills, credentials, endpoints, scheduledJobs, recentRequests] = await Promise.all([
+        prisma.agent.findMany({ select: { id: true, name: true, status: true, isDefault: true } }),
+        prisma.skill.findMany({ select: { id: true, name: true, domain: true, status: true } }),
+        prisma.credential.findMany({ select: { id: true, name: true, credentialType: true } }),
+        prisma.endpoint.findMany({ select: { id: true, name: true, baseUrl: true } }),
+        prisma.scheduledJob.findMany({ select: { id: true, name: true, enabled: true, cronExpr: true } }),
+        prisma.agentRequest.findMany({
+          where: { createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+          select: { status: true },
+        }),
+      ]);
+
+      const queueCounts = recentRequests.reduce<Record<string, number>>((acc, r) => {
+        acc[r.status] = (acc[r.status] ?? 0) + 1;
+        return acc;
+      }, {});
+
+      return {
+        agents: {
+          total: agents.length,
+          active: agents.filter(a => a.status === 'ACTIVE').length,
+          list: agents.map(a => ({ name: a.name, status: a.status, isDefault: a.isDefault })),
+        },
+        skills: {
+          total: skills.length,
+          published: skills.filter(s => s.status === 'PUBLISHED').length,
+          domains: [...new Set(skills.map(s => s.domain))],
+        },
+        credentials: { total: credentials.length, list: credentials.map(c => ({ name: c.name, type: c.credentialType })) },
+        endpoints: { total: endpoints.length, list: endpoints.map(e => ({ name: e.name, url: e.baseUrl })) },
+        scheduledJobs: {
+          total: scheduledJobs.length,
+          active: scheduledJobs.filter(j => j.enabled).length,
+          paused: scheduledJobs.filter(j => !j.enabled).length,
+        },
+        requestsLastHour: queueCounts,
+      };
+    },
+  };
+}
+
+
 
 export function makeCreateSkillTool(prisma: PrismaClient): CoreTool {
   return {

@@ -172,11 +172,12 @@ Generate a widget layout that best presents this data. Rules:
 - "dataKey" is REQUIRED for every widget type including headlines.
 - Use dot-notation for nested scalar fields: e.g. "summary.total_clients"
 - For arrays at the top level, use the key name directly: e.g. "topology" for data.topology[]
+- MULTI-AGENT DATA: When data has top-level keys "xiq" and "xco", each is a namespace. Use dot-notation to access their children: e.g. "xiq.summary.total_clients", "xco.alarms" (for an array), "xco.fabric.spine_count". Group related widgets by namespace and add section headings.
 - CRITICAL: "headline" and "stat" widget dataKey MUST resolve to a single scalar value (a number or a short string ≤ 30 chars). NEVER point headline or stat at an array or an object — if the data for a key is an array, use "table" instead. If the scalar you want lives inside a nested object, use dot-notation (e.g. "summary.total_clients", not "summary").
 - IMPORTANT: When the data has an array of objects where each object itself contains a sub-array (e.g. access_points[].clients), do NOT use bracket-indexed paths like "access_points[0].clients". Instead create ONE table widget per unique sub-array using the top-level key (e.g. "access_points") with columns including fields from the nested objects flattened. Alternatively, if the data is already structured with named top-level arrays (e.g. "apple_clients"), use that key directly.
 - Use "headline" widgets for single numeric or short-text values. Set "dataKey" to the exact dot-path to the value (e.g. "summary.total_ssids")
 - Use "stat" widgets for a single metric that benefits from health colouring (green/amber/red). Add "unit" (e.g. "dB"), "thresholds": {"warn": N, "crit": M} for auto-colour. Good for SNR, uptime, counts.
-- Use "table" widgets for arrays of objects — set "dataKey" to the key of the array, and "columns" to the field names to show
+- Use "table" widgets for arrays of objects — set "dataKey" to the key of the array, and "columns" to the EXACT field names from the data objects. Look at what keys actually exist in the first array item and use those. NEVER invent column names — if the data has {"key": "...", "value": "..."} use ["key", "value"], not ["feature", "status"] or any other label you make up.
 - Use "chart" widgets for numeric comparisons — set chartType (bar/line/pie), xKey, yKey, and dataKey to the key of the array
 - Use "multiline" widgets when you have multiple numeric series to compare on one line chart. Set "yKeys" to an array of field names (e.g. ["band_24ghz","band_5ghz"]), "xKey" to the time/label field, "dataKey" to the array.
 - Use "markdown" widgets when data has a string field containing prose or formatted text (e.g. "summary_markdown", "analysis"). Set "dataKey" to that string field key.
@@ -184,17 +185,56 @@ Generate a widget layout that best presents this data. Rules:
 - Use "heatmap" widgets for arrays where each item should be shown as a coloured cell (e.g. AP RF quality). Set "labelKey" (e.g. "hostname"), "valueKey" (e.g. "snr"), "thresholds": {"warn": 25, "crit": 15}, "unit" (e.g. "dB").
 - Use "actions" widget at the end with a "Refresh" action (action: "refresh", style: "primary")
 - colSpan: 1 for headlines/stat, 2-4 for tables/charts/heatmaps
-- Keep it clean: 3–8 widgets max
+- Keep it clean: 3–10 widgets max (up to 10 for multi-agent dashboards)
 - Each widget id should be a short unique string like "w1", "w2", etc.
 
 Return the widget array only.`,
     });
 
-    return object.widgets as Widget[];
+    return validateWidgetColumns(object.widgets as Widget[], parsedData);
   } catch (err) {
     console.error('[widget-generator] LLM widget generation failed, using fallback:', err);
     return fallbackWidgets(parsedData);
   }
+}
+
+/**
+ * Post-processing: for each table widget, verify that the declared `columns`
+ * actually exist as keys in the first row of the resolved array. If any column
+ * is missing (the LLM invented a semantic name), replace the columns list with
+ * the real keys from the data.
+ */
+function validateWidgetColumns(widgets: Widget[], parsedData: unknown): Widget[] {
+  if (!parsedData || typeof parsedData !== 'object' || Array.isArray(parsedData)) return widgets;
+  const data = parsedData as Record<string, unknown>;
+
+  return widgets.map((w) => {
+    if (w.type !== 'table' || !w.dataKey || !w.columns?.length) return w;
+
+    // Resolve the array this table points at
+    const arr = data[w.dataKey];
+    if (!Array.isArray(arr) || arr.length === 0) return w;
+
+    const firstRow = arr[0];
+    if (typeof firstRow !== 'object' || firstRow === null) return w;
+
+    const actualKeys = Object.keys(firstRow as object);
+    if (actualKeys.length === 0) return w;
+
+    // Check if ALL declared columns exist in the actual data
+    const allMatch = w.columns.every((col) =>
+      actualKeys.includes(col) || (firstRow as Record<string, unknown>)[col] !== undefined,
+    );
+
+    if (!allMatch) {
+      console.warn(
+        `[widget-generator] Column mismatch for table "${w.title ?? w.dataKey}": ` +
+        `declared=[${w.columns.join(',')}] actual=[${actualKeys.slice(0, 8).join(',')}] — using actual keys`,
+      );
+      return { ...w, columns: actualKeys.slice(0, 8) };
+    }
+    return w;
+  });
 }
 
 /**

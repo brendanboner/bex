@@ -347,7 +347,7 @@ export async function initCommand(): Promise<void> {
     SKILL_REGISTRY_URL: 'https://bexregistry.brendanbonner.com',
     SKILL_REGISTRY_TOKEN: skillRegistryToken,
     LOG_LEVEL: 'info',
-    CORS_ORIGIN: 'http://localhost:3000',
+    CORS_ORIGIN: 'http://localhost:3000,http://localhost:8800,http://localhost:8801',
     RATE_LIMIT_MAX: '100',
     DEFAULT_APPROVAL_CHANNEL: channel !== 'dashboard' ? channel : '',
     // Non-sensitive channel metadata (approval routing — not secrets)
@@ -671,6 +671,7 @@ export async function initCommand(): Promise<void> {
         description: opts.description,
         llmProvider,
         llmModel,
+        status: 'ACTIVE',
         permissions: opts.permissions,
         skillIds: opts.skillIds,
         persona: { systemPrompt: opts.systemPrompt },

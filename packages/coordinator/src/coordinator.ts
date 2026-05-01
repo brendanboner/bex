@@ -17,6 +17,9 @@ import {
   makeWriteKnowledgeTool,
   makeListKnowledgeTopicsTool,
   makeCreateSkillTool,
+  makeGetSystemStatusTool,
+  makeGetCredentialStatusTool,
+  makeGetAgentCapabilitiesTool,
   type EnqueueRequestFn,
 } from './meta-tools.js';
 
@@ -35,6 +38,8 @@ export type ChatResult = {
   sessionId: string;
   output: string;
   subTaskIds?: string[];
+  /** Request IDs for delegate_task calls that are still PENDING — callers should poll /requests/:id */
+  pendingRequestIds?: string[];
 };
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -42,26 +47,34 @@ export type ChatResult = {
 const COORDINATOR_SYSTEM_PROMPT = `You are the Coordinator Gateway Node for an enterprise agentic framework.
 Your primary role is intelligent routing — find the right specialist agent for every question, then synthesise results.
 
-## Core routing rule (ALWAYS follow this)
-For EVERY user message, your first action MUST be:
-1. Call list_agents (optionally with a domain keyword extracted from the message) to discover available specialist agents.
-2. If one or more agents match the topic, call delegate_task to send the question to the most relevant agent and relay its response to the user.
-3. Only answer directly from your own reasoning if NO specialist agent exists for the topic.
+## Core routing rule (ALWAYS follow this — NO EXCEPTIONS)
+For EVERY user message that is not a platform management query (see below), you MUST:
+1. Call list_agents with NO domain filter to discover ALL available agents and their current skills.
+2. Read each agent's skill domains and capabilities to identify who can handle the request.
+3. Call delegate_task to send the question to the most relevant agent and relay its response to the user.
+4. ONLY answer directly from your own reasoning if list_agents returns zero agents, or none of the agents have any skills that relate to the query.
 
-This applies to SINGLE-domain questions too — if a user asks about XIQ, XCO, Kubernetes, networking, or any other domain and a specialist agent is active, route to that agent rather than answering yourself.
+**NEVER skip step 1.** Even if you think you know the answer, you may not know which specialist agent is available.
+**DO NOT** pass a domain filter to list_agents — always call it with no arguments so you see all agents.
+
+## Agent domain reference (use as a hint — always verify by calling list_agents)
+- XIQ / wireless / clients / access points / APs / SSIDs / VLANs / radio / signal → agent with skills under "extremecloudiq.*"
+- XCO / fabric / BGP / spine / leaf / VTEP / alarms / orchestrator → agent with skills under "networking.extreme-xco.*"
+- weather / forecast / temperature / rain / wind / climate → agent with skills under "weather.*"
+- Any other domain — call list_agents and check capabilities; do NOT guess.
 
 ## Handling long-running tasks
-delegate_task quick-polls for 10 s. If the agent is still working it returns { status: "PENDING", requestId }.
+delegate_task quick-polls for 30 s. If the agent is still working it returns { status: "PENDING", requestId }.
 When this happens:
-- Tell the user: "I've started that — [agent name] is working on it. Ask me for an update when you're ready."
-- Remember the requestId so you can use check_task_status when the user follows up.
-When the user asks for an update (e.g. "any update?", "is it done?", "what happened?"), call check_task_status with the requestId.
+- Tell the user: "I've started that — [agent name] is working on it. The result will appear automatically when it's ready."
+- Remember the requestId so you can use check_task_status if needed.
+When the user asks for an update (e.g. "any update?", "is it done?"), call check_task_status with the requestId.
 
 ## Multi-domain questions
-When a question spans multiple domains (e.g. comparing XIQ + XCO + K8s data):
+When a question spans multiple domains (e.g. comparing XIQ + XCO data):
 1. Call check_domain_constraint to verify compatibility between the domains.
 2. Call plan_workflow to decompose the goal into ordered sub-tasks.
-3. Call list_agents to find the right agent for each sub-task.
+3. Call list_agents (no filter) to find the right agent for each sub-task.
 4. Call delegate_task for each sub-task and collect results.
 5. Synthesise all agent responses into a coherent final answer, citing which agent produced each piece of data.
 
@@ -69,8 +82,15 @@ When a question spans multiple domains (e.g. comparing XIQ + XCO + K8s data):
 When no agent can handle a sub-task:
 - Call create_skill to trigger skill creation for that domain, then retry with spawn_agent.
 
-## Knowledge base
-Use read_knowledge, write_knowledge, and list_knowledge_topics to store and retrieve context that improves future reasoning. After each multi-step conversation, write a brief summary of what was discussed and resolved.
+## Platform management queries (answer directly — do NOT route to an agent)
+For questions about the BEX platform itself, use your system tools directly without calling list_agents first:
+- "what capabilities does the X agent have?" / "what can X do?" → call get_agent_capabilities with the name keyword
+- "has the X credential been configured?" / "is X set up?" → call get_credential_status with the name keyword
+- "system status" / "platform status" / "what is running?" → call get_system_status
+- "what agents are available?" / "list agents" → call list_agents (no domain filter)
+- "what skills are published?" → call get_system_status
+
+Never route platform management questions to domain agents (XIQ, XCO etc.) — they cannot answer them.
 
 Always be concise, structured, and cite which agent produced each piece of data.`;
 
@@ -126,6 +146,9 @@ export class CoordinatorAgent {
       write_knowledge: makeWriteKnowledgeTool(knowledgeDir),
       list_knowledge_topics: makeListKnowledgeTopicsTool(knowledgeDir),
       create_skill: makeCreateSkillTool(this.prisma),
+      get_system_status: makeGetSystemStatusTool(this.prisma),
+      get_credential_status: makeGetCredentialStatusTool(this.prisma),
+      get_agent_capabilities: makeGetAgentCapabilitiesTool(this.prisma),
     };
 
     // 5. Run the LLM with multi-step tool calling
@@ -141,18 +164,23 @@ export class CoordinatorAgent {
       maxSteps: 10,
     });
 
-    // 6. Collect any sub-task request IDs from tool results
-    const subTaskIds: string[] = result.steps
+    // 6. Collect sub-task request IDs; split into completed vs still-pending
+    const delegateResults: Array<{ requestId?: string; status?: string }> = result.steps
       .flatMap((step) => step.toolResults ?? [])
       .filter(
         (tr) =>
           (tr as { toolName?: string }).toolName === 'delegate_task' ||
           (tr as { toolName?: string }).toolName === 'spawn_agent',
       )
-      .map((tr) => {
-        const r = (tr as { result?: { requestId?: string } }).result;
-        return r?.requestId;
-      })
+      .map((tr) => (tr as { result?: { requestId?: string; status?: string } }).result ?? {});
+
+    const subTaskIds = delegateResults
+      .map((r) => r.requestId)
+      .filter((id): id is string => typeof id === 'string');
+
+    const pendingRequestIds = delegateResults
+      .filter((r) => r.status === 'PENDING')
+      .map((r) => r.requestId)
       .filter((id): id is string => typeof id === 'string');
 
     // 7. Persist assistant turn and complete session
@@ -168,6 +196,7 @@ export class CoordinatorAgent {
       sessionId: session.id,
       output: result.text,
       ...(subTaskIds.length > 0 ? { subTaskIds } : {}),
+      ...(pendingRequestIds.length > 0 ? { pendingRequestIds } : {}),
     };
 
     return chatResult;

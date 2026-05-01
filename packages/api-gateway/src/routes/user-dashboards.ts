@@ -40,6 +40,77 @@ function slugify(name: string): string {
     .slice(0, 80);
 }
 
+// ─── Multi-agent support ──────────────────────────────────────────────────────
+
+const XIQ_SIGNALS = ['xiq', 'extremecloud iq', 'wifi', 'wireless', 'access point', 'ssid', 'client', 'radio', 'ap '];
+const XCO_SIGNALS = ['xco', 'orchestrator', 'fabric', 'bgp', 'spine', 'leaf', 'alarm', 'vtep', 'switch fabric'];
+
+interface AgentTarget { id: string; domainKey: string; }
+
+/**
+ * When a prompt references both XIQ and XCO domains, resolve both agent IDs.
+ * Returns null if the prompt is single-domain (handled by resolveBestAgent).
+ */
+async function resolveMultiAgentTargets(
+  prisma: PrismaClient,
+  prompt: string,
+): Promise<AgentTarget[] | null> {
+  const lower = prompt.toLowerCase();
+  const needsXiq = XIQ_SIGNALS.some(s => lower.includes(s));
+  const needsXco = XCO_SIGNALS.some(s => lower.includes(s));
+  if (!needsXiq || !needsXco) return null;
+
+  const agents = await prisma.agent.findMany({
+    where: { status: 'ACTIVE' },
+    select: { id: true, agentSkills: { select: { skill: { select: { domain: true } } } } },
+  });
+
+  const xiqAgent = agents.find(a => a.agentSkills.some(s => s.skill.domain.startsWith('extremecloudiq.')));
+  const xcoAgent = agents.find(a => a.agentSkills.some(s => s.skill.domain.startsWith('networking.extreme-xco.')));
+
+  if (!xiqAgent || !xcoAgent) return null;
+  return [
+    { id: xiqAgent.id, domainKey: 'xiq' },
+    { id: xcoAgent.id, domainKey: 'xco' },
+  ];
+}
+
+/**
+ * Run multiple agents in parallel and merge their JSON outputs into a namespaced object:
+ *   { xiq: { ...xiq_data }, xco: { ...xco_data } }
+ * Uses Promise.allSettled so partial failures don't discard the successful results.
+ */
+async function runMultiAgentForDashboard(
+  prisma: PrismaClient,
+  targets: AgentTarget[],
+  userId: string,
+  prompt: string,
+): Promise<{ output: string; agentIds: string[] }> {
+  const enriched = withJsonDirective(prompt);
+
+  const results = await Promise.allSettled(
+    targets.map(t => runAgentForDashboard(prisma, t.id, userId, enriched)),
+  );
+
+  const combined: Record<string, unknown> = {};
+  const errors: Record<string, string> = {};
+
+  for (let i = 0; i < targets.length; i++) {
+    const { domainKey } = targets[i]!;
+    const result = results[i]!;
+    if (result.status === 'fulfilled') {
+      const parsed = parseLastData(result.value.output);
+      combined[domainKey] = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : { _raw: parsed };
+    } else {
+      errors[domainKey] = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      combined[domainKey] = {};
+    }
+  }
+  if (Object.keys(errors).length > 0) combined._errors = errors;
+
+  return { output: JSON.stringify(combined), agentIds: targets.map(t => t.id) };
+}
+
 /**
  * Pick the best agent for a prompt by scoring agents against keyword matches
  * in their name, description, and the domains of their published skills.
@@ -312,10 +383,7 @@ export async function userDashboardRoutes(
 
     const { name, prompt } = parsed.data;
     let agentId = parsed.data.agentId ?? null;
-    if (!agentId) {
-      agentId = await resolveBestAgent(prisma, prompt);
-      if (!agentId) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No suitable agent found for this prompt'));
-    }
+    let previewAgentIds: string[] | null = null;
 
     const enrichedPrompt = withJsonDirective(prompt);
     let output = '';
@@ -324,11 +392,27 @@ export async function userDashboardRoutes(
     let previewError: string | null = null;
 
     try {
-      const result = await Promise.race([
-        runAgentForDashboard(prisma, agentId, userId, enrichedPrompt),
-        syncTimeout(SYNC_TIMEOUT_MS),
-      ]);
-      output = result.output;
+      // Multi-agent: detect if prompt spans XIQ + XCO (and no explicit agentId override)
+      const multiTargets = !agentId ? await resolveMultiAgentTargets(prisma, prompt) : null;
+      if (multiTargets) {
+        const result = await Promise.race([
+          runMultiAgentForDashboard(prisma, multiTargets, userId, prompt),
+          syncTimeout(SYNC_TIMEOUT_MS),
+        ]);
+        output = result.output;
+        agentId = result.agentIds[0] ?? agentId;
+        previewAgentIds = result.agentIds;
+      } else {
+        if (!agentId) {
+          agentId = await resolveBestAgent(prisma, prompt);
+          if (!agentId) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No suitable agent found for this prompt'));
+        }
+        const result = await Promise.race([
+          runAgentForDashboard(prisma, agentId, userId, enrichedPrompt),
+          syncTimeout(SYNC_TIMEOUT_MS),
+        ]);
+        output = result.output;
+      }
       lastData = parseLastData(output);
       widgets = await generateWidgets(output, name, prompt);
     } catch (runErr) {
@@ -355,6 +439,8 @@ export async function userDashboardRoutes(
 
     return reply.send(ok({
       agentId,
+      agentIds: previewAgentIds ?? (agentId ? [agentId] : []),
+      multiAgent: previewAgentIds !== null,
       widgets,
       dataKeys,
       dataPreview: lastData,
@@ -383,35 +469,50 @@ export async function userDashboardRoutes(
 
     // Resolve agent — try to pick the best match when not explicitly specified
     let agentId = parsed.data.agentId ?? null;
-    if (!agentId) {
-      agentId = await resolveBestAgent(prisma, prompt);
-      if (!agentId) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No agent specified and no suitable agent found'));
-    }
+    let multiAgentIds: string[] | null = null;
+    const enrichedPrompt = withJsonDirective(prompt);
 
-    // Run the agent to get initial data
+    // Run the agent(s) to get initial data
     let lastData: unknown = null;
     let widgets = parsed.data.widgets ?? [];
     let lastRunAt: Date | null = null;
     let dashboardStatus = 'active';
     let meta: Record<string, unknown> | null = null;
-    const enrichedPrompt = withJsonDirective(prompt);
 
     try {
-      const { output } = await Promise.race([
-        runAgentForDashboard(prisma, agentId, userId, enrichedPrompt),
-        syncTimeout(SYNC_TIMEOUT_MS),
-      ]);
-      lastData = parseLastData(output);
+      // Multi-agent: detect if prompt spans XIQ + XCO (only when agentId not explicitly set)
+      const multiTargets = !agentId ? await resolveMultiAgentTargets(prisma, prompt) : null;
+      let agentOutput = '';
+
+      if (multiTargets) {
+        const result = await Promise.race([
+          runMultiAgentForDashboard(prisma, multiTargets, userId, prompt),
+          syncTimeout(SYNC_TIMEOUT_MS),
+        ]);
+        agentOutput = result.output;
+        agentId = result.agentIds[0] ?? agentId;
+        multiAgentIds = result.agentIds;
+      } else {
+        if (!agentId) {
+          agentId = await resolveBestAgent(prisma, prompt);
+          if (!agentId) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'No agent specified and no suitable agent found'));
+        }
+        const result = await Promise.race([
+          runAgentForDashboard(prisma, agentId, userId, enrichedPrompt),
+          syncTimeout(SYNC_TIMEOUT_MS),
+        ]);
+        agentOutput = result.output;
+      }
+
+      lastData = parseLastData(agentOutput);
       lastRunAt = new Date();
 
-      // If agent still returned prose, log a warning — widgets will show text fallback
       if (isTextFallback(lastData)) {
         console.warn(`[user-dashboards] Agent returned prose for dashboard "${name}" — text fallback active`);
       }
 
-      // Auto-generate widgets if not provided
       if (widgets.length === 0) {
-        widgets = await generateWidgets(output, name, prompt);
+        widgets = await generateWidgets(agentOutput, name, prompt);
       }
     } catch (runErr) {
       // Non-fatal: create dashboard in provisioning state, then acquire skills + retry in background
@@ -432,6 +533,12 @@ export async function userDashboardRoutes(
       ]);
     }
 
+    const effectiveMeta: Record<string, unknown> = meta ?? {};
+    if (multiAgentIds) {
+      effectiveMeta.agentIds = multiAgentIds;
+      effectiveMeta.multiAgent = true;
+    }
+
     const dashboard = await prisma.userDashboard.create({
       data: {
         slug,
@@ -445,12 +552,12 @@ export async function userDashboardRoutes(
         lastData: lastData != null ? (lastData as Prisma.InputJsonValue) : Prisma.JsonNull,
         lastRunAt: lastRunAt ?? null,
         status: dashboardStatus,
-        meta: meta != null ? (meta as Prisma.InputJsonValue) : Prisma.JsonNull,
+        meta: Object.keys(effectiveMeta).length > 0 ? (effectiveMeta as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
     });
 
     // Fire-and-forget background provisioning when initial run failed
-    if (dashboardStatus === 'provisioning') {
+    if (dashboardStatus === 'provisioning' && agentId) {
       void backgroundProvision(prisma, dashboard.id, agentId, userId, enrichedPrompt, name);
     }
 
@@ -521,10 +628,20 @@ export async function userDashboardRoutes(
     const agentId = dashboard.agentId;
     if (!agentId) return reply.status(400).send(err('NO_AGENT', 'Dashboard has no agent configured'));
 
+    const dashMeta = (dashboard.meta && typeof dashboard.meta === 'object' && !Array.isArray(dashboard.meta))
+      ? (dashboard.meta as Record<string, unknown>)
+      : {};
+    const storedAgentIds = Array.isArray(dashMeta.agentIds) ? (dashMeta.agentIds as string[]) : null;
+
     let output: string;
-    let requestId: string;
+    let requestId: string | undefined;
     try {
-      ({ output, requestId } = await runAgentForDashboard(prisma, agentId, userId, withJsonDirective(dashboard.prompt)));
+      if (storedAgentIds && storedAgentIds.length > 1) {
+        const targets = storedAgentIds.map((id, i) => ({ id, domainKey: i === 0 ? 'xiq' : 'xco' }));
+        ({ output } = await runMultiAgentForDashboard(prisma, targets, userId, dashboard.prompt));
+      } else {
+        ({ output, requestId } = await runAgentForDashboard(prisma, agentId, userId, withJsonDirective(dashboard.prompt)));
+      }
     } catch (runErr) {
       const msg = runErr instanceof Error ? runErr.message : String(runErr);
       return reply.status(500).send(err(ErrorCodes.INTERNAL, `Agent run failed: ${msg}`));
@@ -553,9 +670,19 @@ export async function userDashboardRoutes(
     const agentId = dashboard.agentId;
     if (!agentId) return reply.status(400).send(err('NO_AGENT', 'Dashboard has no agent configured'));
 
+    const regenMeta = (dashboard.meta && typeof dashboard.meta === 'object' && !Array.isArray(dashboard.meta))
+      ? (dashboard.meta as Record<string, unknown>)
+      : {};
+    const regenAgentIds = Array.isArray(regenMeta.agentIds) ? (regenMeta.agentIds as string[]) : null;
+
     let output: string;
     try {
-      ({ output } = await runAgentForDashboard(prisma, agentId, userId, withJsonDirective(dashboard.prompt)));
+      if (regenAgentIds && regenAgentIds.length > 1) {
+        const targets = regenAgentIds.map((id, i) => ({ id, domainKey: i === 0 ? 'xiq' : 'xco' }));
+        ({ output } = await runMultiAgentForDashboard(prisma, targets, userId, dashboard.prompt));
+      } else {
+        ({ output } = await runAgentForDashboard(prisma, agentId, userId, withJsonDirective(dashboard.prompt)));
+      }
     } catch (runErr) {
       const msg = runErr instanceof Error ? runErr.message : String(runErr);
       return reply.status(500).send(err(ErrorCodes.INTERNAL, `Agent run failed: ${msg}`));

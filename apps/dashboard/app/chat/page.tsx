@@ -22,6 +22,7 @@ type ChatMessage = {
   error?: boolean;
 };
 type RequestRecord = { id: string; status: string; output?: string; errorMsg?: string };
+type CoordResult = { sessionId: string; output: string; pendingRequestIds?: string[] };
 
 const SESSION_STORAGE_KEY = 'nexus_coordinator_session_id';
 
@@ -43,6 +44,8 @@ export default function NexusPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [pollingId, setPollingId] = useState<string | null>(null);
+  // Pending coordinator sub-task IDs — auto-polled silently until complete
+  const [pendingCoordIds, setPendingCoordIds] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -101,12 +104,39 @@ export default function NexusPage() {
     return () => clearInterval(interval);
   }, [pollingId, pinnedAgent]);
 
+  // Auto-poll coordinator sub-tasks that came back PENDING
+  useEffect(() => {
+    if (pendingCoordIds.length === 0) return;
+    const intervals = pendingCoordIds.map((reqId) =>
+      setInterval(async () => {
+        try {
+          const record = await api.get<RequestRecord>(`/requests/${reqId}`);
+          if (record.status === 'COMPLETED' || record.status === 'FAILED') {
+            setPendingCoordIds(prev => prev.filter(id => id !== reqId));
+            const content = record.output?.trim() || (record.status === 'FAILED' ? 'The task failed.' : '(no output)');
+            setMessages(prev => [...prev, {
+              id: `coord-result-${reqId}`,
+              role: 'agent',
+              content,
+              agentName: 'Nexus',
+              routed: true,
+            }]);
+          }
+        } catch {
+          setPendingCoordIds(prev => prev.filter(id => id !== reqId));
+        }
+      }, 2500),
+    );
+    return () => intervals.forEach(clearInterval);
+  }, [pendingCoordIds]);
+
   function startNewCoordinatorChat() {
     setMode('coordinator');
     setPinnedAgent(null);
     setCoordinatorSessionId(null);
     setMessages([]);
     setPollingId(null);
+    setPendingCoordIds([]);
     setSending(false);
     setPickerOpen(false);
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -118,6 +148,7 @@ export default function NexusPage() {
     setCoordinatorSessionId(null);
     setMessages([]);
     setPollingId(null);
+    setPendingCoordIds([]);
     setSending(false);
     setPickerOpen(false);
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -125,14 +156,54 @@ export default function NexusPage() {
 
   async function handleSend() {
     if (!input.trim() || sending) return;
-    const content = input.trim();
+    let content = input.trim();
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content }]);
     setInput('');
     setSending(true);
 
-    if (mode === 'coordinator') {
+    // @xco/@xiq prefix: resolve to the matching agent and route directly
+    const xcoAlias = /^@xco\s+/i.test(content);
+    const xiqAlias = /^@xiq\s+/i.test(content);
+    if (xcoAlias || xiqAlias) {
+      content = content.replace(/^@x(?:co|iq)\s+/i, '').trim();
+      const aliasAgent = xcoAlias
+        ? (agents as Agent[]).find(a => /orchestrat/i.test(a.name) || /\bxco\b/i.test(a.name))
+        : (agents as Agent[]).find(a => /extremecloud.*iq/i.test(a.name) || /\bxiq\b/i.test(a.name));
+      if (aliasAgent) {
+        try {
+          const record = await api.post<{ id: string; requestId?: string }>('/requests', {
+            agentId: aliasAgent.id, input: content, channel: 'dashboard',
+          });
+          setPollingId(record.id ?? record.requestId ?? null);
+        } catch (e) {
+          setSending(false);
+          setMessages(prev => [...prev, {
+            id: `err-${Date.now()}`,
+            role: 'agent',
+            content: (e as Error).message ?? 'Failed to send request.',
+            agentName: aliasAgent.name,
+            routed: false,
+            error: true,
+          }]);
+        }
+        return;
+      }
+      // If we couldn't resolve the alias agent, fall through to normal routing
+    }
+
+    // @bex prefix routes to coordinator (system management interface) — strip prefix
+    const isBexCommand = /^@bex\s+/i.test(content);
+    if (isBexCommand) {
+      content = content.replace(/^@bex\s+/i, '').trim();
+      if (mode !== 'coordinator') {
+        setMode('coordinator');
+        setPinnedAgent(null);
+      }
+    }
+
+    if (mode === 'coordinator' || isBexCommand) {
       try {
-        const result = await api.post<{ sessionId: string; output: string }>('/coordinator/chat', {
+        const result = await api.post<CoordResult>('/coordinator/chat', {
           message: content,
           sessionId: coordinatorSessionId ?? undefined,
           channel: 'dashboard',
@@ -147,6 +218,10 @@ export default function NexusPage() {
           agentName: 'Nexus',
           routed: true,
         }]);
+        // If any sub-tasks are still running, auto-poll for their results
+        if (result.pendingRequestIds && result.pendingRequestIds.length > 0) {
+          setPendingCoordIds(prev => [...new Set([...prev, ...result.pendingRequestIds!])]);
+        }
       } catch (e) {
         setSending(false);
         setMessages(prev => [...prev, {
