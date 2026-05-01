@@ -1,10 +1,12 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Brain, Clock, Key, Network, Users, Zap, ArrowRight } from 'lucide-react';
+import { Bot, Brain, Key, Network, Users, Zap, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { adminApi } from '@/lib/api';
 import { formatDate, STATUS_COLOURS, truncate } from '@/lib/utils';
+import { AgentOrbit } from '@/components/AgentOrbit';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 function relativeTime(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -13,7 +15,6 @@ function relativeTime(dateStr: string): string {
   if (mins < 60) return `${mins}m ago`;
   return formatDate(dateStr);
 }
-import { AgentOrbit } from '@/components/AgentOrbit';
 
 type Status = {
   counts: { agents: number; skills: number; credentials: number; requests: number; users: number; endpoints: number; scheduledJobs: number };
@@ -36,16 +37,16 @@ function StatPill({ label, value, icon: Icon, href }: { label: string; value: nu
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-4 py-3 hover:border-[rgba(6,182,212,0.35)] hover:bg-[rgb(var(--bg-elevated))] transition-all group"
+      className="flex items-center gap-3 rounded-xl border border-[rgba(77,79,99,0.35)] bg-[rgba(45,47,61,0.7)] px-4 py-3 hover:border-[rgba(137,129,229,0.35)] hover:bg-[rgba(45,47,61,0.9)] transition-all group"
     >
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(6,182,212,0.10)]">
-        <Icon className="h-4 w-4 text-[rgb(var(--text-secondary))]" />
+      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[rgba(137,129,229,0.12)]">
+        <Icon className="h-4 w-4 text-[#8981e5]" />
       </div>
       <div>
-        <p className="text-xl font-bold text-[rgb(var(--text-primary))]">{value}</p>
-        <p className="text-xs text-[rgb(var(--text-secondary))]">{label}</p>
+        <p className="text-xl font-bold text-[#e8e9f2]">{value}</p>
+        <p className="text-xs text-[#8f91a1]">{label}</p>
       </div>
-      <ArrowRight className="ml-auto h-3.5 w-3.5 text-[rgb(var(--text-muted))] opacity-0 group-hover:opacity-100 transition-opacity" />
+      <ArrowRight className="ml-auto h-3.5 w-3.5 text-[#8f91a1] opacity-0 group-hover:opacity-100 transition-opacity" />
     </Link>
   );
 }
@@ -64,80 +65,89 @@ export default function OverviewPage() {
   });
 
   return (
-    <div className="flex gap-8 min-h-[calc(100vh-100px)]">
-      {/* Left column — stats + activity */}
-      <div className="flex-1 min-w-0 space-y-6">
-        {/* Stat pills */}
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
-          <StatPill label="Agents" value={status?.counts.agents ?? 0} icon={Bot} href="/agents" />
-          <StatPill label="Skills" value={status?.counts.skills ?? 0} icon={Brain} href="/skills" />
-          <StatPill label="Users" value={status?.counts.users ?? 0} icon={Users} href="/users" />
-          <StatPill label="Credentials" value={status?.counts.credentials ?? 0} icon={Key} href="/credentials" />
-          <StatPill label="Endpoints" value={status?.counts.endpoints ?? 0} icon={Network} href="/endpoints" />
-          <StatPill label="Scheduled" value={status?.counts.scheduledJobs ?? 0} icon={Zap} href="/scheduled-jobs" />
+    <div className="mx-auto max-w-3xl space-y-6">
+
+      {/* Agent overview — stat pills */}
+      <section>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#8f91a1]">Agent Overview</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <StatPill label="Agents"      value={status?.counts.agents      ?? 0} icon={Bot}     href="/agents" />
+          <StatPill label="Skills"      value={status?.counts.skills      ?? 0} icon={Brain}   href="/skills" />
+          <StatPill label="Users"       value={status?.counts.users       ?? 0} icon={Users}   href="/users" />
+          <StatPill label="Credentials" value={status?.counts.credentials ?? 0} icon={Key}     href="/credentials" />
+          <StatPill label="Endpoints"   value={status?.counts.endpoints   ?? 0} icon={Network} href="/endpoints" />
+          <StatPill label="Scheduled"   value={status?.counts.scheduledJobs ?? 0} icon={Zap}  href="/scheduled-jobs" />
         </div>
+      </section>
 
-        {/* Queue health */}
-        {status && (
-          <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[rgb(var(--text-muted))] mb-3">Queue Health</p>
-            <div className="flex gap-6">
-              {[
-                { label: 'Active', val: status.queue.active, color: 'text-violet-400' },
-                { label: 'Waiting', val: status.queue.waiting, color: 'text-amber-400' },
-                { label: 'Completed', val: status.queue.completed, color: 'text-emerald-400' },
-                { label: 'Failed', val: status.queue.failed, color: 'text-red-400' },
-              ].map(({ label, val, color }) => (
-                <div key={label}>
-                  <p className={`text-2xl font-bold ${color}`}>{val}</p>
-                  <p className="text-xs text-[rgb(var(--text-secondary))]">{label}</p>
-                </div>
-              ))}
+      {/* Queue health */}
+      <section>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#8f91a1]">Queue Health</p>
+        <div className="flex gap-8 rounded-xl border border-[rgba(77,79,99,0.35)] bg-[rgba(45,47,61,0.7)] px-6 py-4">
+          {[
+            { label: 'Active',    val: status?.queue.active    ?? 0, color: 'text-violet-400' },
+            { label: 'Waiting',   val: status?.queue.waiting   ?? 0, color: 'text-amber-400'  },
+            { label: 'Completed', val: status?.queue.completed ?? 0, color: 'text-emerald-400' },
+            { label: 'Failed',    val: status?.queue.failed    ?? 0, color: 'text-red-400'    },
+          ].map(({ label, val, color }) => (
+            <div key={label}>
+              <p className={`text-2xl font-bold ${color}`}>{val}</p>
+              <p className="text-xs text-[#8f91a1]">{label}</p>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
+      </section>
 
-        {/* Recent activity */}
-        <div className="rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[rgb(var(--border))]">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Recent Activity</p>
-              <span className="text-[10px] text-[rgb(var(--text-muted))] bg-[rgb(var(--bg-elevated))] px-1.5 py-0.5 rounded-full border border-[rgb(var(--border))]">Last hour</span>
-            </div>
-            <Link href="/requests" className="text-xs text-[rgb(var(--text-secondary))] hover:text-slate-200 transition-colors">View all</Link>
-          </div>
-          <div className="overflow-y-auto max-h-[228px] divide-y divide-[rgb(var(--border))]">
+      {/* Orbit graphic — centered */}
+      <section className="flex flex-col items-center gap-3 py-4">
+        <AgentOrbit size={380} />
+        <div className="text-center space-y-1">
+          <p className="text-sm font-semibold text-[#e8e9f2]">Autonomous Agent Network</p>
+          <p className="text-xs text-[#8f91a1]">Each node is an active agent. It pulses when running a live query.</p>
+        </div>
+      </section>
+
+      {/* Recent activity */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#8f91a1]">Recent Activity</p>
+          <Link href="/requests" className="text-xs text-[#8f91a1] hover:text-[#e8e9f2] transition-colors">View all</Link>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Agent</TableHead>
+              <TableHead>Request</TableHead>
+              <TableHead>User</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>When</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {recent?.map((r) => (
-              <div key={r.id} className="flex items-start gap-3 px-4 py-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-medium text-[rgb(var(--text-primary))]">{r.agent.name}</span>
-                    <span className="text-[10px] text-[rgb(var(--text-muted))]">·</span>
-                    <span className="text-[10px] text-[rgb(var(--text-secondary))]">{r.user.displayName}</span>
-                    <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLOURS[r.status] ?? 'badge-queued'}`}>{r.status}</span>
-                  </div>
-                  <p className="text-xs text-[rgb(var(--text-secondary))] truncate">{truncate(r.input, 90)}</p>
-                  <p className="text-[10px] text-[rgb(var(--text-muted))] mt-0.5">{relativeTime(r.createdAt)} · {r.channel}</p>
-                </div>
-              </div>
+              <TableRow key={r.id}>
+                <TableCell className="font-medium text-[#e8e9f2] whitespace-nowrap">{r.agent.name}</TableCell>
+                <TableCell className="max-w-[220px]">
+                  <p className="truncate text-[#8f91a1]">{truncate(r.input, 60)}</p>
+                </TableCell>
+                <TableCell className="text-[#8f91a1] whitespace-nowrap">{r.user.displayName}</TableCell>
+                <TableCell>
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_COLOURS[r.status] ?? 'bg-slate-500/20 text-slate-300'}`}>
+                    {r.status}
+                  </span>
+                </TableCell>
+                <TableCell className="text-[#8f91a1] whitespace-nowrap">{relativeTime(r.createdAt)}</TableCell>
+              </TableRow>
             ))}
             {!recent?.length && (
-              <p className="px-4 py-6 text-sm text-[rgb(var(--text-muted))] text-center">No requests in the last hour</p>
+              <TableRow>
+                <TableCell colSpan={5} className="text-center text-[#8f91a1] py-8">No requests in the last hour</TableCell>
+              </TableRow>
             )}
-          </div>
-        </div>
-      </div>
+          </TableBody>
+        </Table>
+      </section>
 
-      {/* Right column — agent orbit */}
-      <div className="hidden xl:flex w-[480px] shrink-0 flex-col items-center justify-center gap-4">
-        <AgentOrbit size={420} />
-        <div className="text-center space-y-1">
-          <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Autonomous Agent Network</p>
-          <p className="text-xs text-[rgb(var(--text-secondary))] max-w-xs">
-            Each node is an active agent. It pulses when running a live query.
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

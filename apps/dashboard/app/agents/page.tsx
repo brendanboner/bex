@@ -139,8 +139,8 @@ export default function AgentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Agents</h1>
-          <p className="text-muted-foreground">Manage AI agent definitions and credential assignments</p>
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Agents</h1>
+          <p className="text-[#8f91a1]">Manage AI agent definitions and credential assignments</p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="h-4 w-4 mr-2" /> New Agent

@@ -4,35 +4,37 @@
 
 @layer base {
   :root {
-    /* ── Backgrounds — Agent ONE / Nova2 surface scale ───────────────────── */
-    --bg-base:    30 31 42;    /* #1e1f2a — surface-el-0 */
-    --bg-surface: 36 38 52;    /* between base and elevated */
-    --bg-elevated: 45 47 62;   /* #2d2f3e — transparent-emph */
-    --bg-muted:   28 29 40;    /* slightly deeper than base */
+    /* ── Backgrounds — exact agentone-pwa surfaceElevation scale ─────────── */
+    --bg-base:     30 31 42;   /* #1e1f2a — surfaceElevation0 (body) */
+    --bg-surface:  30 31 42;   /* same — cards sit on base */
+    --bg-elevated: 45 47 62;   /* #2d2f3e — transparentEmphasis */
+    --bg-muted:    13 13 16;   /* #0d0d10 — inputSurface (deepest) */
 
-    /* ── Borders ─────────────────────────────────────────────────────────── */
-    --border:        77 79 99;   /* #4d4f63 — divider */
-    --border-subtle: 55 57 75;   /* softer separator */
+    /* ── Borders — agentone faint rgba values (NOT full-opacity) ─────────── */
+    --border:        77 79 99;          /* RGB components only — used with opacity */
+    --border-faint:  rgba(77, 79, 99, 0.35);   /* dividerSubtle */
+    --border-medium: rgba(77, 79, 99, 0.5);    /* dividerMuted */
+    --border-accent: rgba(137, 129, 229, 0.18); /* accentSubtle */
 
     /* ── Text ────────────────────────────────────────────────────────────── */
-    --text-primary:   248 248 251;  /* #f8f8fb — content/default */
-    --text-secondary: 186 188 206;  /* #babcce — content/secondary */
-    --text-muted:     137 140 164;  /* #898ca4 — content/tertiary */
+    --text-primary:   248 248 251;  /* #f8f8fb */
+    --text-secondary: 186 188 206;  /* #babcce */
+    --text-muted:     137 140 164;  /* #898ca4 */
 
-    /* ── Accent — Nova2 violet (#8981e5) ──────────────────────────────────── */
-    --accent-violet: 137 129 229;   /* #8981e5 */
-    --accent-hover:  122 120 208;   /* #7a78d0 */
+    /* ── Accent — violet #8981e5 ─────────────────────────────────────────── */
+    --accent-violet: 137 129 229;
+    --accent-hover:  122 120 208;
 
-    /* ── Status ──────────────────────────────────────────────────────────── */
-    --success: 74 222 128;   /* #4ade80 */
-    --warning: 250 204 21;   /* #facc15 */
-    --error:   248 113 113;  /* #f87171 */
-    --info:    121 176 245;  /* #79b0f5 */
+    /* ── Status — agentone exact values ──────────────────────────────────── */
+    --success: 63 169 121;    /* #3fa979 */
+    --warning: 231 199 122;   /* #e7c77a */
+    --error:   237 95 86;     /* #ed5f56 */
+    --info:    107 164 255;   /* #6ba4ff */
 
     /* ── ShadCN / Radix compat vars ──────────────────────────────────────── */
     --background: rgb(var(--bg-base));
     --foreground:  rgb(var(--text-primary));
-    --card:        rgb(var(--bg-surface));
+    --card:        rgb(var(--bg-elevated));
     --card-foreground: rgb(var(--text-primary));
     --popover:     rgb(var(--bg-elevated));
     --popover-foreground: rgb(var(--text-primary));
@@ -46,15 +48,16 @@
     --accent-foreground: rgb(var(--text-primary));
     --destructive: rgb(var(--error));
     --destructive-foreground: rgb(var(--text-primary));
-    --border-css:  rgb(var(--border));
+    --border-css:  var(--border-faint);
     --input:       rgb(var(--bg-elevated));
     --ring:        rgb(var(--accent-violet));
-    --radius: 0.625rem;  /* 10px — Nova2 "lg" */
+    --radius: 0.5rem;
   }
 }
 
 @layer base {
-  * { border-color: rgb(var(--border)); }
+  /* Faint borders by default — matches agentone dividerSubtle */
+  * { border-color: rgba(77, 79, 99, 0.35); }
   body {
     background-color: rgb(var(--bg-base));
     color: rgb(var(--text-primary));
@@ -67,7 +70,7 @@
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--border));
+    background: rgba(77, 79, 99, 0.5);
     border-radius: 9999px;
   }
   ::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent-violet)); }
@@ -86,6 +89,23 @@
     0px 4px 4px rgba(30, 31, 42, 0.24),
     0px 8px 8px rgba(30, 31, 42, 0.24),
     0px 16px 16px rgba(30, 31, 42, 0.24);
+}
+
+/* ── Input glow — agentone SearchContainer shadow ────────────────────────── */
+.input-glow {
+  box-shadow:
+    0px 8px 15px 0px rgba(156, 74, 175, 0.45),
+    0 0 0 1px rgba(137, 129, 229, 0.15),
+    0 0 40px rgba(137, 129, 229, 0.10);
+}
+
+/* ── Message fade-in animation ───────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeInUp 0.3s ease-out both;
 }
 
 /* ── Glow effects — violet accent ────────────────────────────────────────── */
@@ -118,10 +138,18 @@
 .badge-supervised { background: rgba(121,176,245,0.10);  color: rgb(167,210,250);  border: 1px solid rgba(121,176,245,0.22); }
 .badge-deliberate { background: rgba(250,204,21,0.10);   color: rgb(253,186,116);  border: 1px solid rgba(250,204,21,0.20); }
 
-/* ── Subtle radial ambient glow — violet tones ───────────────────────────── */
+/* ── Agentone-style background: dark base + purple ambient glow ──────────── */
 .bg-radial-glow {
   background:
-    radial-gradient(ellipse 80% 60% at 55% 65%, rgba(137, 129, 229, 0.04) 0%, transparent 65%),
-    radial-gradient(ellipse 50% 40% at 15% 20%, rgba(122, 120, 208, 0.03) 0%, transparent 60%);
+    /* Dark overlay — matches agentone's rgba(0,0,0,0.5) overlay */
+    linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0.45)),
+    /* Right purple ellipse */
+    radial-gradient(ellipse 70% 80% at 80% 10%, rgba(137, 129, 229, 0.12) 0%, transparent 60%),
+    /* Left subtle glow */
+    radial-gradient(ellipse 60% 70% at 10% 90%, rgba(105, 48, 223, 0.07) 0%, transparent 55%),
+    /* Centre ambient */
+    radial-gradient(ellipse 90% 60% at 50% 40%, rgba(137, 129, 229, 0.04) 0%, transparent 70%),
+    /* Base surface */
+    rgb(30, 31, 42);
 }
 

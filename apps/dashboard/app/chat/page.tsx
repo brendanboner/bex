@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Bot, ChevronLeft, ChevronRight, MessageSquare, Plus, Send, Sparkles, Zap } from 'lucide-react';
+import {
+  AlertCircle, Bot, ChevronDown, Plus, Send, Sparkles, Zap,
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { BexLogo } from '@/components/bex-logo';
 
 type Agent = { id: string; name: string; description?: string; status: string };
 type ChatMode = 'coordinator' | 'direct';
@@ -15,41 +18,40 @@ type ChatMessage = {
   role: 'user' | 'agent';
   content: string;
   agentName?: string;
-  routed?: boolean; // true = came from coordinator (auto-routed)
-  error?: boolean;  // true = this message is an inline error
+  routed?: boolean;
+  error?: boolean;
 };
 type RequestRecord = { id: string; status: string; output?: string; errorMsg?: string };
 
 const SESSION_STORAGE_KEY = 'nexus_coordinator_session_id';
 
+const SUGGESTIONS = [
+  'Give me a health summary of everything',
+  'Show any active alarms',
+  'How many clients are connected?',
+  'What skills are available?',
+];
+
 export default function NexusPage() {
-  // mode: 'coordinator' = smart routing (default), 'direct' = pinned agent
   const [mode, setMode] = useState<ChatMode>('coordinator');
   const [pinnedAgent, setPinnedAgent] = useState<Agent | null>(null);
   const [coordinatorSessionId, setCoordinatorSessionId] = useState<string | null>(() => {
-    // Restore session across page navigations
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem(SESSION_STORAGE_KEY);
-    }
+    if (typeof window !== 'undefined') return localStorage.getItem(SESSION_STORAGE_KEY);
     return null;
   });
-
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [pollingId, setPollingId] = useState<string | null>(null); // only used in direct mode
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [pollingId, setPollingId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
 
-  // Persist sessionId to localStorage whenever it changes
   useEffect(() => {
-    if (coordinatorSessionId) {
-      localStorage.setItem(SESSION_STORAGE_KEY, coordinatorSessionId);
-    } else {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-    }
+    if (coordinatorSessionId) localStorage.setItem(SESSION_STORAGE_KEY, coordinatorSessionId);
+    else localStorage.removeItem(SESSION_STORAGE_KEY);
   }, [coordinatorSessionId]);
 
   const { data: agents = [], isLoading } = useQuery({
@@ -60,6 +62,17 @@ export default function NexusPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending]);
+
+  // Close picker on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (pickerOpen && pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [pickerOpen]);
 
   // Poll for direct-agent responses
   useEffect(() => {
@@ -91,10 +104,11 @@ export default function NexusPage() {
   function startNewCoordinatorChat() {
     setMode('coordinator');
     setPinnedAgent(null);
-    setCoordinatorSessionId(null); // useEffect will remove from localStorage
+    setCoordinatorSessionId(null);
     setMessages([]);
     setPollingId(null);
     setSending(false);
+    setPickerOpen(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
@@ -105,6 +119,7 @@ export default function NexusPage() {
     setMessages([]);
     setPollingId(null);
     setSending(false);
+    setPickerOpen(false);
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
@@ -116,7 +131,6 @@ export default function NexusPage() {
     setSending(true);
 
     if (mode === 'coordinator') {
-      // Smart routing — coordinator decides which agent(s) handle this
       try {
         const result = await api.post<{ sessionId: string; output: string }>('/coordinator/chat', {
           message: content,
@@ -145,7 +159,6 @@ export default function NexusPage() {
         }]);
       }
     } else {
-      // Direct mode — send straight to pinned agent, poll for result
       if (!pinnedAgent) { setSending(false); return; }
       try {
         const record = await api.post<{ id: string; requestId?: string }>('/requests', {
@@ -171,255 +184,282 @@ export default function NexusPage() {
   }
 
   const isActive = messages.length > 0 || sending;
+  const agentLabel = mode === 'coordinator' ? 'Nexus' : (pinnedAgent?.name ?? 'Agent');
   const placeholder = mode === 'coordinator'
     ? 'Ask anything — Nexus routes to the right agent…'
-    : `Ask ${pinnedAgent?.name ?? 'agent'} directly…`;
+    : `Ask ${agentLabel} directly…`;
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] overflow-hidden">
-      {/* Collapsible sidebar */}
-      <aside className={cn(
-        'flex flex-col shrink-0 border-r border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] transition-all duration-200 overflow-hidden',
-        sidebarOpen ? 'w-52' : 'w-0 border-r-0',
-      )}>
-        {/* New routed chat */}
-        <div className="p-3 border-b border-[rgb(var(--border))] shrink-0 space-y-1">
-          <button
-            onClick={startNewCoordinatorChat}
-            className={cn(
-              'flex items-center gap-2 w-full rounded-lg px-3 py-2 text-xs font-medium transition-all',
-              mode === 'coordinator' && !isActive
-                ? 'bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] text-[rgb(var(--text-primary))]'
-                : 'text-[rgb(var(--text-secondary))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--text-primary))]',
-            )}
-          >
-            <Plus className="h-3.5 w-3.5 shrink-0" />
-            New Chat
-          </button>
-        </div>
+    <div className="flex flex-col h-[calc(100vh-2.25rem)] overflow-hidden">
 
-        {/* Agent list — for direct pinned chats */}
-        <div className="flex-1 overflow-y-auto p-2">
-          <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-[rgb(var(--text-muted))]">
-            Direct agents
-          </p>
-          {isLoading && <p className="px-3 py-2 text-xs text-[rgb(var(--text-muted))]">Loading…</p>}
-          {agents.map(agent => (
-            <button
-              key={agent.id}
-              onClick={() => pinAgent(agent)}
-              title="Chat directly with this agent"
-              className={cn(
-                'w-full text-left px-2.5 py-2 rounded-lg my-0.5 transition-all text-xs',
-                mode === 'direct' && pinnedAgent?.id === agent.id
-                  ? 'bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] text-[rgb(var(--text-primary))]'
-                  : 'text-[rgb(var(--text-secondary))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--text-primary))]',
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                <span className="truncate font-medium">{agent.name}</span>
-              </div>
-            </button>
-          ))}
-          {!isLoading && agents.length === 0 && (
-            <p className="px-3 py-2 text-xs text-[rgb(var(--text-muted))]">No agents yet</p>
-          )}
-        </div>
-      </aside>
-
-      {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        {/* Top bar */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[rgb(var(--border))] shrink-0">
-          <button
-            onClick={() => setSidebarOpen(o => !o)}
-            className="h-7 w-7 flex items-center justify-center rounded-lg text-[rgb(var(--text-muted))] hover:bg-[rgb(var(--bg-elevated))] hover:text-[rgb(var(--text-secondary))] transition-all shrink-0"
-          >
-            {sidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
-
-          <div className="flex-1 flex items-center justify-center gap-2">
-            <h1 className="text-sm font-semibold text-[rgb(var(--text-primary))]">Nexus</h1>
-            {mode === 'coordinator' ? (
-              <span className="flex items-center gap-1 rounded-full border border-[rgba(130,100,200,0.2)] bg-[rgba(130,100,200,0.07)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--text-secondary))]">
-                <Zap className="h-2.5 w-2.5" /> Smart routing
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--text-secondary))]">
-                <Bot className="h-2.5 w-2.5" /> {pinnedAgent?.name}
-              </span>
-            )}
-          </div>
-
-          <div className="w-7" />
-        </div>
-
-        {/* Empty / welcome state */}
+      {/* ── Messages / Empty state ── */}
+      <div className="flex-1 overflow-y-auto">
         {!isActive ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-6 px-8">
-            <div className="h-16 w-16 rounded-2xl bg-[rgba(130,100,200,0.06)] border border-[rgba(99,102,241,0.15)] flex items-center justify-center">
-              <Sparkles className="h-7 w-7 text-[rgb(var(--text-secondary))] opacity-70" />
-            </div>
-            <div className="text-center space-y-1.5 max-w-sm">
-              <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">
-                {mode === 'coordinator' ? 'What do you need?' : `Chatting with ${pinnedAgent?.name}`}
-              </p>
-              <p className="text-xs text-[rgb(var(--text-muted))] leading-relaxed">
+          /* ── Empty / welcome state ── */
+          <div className="flex flex-col items-center justify-center h-full gap-8 px-6 pb-24">
+            <BexLogo size={52} showWordmark showTagline />
+            <div className="text-center space-y-2 max-w-md">
+              <h1 className="text-xl font-semibold text-[rgb(var(--text-primary))]">
+                {mode === 'coordinator' ? 'What do you need?' : `Chatting with ${agentLabel}`}
+              </h1>
+              <p className="text-sm text-[rgb(var(--text-muted))] leading-relaxed">
                 {mode === 'coordinator'
-                  ? 'Nexus automatically routes your message to the best agent or combination of agents. Or pin a specific agent from the sidebar.'
-                  : 'Your message goes directly to this agent. Switch to smart routing via New Chat.'}
+                  ? 'Nexus automatically routes to the best agent. Or pick an agent directly using the selector in the input below.'
+                  : 'Your message goes directly to this agent. Tap the agent name in the input to switch.'}
               </p>
             </div>
-            {/* Suggestion chips — only in coordinator mode */}
             {mode === 'coordinator' && (
-              <div className="flex flex-wrap gap-2 justify-center max-w-sm">
-                {[
-                  'What agents do I have?',
-                  'Show any active alarms',
-                  'Check for new devices',
-                  'What skills are available?',
-                ].map(suggestion => (
+              <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+                {SUGGESTIONS.map(s => (
                   <button
-                    key={suggestion}
-                    onClick={() => { setInput(suggestion); inputRef.current?.focus(); }}
-                    className="rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] px-3 py-1.5 text-xs text-[rgb(var(--text-secondary))] hover:border-[rgba(130,100,200,0.2)] hover:text-[rgb(var(--text-primary))] transition-all"
+                    key={s}
+                    onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                    className="rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]
+                      px-4 py-1.5 text-sm text-[rgb(var(--text-secondary))]
+                      hover:border-[rgba(137,129,229,0.3)] hover:text-[rgb(var(--text-primary))]
+                      transition-all"
                   >
-                    {suggestion}
+                    {s}
                   </button>
                 ))}
               </div>
             )}
           </div>
         ) : (
-          /* Messages */
-          <div className="flex-1 overflow-y-auto py-6 px-4">
-            <div className="max-w-2xl mx-auto space-y-5">
-              {messages.map(msg => (
-                <div key={msg.id} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
-                  {msg.role === 'agent' && (
+          /* ── Message thread ── */
+          <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+            {messages.map(msg => (
+              <div key={msg.id} className={cn('animate-fade-in', msg.role === 'user' ? 'flex justify-end' : 'flex justify-start')}>
+                {msg.role === 'agent' ? (
+                  /* Agent message — clean, no card border */
+                  <div className="flex gap-3 max-w-[85%]">
                     <div className={cn(
-                      'mr-3 mt-1 h-7 w-7 rounded-xl flex items-center justify-center shrink-0',
+                      'mt-0.5 w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0',
                       msg.error
-                        ? 'bg-[rgba(239,68,68,0.08)] border border-[rgba(239,68,68,0.2)]'
-                        : 'bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)]',
+                        ? 'bg-[rgba(237,95,86,0.1)]'
+                        : 'bg-[rgba(137,129,229,0.1)]',
                     )}>
                       {msg.error
-                        ? <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                        ? <AlertCircle className="h-3.5 w-3.5 text-[rgb(237,95,86)]" />
                         : msg.routed
-                          ? <Zap className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />
+                          ? <Zap className="h-3.5 w-3.5 text-[rgb(137,129,229)]" />
                           : <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />}
                     </div>
-                  )}
-                  <div className="max-w-[72%]">
-                    {msg.role === 'agent' && (
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-xs font-semibold text-[rgb(var(--text-primary))]">{msg.agentName ?? 'Agent'}</span>
-                        {!msg.error && (
-                          <span className={cn(
-                            'text-[10px] rounded-full border px-2 py-0.5 font-medium',
-                            msg.routed
-                              ? 'border-[rgba(130,100,200,0.2)] bg-[rgba(130,100,200,0.07)] text-[rgb(var(--text-secondary))]'
-                              : 'border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-muted))]',
-                          )}>
-                            {msg.routed ? 'Routed' : 'Direct'}
-                          </span>
-                        )}
-                        {msg.error && (
-                          <span className="text-[10px] rounded-full border border-red-500/20 bg-red-500/08 px-2 py-0.5 font-medium text-red-400">
-                            Error
-                          </span>
-                        )}
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-[rgb(var(--text-primary))]">{msg.agentName ?? 'Agent'}</span>
+                        <span className={cn(
+                          'text-[10px] rounded-md border px-1.5 py-0.5 font-medium',
+                          msg.error
+                            ? 'border-[rgba(237,95,86,0.2)] bg-[rgba(237,95,86,0.08)] text-[rgb(237,95,86)]'
+                            : msg.routed
+                              ? 'border-[rgba(137,129,229,0.2)] bg-[rgba(137,129,229,0.07)] text-[rgb(var(--text-secondary))]'
+                              : 'border-[rgba(77,79,99,0.4)] bg-[rgba(45,47,62,0.5)] text-[rgb(var(--text-muted))]',
+                        )}>
+                          {msg.error ? 'Error' : msg.routed ? 'Routed' : 'Direct'}
+                        </span>
                       </div>
-                    )}
-                    <div className={cn(
-                      'rounded-2xl px-4 py-3 text-sm leading-relaxed',
-                      msg.role === 'user'
-                        ? 'bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] text-[rgb(var(--text-primary))] rounded-tr-sm whitespace-pre-wrap'
-                        : msg.error
-                          ? 'bg-red-500/05 border border-red-500/15 text-red-400 rounded-tl-sm whitespace-pre-wrap'
-                          : 'bg-[rgb(var(--bg-surface))] border border-[rgb(var(--border))] text-[rgb(var(--text-primary))] rounded-tl-sm',
-                    )}>
-                      {msg.role === 'user' || msg.error
-                        ? msg.content
-                        : (
+                      <div className={cn(
+                        'text-sm leading-relaxed',
+                        msg.error ? 'text-[rgb(237,95,86)] whitespace-pre-wrap' : 'text-[rgb(var(--text-primary))]',
+                      )}>
+                        {msg.error ? msg.content : (
                           <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
                             components={{
                               p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                              h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-1">{children}</h1>,
-                              h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-1">{children}</h2>,
-                              h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-1">{children}</h3>,
-                              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
-                              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                              h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3">{children}</h1>,
+                              h2: ({ children }) => <h2 className="text-sm font-bold mb-1.5 mt-2">{children}</h2>,
+                              h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2">{children}</h3>,
+                              ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
+                              ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
                               li: ({ children }) => <li className="text-sm">{children}</li>,
                               code: ({ inline, children, ...props }: { inline?: boolean; children?: React.ReactNode; [key: string]: unknown }) => inline
                                 ? <code className="bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] rounded px-1 py-0.5 text-xs font-mono" {...props}>{children}</code>
                                 : <code className="block bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))] rounded-lg p-3 text-xs font-mono overflow-x-auto mb-2 whitespace-pre" {...props}>{children}</code>,
                               pre: ({ children }) => <div className="mb-2">{children}</div>,
-                              blockquote: ({ children }) => <blockquote className="border-l-2 border-[rgba(130,100,200,0.3)] pl-3 italic text-[rgb(var(--text-secondary))] mb-2">{children}</blockquote>,
+                              blockquote: ({ children }) => <blockquote className="border-l-2 border-[rgba(137,129,229,0.4)] pl-3 italic text-[rgb(var(--text-secondary))] mb-2">{children}</blockquote>,
                               strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                              a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[rgba(130,100,200,0.9)] underline hover:text-[rgba(130,100,200,1)] transition-colors">{children}</a>,
+                              a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[rgb(137,129,229)] underline hover:opacity-80 transition-opacity">{children}</a>,
                               table: ({ children }) => <div className="overflow-x-auto mb-2"><table className="text-xs border-collapse w-full">{children}</table></div>,
-                              th: ({ children }) => <th className="border border-[rgb(var(--border))] px-2 py-1 bg-[rgb(var(--bg-elevated))] font-semibold text-left">{children}</th>,
-                              td: ({ children }) => <td className="border border-[rgb(var(--border))] px-2 py-1">{children}</td>,
-                              hr: () => <hr className="border-[rgb(var(--border))] my-2" />,
+                              th: ({ children }) => <th className="border border-[rgb(var(--border))] px-2 py-1.5 bg-[rgb(var(--bg-elevated))] font-semibold text-left">{children}</th>,
+                              td: ({ children }) => <td className="border border-[rgb(var(--border))] px-2 py-1.5">{children}</td>,
+                              hr: () => <hr className="border-[rgb(var(--border))] my-3" />,
                             }}
                           >
                             {msg.content}
                           </ReactMarkdown>
-                        )
-                      }
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-              {sending && (
-                <div className="flex justify-start">
-                  <div className="mr-3 mt-1 h-7 w-7 rounded-xl bg-[rgba(130,100,200,0.08)] border border-[rgba(130,100,200,0.12)] flex items-center justify-center shrink-0">
-                    {mode === 'coordinator'
-                      ? <Zap className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))] animate-pulse" />
-                      : <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />}
+                ) : (
+                  /* User message — right-aligned solid bubble, agentone #2a2c3a */
+                  <div className="max-w-[75%] px-4 py-2.5 rounded-2xl rounded-tr-sm
+                    bg-[#2a2c3a]
+                    text-sm text-[rgb(var(--text-primary))] whitespace-pre-wrap leading-relaxed">
+                    {msg.content}
                   </div>
-                  <div className="bg-[rgb(var(--bg-surface))] border border-[rgb(var(--border))] rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-[rgb(var(--text-muted))] animate-bounce [animation-delay:-0.3s]" />
-                    <span className="h-2 w-2 rounded-full bg-[rgb(var(--text-muted))] animate-bounce [animation-delay:-0.15s]" />
-                    <span className="h-2 w-2 rounded-full bg-[rgb(var(--text-muted))] animate-bounce" />
+                )}
+              </div>
+            ))}
+
+            {/* Typing indicator */}
+            {sending && (
+              <div className="flex gap-3 animate-fade-in">
+                <div className="mt-0.5 w-7 h-7 rounded-xl bg-[rgba(137,129,229,0.1)]
+                  flex items-center justify-center flex-shrink-0">
+                  {mode === 'coordinator'
+                    ? <Zap className="h-3.5 w-3.5 text-[rgb(137,129,229)] animate-pulse" />
+                    : <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />}
+                </div>
+                <div className="flex items-center gap-1.5 pt-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--text-muted))] animate-bounce [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--text-muted))] animate-bounce [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--text-muted))] animate-bounce" />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </div>
+
+      {/* ── Input area ── */}
+      <div className="px-6 pb-6 pt-2 flex-shrink-0">
+        <div className="max-w-2xl mx-auto">
+          {/* Pill input — glass morphism */}
+          <div className="relative rounded-full bg-[rgba(30,31,42,0.75)] backdrop-blur-md
+            border border-[rgba(137,129,229,0.2)]
+            flex items-center gap-2 px-2 py-2">
+
+            {/* ── Agent picker chip ── */}
+            <div ref={pickerRef} className="relative flex-shrink-0">
+              <button
+                onClick={() => setPickerOpen(o => !o)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium',
+                  'transition-colors whitespace-nowrap',
+                  mode === 'coordinator'
+                    ? 'bg-[rgba(137,129,229,0.12)] text-[rgb(137,129,229)] hover:bg-[rgba(137,129,229,0.2)]'
+                    : 'bg-[rgba(255,255,255,0.07)] text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.10)]',
+                )}
+              >
+                {mode === 'coordinator'
+                  ? <Zap className="h-3 w-3" />
+                  : <Bot className="h-3 w-3" />}
+                {agentLabel}
+                <ChevronDown className={cn('h-3 w-3 transition-transform', pickerOpen && 'rotate-180')} />
+              </button>
+
+              {/* Agent dropdown */}
+              {pickerOpen && (
+                <div className="absolute bottom-full left-0 mb-2 w-56
+                  bg-[rgba(15,15,21,0.97)] border border-[rgba(77,79,99,0.4)]
+                  rounded-xl shadow-l overflow-hidden z-50 backdrop-blur-sm">
+                  {/* Nexus / smart routing */}
+                  <button
+                    onClick={startNewCoordinatorChat}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left',
+                      mode === 'coordinator'
+                        ? 'bg-[rgba(137,129,229,0.1)] text-[rgb(var(--text-primary))]'
+                        : 'text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.04)] hover:text-[rgb(var(--text-primary))]',
+                    )}
+                  >
+                    <Zap className="h-3.5 w-3.5 text-[rgb(137,129,229)] flex-shrink-0" />
+                    <div>
+                      <p className="font-medium">Nexus</p>
+                      <p className="text-[10px] text-[rgb(var(--text-muted))]">Smart routing</p>
+                    </div>
+                    {mode === 'coordinator' && <Sparkles className="ml-auto h-3 w-3 text-[rgb(137,129,229)]" />}
+                  </button>
+
+                  {/* Divider */}
+                  {agents.length > 0 && (
+                    <div className="border-t border-[rgba(77,79,99,0.3)] mx-3" />
+                  )}
+
+                  {/* Individual agents */}
+                  <div className="max-h-52 overflow-y-auto">
+                    {isLoading && (
+                      <p className="px-3 py-2 text-xs text-[rgb(var(--text-muted))]">Loading agents…</p>
+                    )}
+                    {agents.map(agent => (
+                      <button
+                        key={agent.id}
+                        onClick={() => pinAgent(agent)}
+                        className={cn(
+                          'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left',
+                          mode === 'direct' && pinnedAgent?.id === agent.id
+                            ? 'bg-[rgba(137,129,229,0.1)] text-[rgb(var(--text-primary))]'
+                            : 'text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.04)] hover:text-[rgb(var(--text-primary))]',
+                        )}
+                      >
+                        <Bot className="h-3.5 w-3.5 flex-shrink-0 opacity-70" />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{agent.name}</p>
+                          {agent.description && (
+                            <p className="text-[10px] text-[rgb(var(--text-muted))] truncate">{agent.description}</p>
+                          )}
+                        </div>
+                        {mode === 'direct' && pinnedAgent?.id === agent.id && (
+                          <Sparkles className="ml-auto h-3 w-3 text-[rgb(137,129,229)] flex-shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* New chat shortcut */}
+                  <div className="border-t border-[rgba(77,79,99,0.3)] p-1.5">
+                    <button
+                      onClick={startNewCoordinatorChat}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs
+                        text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-primary))]
+                        hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+                    >
+                      <Plus className="h-3 w-3" /> New chat
+                    </button>
                   </div>
                 </div>
               )}
-              <div ref={messagesEndRef} />
             </div>
-          </div>
-        )}
 
-        {/* Input area — always shown */}
-        <div className="px-4 pb-5 pt-2 shrink-0">
-          <div className="max-w-2xl mx-auto">
-            <div className="flex items-center gap-3 rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-4 py-3 focus-within:border-[rgba(130,100,200,0.25)] transition-colors shadow-lg">
-              <input
-                ref={inputRef}
-                placeholder={placeholder}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={sending}
-                className="flex-1 bg-transparent text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:outline-none disabled:opacity-50"
-              />
-              <button
-                onClick={() => void handleSend()}
-                disabled={!input.trim() || sending}
-                className="h-8 w-8 flex items-center justify-center rounded-xl bg-[rgba(130,100,200,0.7)] text-white disabled:opacity-30 hover:bg-[rgba(130,100,200,0.85)] transition-all shrink-0 shadow-sm"
-              >
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <p className="mt-1.5 text-center text-[10px] text-[rgb(var(--text-muted))]">
-              {mode === 'coordinator'
-                ? 'Smart routing active — Nexus selects the best agent automatically'
-                : `Direct mode — pinned to ${pinnedAgent?.name}. Click New Chat to return to smart routing.`}
-            </p>
+            {/* Vertical divider */}
+            <div className="w-px h-5 bg-[rgb(var(--border))] flex-shrink-0" />
+
+            {/* Text input */}
+            <input
+              ref={inputRef}
+              placeholder={placeholder}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={sending}
+              className="flex-1 min-w-0 bg-transparent text-sm text-[rgb(var(--text-primary))]
+                placeholder-[rgb(var(--text-muted))] focus:outline-none disabled:opacity-50 px-1"
+            />
+
+            {/* Send button */}
+            <button
+              onClick={() => void handleSend()}
+              disabled={!input.trim() || sending}
+              className={cn(
+                'h-9 w-9 flex items-center justify-center rounded-full flex-shrink-0 transition-all',
+                input.trim() && !sending
+                  ? 'bg-[rgb(137,129,229)] text-white hover:bg-[rgb(122,120,208)] shadow-sm'
+                  : 'bg-[rgba(137,129,229,0.15)] text-[rgb(var(--text-muted))] cursor-not-allowed',
+              )}
+            >
+              <Send className="h-3.5 w-3.5" />
+            </button>
           </div>
+
+          <p className="mt-2 text-center text-[10px] text-[rgb(var(--text-muted))]">
+            {mode === 'coordinator'
+              ? 'Smart routing active — Nexus selects the best agent automatically'
+              : `Direct mode — talking to ${agentLabel}`}
+          </p>
         </div>
       </div>
     </div>

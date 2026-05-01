@@ -237,8 +237,8 @@ export default function PersonasPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Personas</h1>
-          <p className="text-muted-foreground">LLM-generated agent templates — each becomes a live agent with skills, memory, and optionally a schedule</p>
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Personas</h1>
+          <p className="text-[#8f91a1]">LLM-generated agent templates — each becomes a live agent with skills, memory, and optionally a schedule</p>
         </div>
         <Button onClick={() => { setShowGenerate(true); setGenerated(null); setSpawnResult(null); }}>
           <Plus className="h-4 w-4 mr-2" /> Generate Persona

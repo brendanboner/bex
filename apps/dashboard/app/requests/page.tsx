@@ -328,8 +328,8 @@ export default function RequestsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Activity Log</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Activity Log</h1>
+          <p className="text-[#8f91a1]">
             {groups.length} unique task{groups.length !== 1 ? 's' : ''} · {totalRuns} total runs
             {totalFailed > 0 && <span className="text-red-500 ml-2">· {totalFailed} failed</span>}
             {totalLive > 0 && <span className="text-yellow-600 ml-2">· {totalLive} live</span>}

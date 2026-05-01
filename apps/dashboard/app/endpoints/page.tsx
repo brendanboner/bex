@@ -141,8 +141,8 @@ export default function EndpointsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Endpoints</h1>
-          <p className="text-muted-foreground">API systems and SSH hosts available to agents</p>
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Endpoints</h1>
+          <p className="text-[#8f91a1]">API systems and SSH hosts available to agents</p>
         </div>
         <Button onClick={openCreate}>
           <Plus className="h-4 w-4 mr-2" /> Register Endpoint

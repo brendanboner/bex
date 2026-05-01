@@ -199,8 +199,8 @@ export default function CredentialsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Credentials</h1>
-          <p className="text-muted-foreground">AES-256-GCM encrypted secrets. Values are never shown after storage.</p>
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Credentials</h1>
+          <p className="text-[#8f91a1]">AES-256-GCM encrypted secrets. Values are never shown after storage.</p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
           <Plus className="h-4 w-4 mr-2" /> Add Credential

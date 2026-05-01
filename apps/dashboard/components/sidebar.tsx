@@ -2,53 +2,45 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Bot,
-  Brain,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Globe,
-  Key,
-  KeyRound,
-  LayoutDashboard,
-  LayoutGrid,
-  LogOut,
-  MessageSquare,
-  Network,
-  Settings,
-  UserPlus,
-  Users,
+  Bot, Brain, Calendar, ChevronRight, Clock, Globe,
+  Key, KeyRound, LayoutDashboard, LayoutGrid, LogOut,
+  MessageSquare, Network, Settings, UserPlus, Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BexLogo } from './bex-logo';
+import {
+  TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent,
+} from '@/components/ui/tooltip';
+
+const RAIL_W = 72;
+const PANEL_W = 240;
 
 const navSections = [
   {
     items: [
-      { href: '/',         label: 'Overview',      icon: LayoutDashboard },
-      { href: '/chat',     label: 'Nexus',         icon: MessageSquare },
-      { href: '/agents',   label: 'Agents',        icon: Bot },
-      { href: '/requests', label: 'Activity',      icon: Clock },
-      { href: '/dashboards', label: 'Dashboards',  icon: LayoutGrid },
+      { href: '/',           label: 'Overview',       icon: LayoutDashboard },
+      { href: '/chat',       label: 'Nexus',          icon: MessageSquare },
+      { href: '/agents',     label: 'Agents',         icon: Bot },
+      { href: '/requests',   label: 'Activity',       icon: Clock },
+      { href: '/dashboards', label: 'Dashboards',     icon: LayoutGrid },
     ],
   },
   {
     items: [
-      { href: '/skills',         label: 'Skill Exchange',  icon: Brain },
-      { href: '/personas',       label: 'Personas',        icon: UserPlus },
-      { href: '/domains',        label: 'Domain Intel',    icon: Globe },
+      { href: '/skills',   label: 'Skill Exchange', icon: Brain },
+      { href: '/personas', label: 'Personas',       icon: UserPlus },
+      { href: '/domains',  label: 'Domain Intel',   icon: Globe },
     ],
   },
   {
     items: [
-      { href: '/scheduled-jobs', label: 'Scheduled',       icon: Calendar },
-      { href: '/endpoints',      label: 'Endpoints',       icon: Network },
-      { href: '/credentials',    label: 'Vault',           icon: Key },
-      { href: '/users',          label: 'Users',           icon: Users },
-      { href: '/setup',          label: 'Configuration',   icon: Settings },
+      { href: '/scheduled-jobs', label: 'Scheduled',     icon: Calendar },
+      { href: '/endpoints',      label: 'Endpoints',     icon: Network },
+      { href: '/credentials',    label: 'Vault',         icon: Key },
+      { href: '/users',          label: 'Users',         icon: Users },
+      { href: '/setup',          label: 'Configuration', icon: Settings },
     ],
   },
 ];
@@ -56,10 +48,11 @@ const navSections = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [userInitials, setUserInitials] = useState('BX');
   const [userName, setUserName] = useState('BEX Admin');
   const [userEmail, setUserEmail] = useState('');
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -75,6 +68,16 @@ export function Sidebar() {
     }
   }, [router]);
 
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (expanded && panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [expanded]);
+
   function logout() {
     localStorage.removeItem('bex_token');
     localStorage.removeItem('bforge_token');
@@ -83,94 +86,138 @@ export function Sidebar() {
   }
 
   return (
-    <aside
-      className={cn(
-        'flex h-screen flex-col border-r transition-all duration-200 relative',
-        'border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))]',
-        collapsed ? 'w-14' : 'w-52',
-      )}
-    >
-      {/* Collapse toggle */}
-      <button
-        onClick={() => setCollapsed(c => !c)}
-        className="absolute -right-3 top-6 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))] transition-colors"
+    <TooltipProvider delayDuration={300}>
+      <aside
+        ref={panelRef}
+        style={{ width: expanded ? PANEL_W : RAIL_W }}
+        className="fixed top-0 left-0 h-screen z-[100] flex flex-col overflow-hidden
+          transition-[width] duration-[350ms] ease-[cubic-bezier(0.16,1,0.3,1)]
+          bg-[rgba(15,15,21,0.92)] backdrop-blur-xl
+          border-r border-[rgba(137,129,229,0.18)]"
       >
-        {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
-      </button>
+        {/* ── Top: logo / toggle ── */}
+        <div className="flex items-center h-[72px] px-5 gap-3 flex-shrink-0">
+          <TooltipRoot>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setExpanded(e => !e)}
+                className="group relative w-8 h-8 flex items-center justify-center rounded-lg
+                  transition-colors hover:bg-[rgba(255,255,255,0.06)] flex-shrink-0"
+              >
+                <span className="transition-opacity duration-150 group-hover:opacity-0">
+                  <BexLogo size={22} showWordmark={false} showTagline={false} />
+                </span>
+                <span className="absolute inset-0 flex items-center justify-center opacity-0
+                  group-hover:opacity-100 transition-opacity duration-150
+                  text-[rgb(var(--text-secondary))]">
+                  <ChevronRight className={cn('h-4 w-4 transition-transform duration-300', expanded && 'rotate-180')} />
+                </span>
+              </button>
+            </TooltipTrigger>
+            {!expanded && <TooltipContent side="right">Expand navigation</TooltipContent>}
+          </TooltipRoot>
 
-      {/* Logo mark */}
-      <div className={cn(
-        'flex h-14 items-center border-b border-[rgb(var(--border))]',
-        collapsed ? 'justify-center px-0' : 'px-4',
-      )}>
-        <BexLogo size={28} showWordmark={!collapsed} showTagline={!collapsed} />
-      </div>
+          <span className={cn(
+            'text-sm font-semibold text-[rgb(var(--text-primary))] whitespace-nowrap overflow-hidden',
+            'transition-opacity duration-200',
+            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none',
+          )}>
+            Bex Forge
+          </span>
+          <span className={cn(
+            'ml-auto text-[10px] font-semibold rounded-md px-1.5 py-0.5 flex-shrink-0 whitespace-nowrap',
+            'bg-[rgba(137,129,229,0.15)] text-[rgb(137,129,229)]',
+            'transition-opacity duration-200',
+            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none',
+          )}>
+            BETA
+          </span>
+        </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 space-y-4">
-        {navSections.map((section, si) => (
-          <div key={si}>
-            {si > 0 && (
-              <div className="mx-3 mb-3 border-t border-[rgb(var(--border-subtle))]" />
-            )}
-            {section.items.map(({ href, label, icon: Icon }) => {
-              const active = pathname === href || (href !== '/' && pathname.startsWith(href));
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  title={collapsed ? label : undefined}
-                  className={cn(
-                    'flex items-center gap-3 mx-2 px-2.5 py-2 rounded-lg text-sm transition-all',
-                    active
-                      ? 'bg-[rgba(255,255,255,0.06)] text-[rgb(var(--text-primary))]'
-                      : 'text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.03)] hover:text-[rgb(var(--text-primary))]',
-                    collapsed ? 'justify-center' : '',
-                  )}
-                >
-                  <Icon className="h-4 w-4 shrink-0 opacity-80" />
-                  {!collapsed && <span className="font-medium truncate">{label}</span>}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
-
-      {/* User profile */}
-      <div className={cn(
-        'flex items-center border-t border-[rgb(var(--border))] p-3',
-        collapsed ? 'justify-center' : 'gap-2.5',
-      )}>
-        <Link href="/account" title={collapsed ? 'Account' : undefined}>
-          <div className="h-7 w-7 rounded-full bg-gradient-to-br from-violet-600 to-purple-700 flex items-center justify-center shrink-0 hover:opacity-80 transition-opacity">
-            <span className="text-[10px] font-bold text-white">{userInitials}</span>
-          </div>
-        </Link>
-        {!collapsed && (
-          <>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[rgb(var(--text-primary))] truncate">{userName}</p>
-              <p className="text-[10px] text-[rgb(var(--text-muted))] truncate">{userEmail || 'v0.1.0'}</p>
+        {/* ── Nav ── */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-[20px] space-y-5
+          [&::-webkit-scrollbar]:w-[3px]
+          [&::-webkit-scrollbar-thumb]:rounded-full
+          [&::-webkit-scrollbar-thumb]:bg-[rgba(77,79,99,0.4)]">
+          {navSections.map((section, si) => (
+            <div key={si}>
+              {si > 0 && <div className="mb-5 border-t border-[rgba(77,79,99,0.2)]" />}
+              <div className="flex flex-col gap-0.5">
+                {section.items.map(({ href, label, icon: Icon }) => {
+                  const active = pathname === href || (href !== '/' && pathname.startsWith(href));
+                  return (
+                    <TooltipRoot key={href}>
+                      <TooltipTrigger asChild>
+                        <Link
+                          href={href}
+                          onClick={() => setExpanded(false)}
+                          className={cn(
+                            'flex items-center gap-3 h-8 rounded-lg transition-all duration-150',
+                            expanded ? 'w-full' : 'w-8',
+                            active
+                              ? 'bg-[rgba(137,129,229,0.12)] text-[rgb(var(--text-primary))]'
+                              : 'text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.06)] hover:text-[rgb(var(--text-primary))]',
+                          )}
+                        >
+                          <span className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+                            <Icon className="h-4 w-4" />
+                          </span>
+                          <span className={cn(
+                            'text-sm font-medium whitespace-nowrap',
+                            'transition-opacity duration-200',
+                            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none',
+                          )}>
+                            {label}
+                          </span>
+                        </Link>
+                      </TooltipTrigger>
+                      {/* Tooltip only shows when collapsed — renders via Radix portal */}
+                      {!expanded && <TooltipContent side="right">{label}</TooltipContent>}
+                    </TooltipRoot>
+                  );
+                })}
+              </div>
             </div>
-            <Link
-              href="/account"
-              title="Change password"
-              className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))] transition-colors shrink-0"
-            >
+          ))}
+        </nav>
+
+        {/* ── User account ── */}
+        <div className="flex items-center gap-3 px-5 pb-5 pt-4 flex-shrink-0
+          border-t border-[rgba(77,79,99,0.2)]">
+          <TooltipRoot>
+            <TooltipTrigger asChild>
+              <Link href="/account" onClick={() => setExpanded(false)}>
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-600 to-purple-700
+                  flex items-center justify-center flex-shrink-0 hover:opacity-80 transition-opacity">
+                  <span className="text-[10px] font-bold text-white">{userInitials}</span>
+                </div>
+              </Link>
+            </TooltipTrigger>
+            {!expanded && <TooltipContent side="right">{userName}</TooltipContent>}
+          </TooltipRoot>
+
+          <div className={cn(
+            'flex-1 min-w-0 transition-opacity duration-200',
+            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none',
+          )}>
+            <p className="text-xs font-medium text-[rgb(var(--text-primary))] truncate">{userName}</p>
+            <p className="text-[10px] text-[rgb(var(--text-muted))] truncate">{userEmail || 'v0.1.0'}</p>
+          </div>
+          <div className={cn(
+            'flex items-center gap-1.5 flex-shrink-0 transition-opacity duration-200',
+            expanded ? 'opacity-100' : 'opacity-0 pointer-events-none',
+          )}>
+            <Link href="/account" title="Account" onClick={() => setExpanded(false)}
+              className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))] transition-colors">
               <KeyRound className="h-3.5 w-3.5" />
             </Link>
-            <button
-              onClick={logout}
-              title="Sign out"
-              className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))] transition-colors shrink-0"
-            >
+            <button onClick={logout} title="Sign out"
+              className="text-[rgb(var(--text-muted))] hover:text-[rgb(var(--text-secondary))] transition-colors">
               <LogOut className="h-3.5 w-3.5" />
             </button>
-          </>
-        )}
-      </div>
-    </aside>
+          </div>
+        </div>
+      </aside>
+    </TooltipProvider>
   );
 }
-
