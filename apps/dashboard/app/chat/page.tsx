@@ -231,16 +231,16 @@ export default function NexusPage() {
             {messages.map(msg => (
               <div key={msg.id} className={cn('animate-fade-in', msg.role === 'user' ? 'flex justify-end' : 'flex justify-start')}>
                 {msg.role === 'agent' ? (
-                  /* Agent message — agentone style: icon + header + clean text */
+                  /* Agent message — clean, no card border */
                   <div className="flex gap-3 max-w-[85%]">
                     <div className={cn(
                       'mt-0.5 w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0',
                       msg.error
-                        ? 'bg-[rgba(239,68,68,0.08)] border border-[rgba(239,68,68,0.2)]'
-                        : 'bg-[rgba(137,129,229,0.1)] border border-[rgba(137,129,229,0.18)]',
+                        ? 'bg-[rgba(237,95,86,0.1)]'
+                        : 'bg-[rgba(137,129,229,0.1)]',
                     )}>
                       {msg.error
-                        ? <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                        ? <AlertCircle className="h-3.5 w-3.5 text-[rgb(237,95,86)]" />
                         : msg.routed
                           ? <Zap className="h-3.5 w-3.5 text-[rgb(137,129,229)]" />
                           : <Bot className="h-3.5 w-3.5 text-[rgb(var(--text-secondary))]" />}
@@ -251,19 +251,17 @@ export default function NexusPage() {
                         <span className={cn(
                           'text-[10px] rounded-md border px-1.5 py-0.5 font-medium',
                           msg.error
-                            ? 'border-red-500/20 bg-red-500/08 text-red-400'
+                            ? 'border-[rgba(237,95,86,0.2)] bg-[rgba(237,95,86,0.08)] text-[rgb(237,95,86)]'
                             : msg.routed
                               ? 'border-[rgba(137,129,229,0.2)] bg-[rgba(137,129,229,0.07)] text-[rgb(var(--text-secondary))]'
-                              : 'border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] text-[rgb(var(--text-muted))]',
+                              : 'border-[rgba(77,79,99,0.4)] bg-[rgba(45,47,62,0.5)] text-[rgb(var(--text-muted))]',
                         )}>
                           {msg.error ? 'Error' : msg.routed ? 'Routed' : 'Direct'}
                         </span>
                       </div>
                       <div className={cn(
                         'text-sm leading-relaxed',
-                        msg.error
-                          ? 'text-red-400 whitespace-pre-wrap'
-                          : 'text-[rgb(var(--text-primary))]',
+                        msg.error ? 'text-[rgb(237,95,86)] whitespace-pre-wrap' : 'text-[rgb(var(--text-primary))]',
                       )}>
                         {msg.error ? msg.content : (
                           <ReactMarkdown
@@ -296,9 +294,9 @@ export default function NexusPage() {
                     </div>
                   </div>
                 ) : (
-                  /* User message — right-aligned bubble */
+                  /* User message — right-aligned solid bubble, agentone #2a2c3a */
                   <div className="max-w-[75%] px-4 py-2.5 rounded-2xl rounded-tr-sm
-                    bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))]
+                    bg-[#2a2c3a]
                     text-sm text-[rgb(var(--text-primary))] whitespace-pre-wrap leading-relaxed">
                     {msg.content}
                   </div>
@@ -310,7 +308,6 @@ export default function NexusPage() {
             {sending && (
               <div className="flex gap-3 animate-fade-in">
                 <div className="mt-0.5 w-7 h-7 rounded-xl bg-[rgba(137,129,229,0.1)]
-                  border border-[rgba(137,129,229,0.18)]
                   flex items-center justify-center flex-shrink-0">
                   {mode === 'coordinator'
                     ? <Zap className="h-3.5 w-3.5 text-[rgb(137,129,229)] animate-pulse" />
@@ -331,8 +328,8 @@ export default function NexusPage() {
       {/* ── Input area ── */}
       <div className="px-6 pb-6 pt-2 flex-shrink-0">
         <div className="max-w-2xl mx-auto">
-          {/* Pill input with glow */}
-          <div className="relative rounded-full bg-[rgb(var(--bg-elevated))] input-glow
+          {/* Pill input with glow — agentone searchContainer #3d3f52 */}
+          <div className="relative rounded-full bg-[#3d3f52] input-glow
             border border-[rgba(137,129,229,0.15)]
             flex items-center gap-2 px-2 py-2">
 
@@ -358,8 +355,8 @@ export default function NexusPage() {
               {/* Agent dropdown */}
               {pickerOpen && (
                 <div className="absolute bottom-full left-0 mb-2 w-56
-                  bg-[rgb(var(--bg-elevated))] border border-[rgb(var(--border))]
-                  rounded-xl shadow-l overflow-hidden z-50">
+                  bg-[rgba(15,15,21,0.97)] border border-[rgba(77,79,99,0.4)]
+                  rounded-xl shadow-l overflow-hidden z-50 backdrop-blur-sm">
                   {/* Nexus / smart routing */}
                   <button
                     onClick={startNewCoordinatorChat}
@@ -380,7 +377,7 @@ export default function NexusPage() {
 
                   {/* Divider */}
                   {agents.length > 0 && (
-                    <div className="border-t border-[rgb(var(--border))] mx-3" />
+                    <div className="border-t border-[rgba(77,79,99,0.3)] mx-3" />
                   )}
 
                   {/* Individual agents */}
@@ -414,7 +411,7 @@ export default function NexusPage() {
                   </div>
 
                   {/* New chat shortcut */}
-                  <div className="border-t border-[rgb(var(--border))] p-1.5">
+                  <div className="border-t border-[rgba(77,79,99,0.3)] p-1.5">
                     <button
                       onClick={startNewCoordinatorChat}
                       className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs
