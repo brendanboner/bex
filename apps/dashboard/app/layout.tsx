@@ -26,9 +26,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-[rgb(var(--bg-base))] text-[rgb(var(--text-primary))] antialiased">
         <Providers>
           {isAuthenticated ? (
-            <div className="flex h-screen overflow-hidden bg-radial-glow">
+            <div className="h-screen overflow-hidden bg-radial-glow">
+              {/* Fixed glass icon-rail sidebar — never pushes content */}
               <Sidebar />
-              <div className="flex flex-1 flex-col overflow-hidden">
+              {/* Content starts at 72px (rail width) to avoid overlap */}
+              <div className="ml-[72px] flex h-screen flex-col overflow-hidden">
                 <StatusBar />
                 <main className="flex-1 overflow-y-auto">
                   <div className="px-8 py-6">{children}</div>

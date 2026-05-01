@@ -88,6 +88,23 @@
     0px 16px 16px rgba(30, 31, 42, 0.24);
 }
 
+/* ── Input glow — agentone SearchContainer shadow ────────────────────────── */
+.input-glow {
+  box-shadow:
+    0px 8px 15px 0px rgba(156, 74, 175, 0.45),
+    0 0 0 1px rgba(137, 129, 229, 0.15),
+    0 0 40px rgba(137, 129, 229, 0.10);
+}
+
+/* ── Message fade-in animation ───────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeInUp 0.3s ease-out both;
+}
+
 /* ── Glow effects — violet accent ────────────────────────────────────────── */
 .glow-violet {
   box-shadow: 0 0 20px rgba(137, 129, 229, 0.35), 0 0 40px rgba(137, 129, 229, 0.12);
