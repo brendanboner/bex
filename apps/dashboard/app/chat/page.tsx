@@ -328,9 +328,9 @@ export default function NexusPage() {
       {/* ── Input area ── */}
       <div className="px-6 pb-6 pt-2 flex-shrink-0">
         <div className="max-w-2xl mx-auto">
-          {/* Pill input with glow — agentone searchContainer #3d3f52 */}
-          <div className="relative rounded-full bg-[#3d3f52] input-glow
-            border border-[rgba(137,129,229,0.15)]
+          {/* Pill input — glass morphism */}
+          <div className="relative rounded-full bg-[rgba(30,31,42,0.75)] backdrop-blur-md
+            border border-[rgba(137,129,229,0.2)]
             flex items-center gap-2 px-2 py-2">
 
             {/* ── Agent picker chip ── */}
@@ -342,7 +342,7 @@ export default function NexusPage() {
                   'transition-colors whitespace-nowrap',
                   mode === 'coordinator'
                     ? 'bg-[rgba(137,129,229,0.12)] text-[rgb(137,129,229)] hover:bg-[rgba(137,129,229,0.2)]'
-                    : 'bg-[rgb(var(--bg-surface))] text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.06)]',
+                    : 'bg-[rgba(255,255,255,0.07)] text-[rgb(var(--text-secondary))] hover:bg-[rgba(255,255,255,0.10)]',
                 )}
               >
                 {mode === 'coordinator'

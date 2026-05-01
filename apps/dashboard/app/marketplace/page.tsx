@@ -32,7 +32,7 @@ const PLATFORM_DESCRIPTIONS: Record<string, string> = {
 
 const STATUS_BADGE: Record<PlatformStatus, { label: string; classes: string }> = {
   active:         { label: 'Active',          classes: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' },
-  not_configured: { label: 'Not Configured',  classes: 'bg-slate-500/10 text-slate-400 border-slate-500/30' },
+  not_configured: { label: 'Not Configured',  classes: 'bg-slate-500/10 text-[#8f91a1] border-slate-500/30' },
   partial:        { label: 'Partially Set Up', classes: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
 };
 
@@ -65,7 +65,7 @@ export default function MarketplacePage() {
   if (isLoading) {
     return (
       <div className="p-8 flex items-center justify-center">
-        <div className="flex items-center gap-3 text-slate-400">
+        <div className="flex items-center gap-3 text-[#8f91a1]">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Loading platform status…</span>
         </div>
@@ -87,8 +87,8 @@ export default function MarketplacePage() {
   return (
     <div className="p-8 max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-100">Platform Bundles</h1>
-        <p className="mt-1 text-sm text-slate-400">
+        <h1 className="text-2xl font-semibold text-[#e8e9f2]">Platform Bundles</h1>
+        <p className="mt-1 text-sm text-[#8f91a1]">
           Configure network management platforms to unlock domain-specific skills, knowledge, and composite tools.
         </p>
       </div>
@@ -103,36 +103,36 @@ export default function MarketplacePage() {
           return (
             <div
               key={platform.id}
-              className="rounded-xl border border-slate-800 bg-slate-900 p-5"
+              className="rounded-xl border border-[rgba(77,79,99,0.3)] bg-[rgba(30,31,42,0.65)] backdrop-blur-sm p-5"
             >
               <div className="flex items-start gap-4">
                 {/* Icon */}
-                <div className="mt-0.5 rounded-lg border border-slate-700 bg-slate-800 p-2 text-cyan-400">
+                <div className="mt-0.5 rounded-lg border border-[rgba(77,79,99,0.25)] bg-[rgba(45,47,62,0.6)] p-2 text-[#8981e5]">
                   {icon}
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-base font-semibold text-slate-100">{platform.label}</h2>
+                    <h2 className="text-base font-semibold text-[#e8e9f2]">{platform.label}</h2>
                     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${badge.classes}`}>
                       {platform.status === 'active' && <CheckCircle className="h-2.5 w-2.5" />}
                       {platform.status === 'not_configured' && <AlertCircle className="h-2.5 w-2.5" />}
                       {badge.label}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-400">{desc}</p>
+                  <p className="mt-1 text-sm text-[#8f91a1]">{desc}</p>
 
                   {/* Stats */}
-                  <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
-                    <span className={platform.skillCount > 0 ? 'text-slate-300' : ''}>
+                  <div className="mt-3 flex items-center gap-4 text-xs text-[#6b6d80]">
+                    <span className={platform.skillCount > 0 ? 'text-[#c4c5d4]' : ''}>
                       <span className="font-medium">{platform.skillCount}</span> skills
                     </span>
-                    <span className={platform.playbooksCount > 0 ? 'text-slate-300' : ''}>
+                    <span className={platform.playbooksCount > 0 ? 'text-[#c4c5d4]' : ''}>
                       <span className="font-medium">{platform.playbooksCount}</span> playbooks
                     </span>
                     {platform.agentName && (
-                      <span className="text-slate-300">
+                      <span className="text-[#c4c5d4]">
                         Agent: <span className="font-medium">{platform.agentName}</span>
                       </span>
                     )}
@@ -144,7 +144,7 @@ export default function MarketplacePage() {
                   {!platform.configured && (
                     <a
                       href="/credentials"
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-slate-100 transition-all"
+                      className="flex items-center gap-1.5 rounded-lg border border-[rgba(77,79,99,0.35)] bg-[rgba(45,47,62,0.6)] px-3 py-1.5 text-xs font-medium text-[#c4c5d4] hover:bg-[rgba(45,47,62,0.8)] hover:text-[#e8e9f2] transition-all"
                     >
                       <Settings className="h-3.5 w-3.5" />
                       Configure
@@ -154,7 +154,7 @@ export default function MarketplacePage() {
                     <button
                       onClick={() => provisionMutation.mutate(platform.id)}
                       disabled={isProvisioningThis}
-                      className="flex items-center gap-1.5 rounded-lg border border-cyan-600/50 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-400 hover:bg-cyan-500/20 hover:text-cyan-300 transition-all disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-lg border border-[rgba(137,129,229,0.3)] bg-[rgba(137,129,229,0.1)] px-3 py-1.5 text-xs font-medium text-[#8981e5] hover:bg-[rgba(137,129,229,0.18)] hover:text-[#a09ae0] transition-all disabled:opacity-50"
                     >
                       {isProvisioningThis
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

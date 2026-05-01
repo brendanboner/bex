@@ -390,7 +390,7 @@ export default function DomainsPage() {
     <div className="p-6 max-w-4xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Domain Intelligence</h1>
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Domain Intelligence</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Entity graphs and multi-step playbooks. Type{' '}
             <code className="text-primary text-xs bg-elevated border border-border px-1 py-0.5 rounded">

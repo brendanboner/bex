@@ -292,7 +292,7 @@ export default function CapabilityMarketplacePage() {
                   <button
                     onClick={() => { publishMutation.mutate({ id: confirmState.skillId, force: true }); setConfirmState(null); }}
                     disabled={publishMutation.isPending}
-                    className="rounded-lg bg-violet-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors"
+                    className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-3.5 py-2 text-xs font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors"
                   >
                     {publishMutation.isPending ? 'Replacing…' : 'Replace & Activate'}
                   </button>
@@ -331,7 +331,7 @@ export default function CapabilityMarketplacePage() {
                       value={credFields[f.key] ?? ''}
                       onChange={e => setCredFields(prev => ({ ...prev, [f.key]: e.target.value }))}
                       placeholder={f.placeholder}
-                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-xs font-mono text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none resize-y"
+                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-xs font-mono text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none resize-y"
                     />
                   ) : (
                     <input
@@ -339,7 +339,7 @@ export default function CapabilityMarketplacePage() {
                       value={credFields[f.key] ?? ''}
                       onChange={e => setCredFields(prev => ({ ...prev, [f.key]: e.target.value }))}
                       placeholder={f.placeholder}
-                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none"
+                      className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none"
                     />
                   )}
                 </div>
@@ -350,7 +350,7 @@ export default function CapabilityMarketplacePage() {
               <button
                 onClick={() => saveCredMutation.mutate({ id: credSkill.id, fields: credFields })}
                 disabled={saveCredMutation.isPending || Object.keys(credFields).length === 0}
-                className="rounded-lg bg-violet-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors"
+                className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-3.5 py-2 text-xs font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors"
               >
                 {saveCredMutation.isPending ? 'Saving…' : 'Save Credential'}
               </button>
@@ -359,34 +359,31 @@ export default function CapabilityMarketplacePage() {
         </div>
       )}
 
-      {/* Hero header */}
-      <div className="relative rounded-2xl overflow-hidden border border-[rgb(var(--border))] bg-gradient-to-br from-[#1c1a2e] via-[#1a1828] to-[#1e1f2a] p-6">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_70%_40%,rgba(137,129,229,0.12),transparent)]" />
-        <div className="relative flex items-start justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-600 to-purple-500 flex items-center justify-center">
-                <Brain className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-xs font-semibold uppercase tracking-widest text-violet-300">Capability Marketplace</span>
+      {/* Page header */}
+      <div className="flex items-start justify-between gap-6">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-lg bg-[rgba(137,129,229,0.12)] flex items-center justify-center">
+              <Brain className="h-3.5 w-3.5 text-[#8981e5]" />
             </div>
-            <h1 className="text-2xl font-bold text-[rgb(var(--text-primary))]">Capability Marketplace</h1>
-            <p className="text-sm text-[rgb(var(--text-secondary))] max-w-md">
-              Build, publish, and pull versioned agent skills. Share capabilities across BEX instances via the central registry.
-            </p>
+            <span className="text-xs font-medium uppercase tracking-widest text-[#8f91a1]">Skills</span>
           </div>
-          <button
-            onClick={() => setShowDiscover(v => !v)}
-            className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-purple-500 px-4 py-2.5 text-sm font-semibold text-white hover:from-violet-500 hover:to-purple-400 transition-all shadow-m shrink-0"
-          >
-            <Plus className="h-4 w-4" /> Build Skill
-          </button>
+          <h1 className="text-2xl font-semibold text-[#e8e9f2]">Capability Marketplace</h1>
+          <p className="text-sm text-[#8f91a1] max-w-md">
+            Build, publish, and pull versioned agent skills. Share capabilities across BEX instances via the central registry.
+          </p>
         </div>
+        <button
+          onClick={() => setShowDiscover(v => !v)}
+          className="flex items-center gap-2 rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-4 py-2.5 text-sm font-medium text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] transition-all shrink-0"
+        >
+          <Plus className="h-4 w-4" /> Build Skill
+        </button>
       </div>
 
       {/* Build / Discover panel */}
       {showDiscover && (
-        <div className="rounded-xl border border-violet-500/30 bg-[rgba(137,129,229,0.06)] p-5 space-y-4">
+        <div className="rounded-xl border border-[rgba(137,129,229,0.2)] bg-[rgba(137,129,229,0.04)] p-5 space-y-4">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-sm font-semibold text-[rgb(var(--text-primary))]">Build or Discover a Skill</p>
@@ -403,7 +400,7 @@ export default function CapabilityMarketplacePage() {
           <div className="flex rounded-lg border border-[rgb(var(--border))] p-0.5 bg-[rgb(var(--bg-surface))] w-fit">
             {(['build', 'quick'] as const).map(m => (
               <button key={m} onClick={() => setDiscoverMode(m)}
-                className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${discoverMode === m ? 'bg-[rgba(137,129,229,0.15)] text-violet-300' : 'text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))]'}`}>
+                className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${discoverMode === m ? 'bg-[rgba(137,129,229,0.15)] text-[#8981e5]' : 'text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))]'}`}>
                 {m === 'build' ? <><Link className="h-3 w-3" /> Build from API</> : <><Brain className="h-3 w-3" /> Quick Discover</>}
               </button>
             ))}
@@ -413,23 +410,23 @@ export default function CapabilityMarketplacePage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-[rgb(var(--text-secondary))] mb-1">Domain <span className="text-violet-400">*</span></label>
+                  <label className="block text-xs font-medium text-[rgb(var(--text-secondary))] mb-1">Domain <span className="text-[#8981e5]">*</span></label>
                   <input value={buildDomain} onChange={e => setBuildDomain(e.target.value)}
                     placeholder="e.g. extremecloudiq.network.policy"
-                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors font-mono" />
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors font-mono" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[rgb(var(--text-secondary))] mb-1">Intent <span className="text-violet-400">*</span></label>
+                  <label className="block text-xs font-medium text-[rgb(var(--text-secondary))] mb-1">Intent <span className="text-[#8981e5]">*</span></label>
                   <input value={buildIntent} onChange={e => setBuildIntent(e.target.value)}
                     placeholder="e.g. Update SSID WPA passphrase and push to AP"
-                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors" />
+                    className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3 py-2 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors" />
                 </div>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-[rgb(var(--text-secondary))]">Knowledge Sources <span className="text-violet-400">*</span></label>
-                  <button onClick={addSource} className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 transition-colors">
+                  <label className="text-xs font-medium text-[rgb(var(--text-secondary))]">Knowledge Sources <span className="text-[#8981e5]">*</span></label>
+                  <button onClick={addSource} className="flex items-center gap-1 text-xs text-[#8981e5] hover:text-[#a09ae0] transition-colors">
                     <Plus className="h-3 w-3" /> Add source
                   </button>
                 </div>
@@ -437,23 +434,23 @@ export default function CapabilityMarketplacePage() {
                   {buildSources.map((src, idx) => (
                     <div key={idx} className="flex gap-2 items-start">
                       <select value={src.type} onChange={e => updateSource(idx, { type: e.target.value as BuildSource['type'] })}
-                        className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] focus:border-violet-500 focus:outline-none shrink-0">
+                        className="rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none shrink-0">
                         {(Object.entries(SOURCE_TYPE_LABELS) as [BuildSource['type'], string][]).map(([v, l]) => (
                           <option key={v} value={v}>{l}</option>
                         ))}
                       </select>
                       <input value={src.label} onChange={e => updateSource(idx, { label: e.target.value })}
                         placeholder="Label (e.g. XIQ OpenAPI)"
-                        className="w-36 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors" />
+                        className="w-36 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors" />
                       {src.type === 'raw_markdown' ? (
                         <textarea value={src.content} onChange={e => updateSource(idx, { content: e.target.value })}
                           placeholder="Paste API docs, endpoint descriptions, or relevant markdown…"
                           rows={3}
-                          className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors resize-none font-mono" />
+                          className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors resize-none font-mono" />
                       ) : (
                         <input value={src.url} onChange={e => updateSource(idx, { url: e.target.value })}
                           placeholder="https://openapi.extremecloudiq.com/swagger/openapi.yaml"
-                          className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors font-mono" />
+                          className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-2 py-2 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors font-mono" />
                       )}
                       {buildSources.length > 1 && (
                         <button onClick={() => removeSource(idx)} className="mt-2 text-[rgb(var(--text-muted))] hover:text-rose-400 transition-colors shrink-0">
@@ -464,13 +461,13 @@ export default function CapabilityMarketplacePage() {
                   ))}
                 </div>
                 <p className="text-xs text-[rgb(var(--text-muted))] mt-2">
-                  Tip: Use <span className="text-violet-400 font-mono">Raw Markdown</span> to paste relevant API endpoint docs directly — no public URL needed.
+                  Tip: Use <span className="text-[#8981e5] font-mono">Raw Markdown</span> to paste relevant API endpoint docs directly — no public URL needed.
                 </p>
               </div>
 
               <div className="flex justify-end">
                 <button onClick={() => buildMutation.mutate()} disabled={!buildValid || buildMutation.isPending}
-                  className="rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors">
+                  className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-5 py-2.5 text-sm font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors">
                   {buildMutation.isPending ? 'Building skill…' : 'Build Skill'}
                 </button>
               </div>
@@ -480,9 +477,9 @@ export default function CapabilityMarketplacePage() {
               <input value={intent} onChange={e => setIntent(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && intent.trim()) discoverMutation.mutate(intent); }}
                 placeholder="e.g. Monitor fabric drift in an Extreme XCO environment"
-                className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors" />
+                className="flex-1 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] px-3.5 py-2.5 text-sm text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors" />
               <button onClick={() => discoverMutation.mutate(intent)} disabled={!intent.trim() || discoverMutation.isPending}
-                className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40 transition-colors">
+                className="rounded-lg bg-[rgba(137,129,229,0.15)] border border-[rgba(137,129,229,0.3)] px-4 py-2.5 text-sm font-semibold text-[#8981e5] hover:bg-[rgba(137,129,229,0.22)] disabled:opacity-40 transition-colors">
                 {discoverMutation.isPending ? 'Generating…' : 'Generate'}
               </button>
             </div>
@@ -499,7 +496,7 @@ export default function CapabilityMarketplacePage() {
               onClick={() => setActiveTab(tab)}
               className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-medium transition-all ${
                 activeTab === tab
-                  ? 'bg-[rgba(137,129,229,0.15)] text-violet-300'
+                  ? 'bg-[rgba(137,129,229,0.15)] text-[#8981e5]'
                   : 'text-[rgb(var(--text-secondary))] hover:text-[rgb(var(--text-primary))]'
               }`}
             >
@@ -514,7 +511,7 @@ export default function CapabilityMarketplacePage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search skills…"
-            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] py-2 pl-9 pr-3 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-violet-500 focus:outline-none transition-colors"
+            className="w-full rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--bg-elevated))] py-2 pl-9 pr-3 text-xs text-[rgb(var(--text-primary))] placeholder-[rgb(var(--text-muted))] focus:border-[rgba(137,129,229,0.6)] focus:outline-none transition-colors"
           />
         </div>
         <span className="text-xs text-[rgb(var(--text-muted))]">
@@ -551,7 +548,7 @@ export default function CapabilityMarketplacePage() {
               {filtered.map(s => (
                 <div key={s.id} className="group rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4 hover:border-[rgba(137,129,229,0.35)] transition-all shadow-m">
                   <div className="flex items-start gap-3 mb-3">
-                    <div className={`h-10 w-10 rounded-lg bg-gradient-to-br ${domainGradient(s.domain)} flex items-center justify-center shrink-0`}>
+                    <div className={`h-10 w-10 rounded-lg bg-[rgba(137,129,229,0.12)] flex items-center justify-center shrink-0`}>
                       <Brain className="h-5 w-5 text-white opacity-90" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -577,7 +574,7 @@ export default function CapabilityMarketplacePage() {
                       {s.requiredCredentialType && (
                         <button
                           onClick={() => openCredential(s)}
-                          className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-300 font-medium hover:bg-violet-500/20 transition-colors"
+                          className="rounded-full border border-[rgba(137,129,229,0.25)] bg-[rgba(137,129,229,0.08)] px-2 py-0.5 text-[10px] text-[#8981e5] font-medium hover:bg-[rgba(137,129,229,0.14)] transition-colors"
                           title={`Manage ${s.requiredCredentialType.replace(/_/g, ' ')} credential`}
                         >
                           🔑 {s.requiredCredentialType.replace(/_/g, ' ')}
@@ -588,7 +585,7 @@ export default function CapabilityMarketplacePage() {
                         <button
                           onClick={() => publishMutation.mutate({ id: s.id })}
                           disabled={publishMutation.isPending}
-                          className="flex items-center gap-1.5 rounded-lg border border-violet-500/40 bg-[rgba(137,129,229,0.10)] px-2.5 py-1 text-[10px] font-medium text-violet-300 hover:bg-[rgba(137,129,229,0.15)] transition-colors disabled:opacity-40"
+                          className="flex items-center gap-1.5 rounded-lg border border-[rgba(137,129,229,0.25)] bg-[rgba(137,129,229,0.08)] px-2.5 py-1 text-[10px] font-medium text-[#8981e5] hover:bg-[rgba(137,129,229,0.14)] transition-colors disabled:opacity-40"
                         >
                           <Upload className="h-3 w-3" /> Activate
                         </button>
@@ -656,7 +653,7 @@ export default function CapabilityMarketplacePage() {
               {filteredRegistry.map(s => (
                 <div key={`${s.domain}-${s.version}`} className="group rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--bg-surface))] p-4 hover:border-[rgba(137,129,229,0.35)] transition-all shadow-m">
                   <div className="flex items-start gap-3 mb-3">
-                    <div className={`h-10 w-10 rounded-lg bg-gradient-to-br ${domainGradient(s.domain)} flex items-center justify-center shrink-0`}>
+                    <div className={`h-10 w-10 rounded-lg bg-[rgba(137,129,229,0.12)] flex items-center justify-center shrink-0`}>
                       <Brain className="h-5 w-5 text-white opacity-90" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -665,7 +662,7 @@ export default function CapabilityMarketplacePage() {
                     </div>
                     {/* Source badge */}
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${
-                      s.source === 'remote' ? 'bg-blue-500/15 text-blue-300' : 'bg-violet-500/15 text-violet-300'
+                      s.source === 'remote' ? 'bg-blue-500/15 text-blue-300' : 'bg-violet-500/15 text-[#8981e5]'
                     }`}>
                       {s.source === 'remote' ? 'Remote' : 'Local Registry'}
                     </span>
