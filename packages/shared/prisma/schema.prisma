@@ -160,6 +160,7 @@ model AgentRequest {
   turns       Json             @default("[]")
   toolCalls   Json             @default("[]")
   output      String?
+  inputPrompt String?
   errorMsg    String?
   startedAt   DateTime?
   completedAt DateTime?
@@ -403,6 +404,7 @@ enum RequestStatus {
   QUEUED
   RUNNING
   AWAITING_APPROVAL
+  AWAITING_INPUT
   COMPLETED
   FAILED
   CANCELLED

@@ -174,6 +174,21 @@ export class ApprovalRequiredError extends Error {
   }
 }
 
+/**
+ * Thrown when the agent calls `request_user_input` to pause execution
+ * and wait for a reply from the user. The job exits cleanly; the
+ * POST /requests/:id/reply endpoint re-enqueues when the user responds.
+ */
+export class AwaitingInputError extends Error {
+  constructor(
+    public readonly requestId: string,
+    public readonly question: string,
+  ) {
+    super(`Awaiting user input for request "${requestId}"`);
+    this.name = 'AwaitingInputError';
+  }
+}
+
 export class OrchestratorService {
   private readonly vault: CredentialVaultService;
   private readonly skillRegistry: SkillRegistryService;
@@ -320,6 +335,14 @@ export class OrchestratorService {
     // priorApproval is 'APPROVED' | 'PENDING' | 'EXPIRED' | null
     // 'APPROVED' = resume after gate; 'EXPIRED' / 'PENDING' = still gated (abort softly)
     const isResuming = priorApproval === 'APPROVED';
+
+    // 3b. Check for prior AWAITING_INPUT (resume path after user replied)
+    const existingRequest = await this.prisma.agentRequest.findUnique({
+      where: { id: ctx.requestId },
+      select: { status: true, inputPrompt: true, turns: true },
+    });
+    const wasAwaitingInput = existingRequest?.status === 'AWAITING_INPUT';
+    // ctx.input is the user's reply when resuming from AWAITING_INPUT
 
     // 4. Update request status → RUNNING
     await this.prisma.agentRequest.update({
@@ -707,6 +730,7 @@ export class OrchestratorService {
 
       // Build messages: inject last 3 completed turns as conversation context so
       // follow-up queries ("show radio history of the ipad") can reference prior results.
+      // If resuming from AWAITING_INPUT, inject the prior question + user's reply as context.
       const priorRequests = await this.prisma.agentRequest.findMany({
         where: {
           agentId: ctx.agentId,
@@ -726,14 +750,56 @@ export class OrchestratorService {
         historyMessages.push({ role: 'user', content: prior.input });
         historyMessages.push({ role: 'assistant', content: trimmedOutput });
       }
-      const messages: CoreMessage[] = [...historyMessages, { role: 'user', content: ctx.input }];
 
-      // 9. Run LLM — always add write_memory and read_memory tools
+      // When resuming from AWAITING_INPUT, reconstruct the conversation:
+      // [prior history] → [original input] → [agent question] → [user reply]
+      let messages: CoreMessage[];
+      if (wasAwaitingInput && existingRequest?.inputPrompt) {
+        const priorTurns = (Array.isArray(existingRequest.turns) ? existingRequest.turns : []) as CoreMessage[];
+        // Filter to just user/assistant turns from the prior turns (before the input gate)
+        const resumeTurns = priorTurns.filter(
+          (t) => t.role === 'user' || t.role === 'assistant',
+        );
+        messages = [
+          ...historyMessages,
+          ...resumeTurns,
+          { role: 'assistant', content: existingRequest.inputPrompt },
+          { role: 'user', content: ctx.input },
+        ];
+      } else {
+        messages = [...historyMessages, { role: 'user', content: ctx.input }];
+      }
+
+      // 9. Run LLM — always add write_memory, read_memory, and request_user_input tools
       const writeMemoryTool = buildWriteMemoryTool(agent.id);
       const readMemoryTool = buildReadMemoryTool(agent.id);
       const setFactTool = buildSetFactTool(agent.id);
       const getFactTool = buildGetFactTool(agent.id);
-      const allTools = { ...tools, write_memory: writeMemoryTool, read_memory: readMemoryTool, set_fact: setFactTool, get_fact: getFactTool };
+
+      // request_user_input — lets an agent pause and ask the user a question before continuing
+      const prismaRef = this.prisma;
+      const requestUserInputTool = tool({
+        description: 'Pause execution and ask the user a question. Use this when you need the user\'s confirmation or choice before proceeding with the next action (e.g. "Would you like me to run diagnostics on these radios?"). The user\'s reply will be delivered back to you automatically.',
+        parameters: z.object({
+          question: z.string().describe('The question to ask the user. Be specific about what you are asking them to decide.'),
+          context: z.string().optional().describe('Optional: brief summary of what you have found so far, to help the user make an informed decision.'),
+        }),
+        execute: async (args: { question: string; context?: string | undefined }) => {
+          const fullQuestion = args.context ? `${args.context}\n\n${args.question}` : args.question;
+          await prismaRef.agentRequest.update({
+            where: { id: ctx.requestId },
+            data: {
+              status: 'AWAITING_INPUT',
+              output: fullQuestion,
+              inputPrompt: fullQuestion,
+              turns: messages as object[],
+            },
+          });
+          throw new AwaitingInputError(ctx.requestId, fullQuestion);
+        },
+      }) as unknown as CoreTool;
+
+      const allTools: Record<string, CoreTool> = { ...tools, write_memory: writeMemoryTool, read_memory: readMemoryTool, set_fact: setFactTool, get_fact: getFactTool, request_user_input: requestUserInputTool };
       const toolsArg = allTools;
       // Per-agent maxSteps override — read from Agent.llmConfig JSON
       const agentLlmConfig = agent.llmConfig as { maxSteps?: number } | null;
@@ -761,6 +827,11 @@ export class OrchestratorService {
 
       return { output: result.text };
     } catch (error) {
+      if (error instanceof AwaitingInputError) {
+        // Agent requested user input — suspend cleanly, status already set to AWAITING_INPUT
+        return { output: error.question };
+      }
+
       if (error instanceof ApprovalRequiredError) {
         // Approval was requested — suspend cleanly (not a failure)
         await this.prisma.agentRequest.update({
@@ -923,7 +994,8 @@ You are responding in a CHAT MESSAGING APP. These rules OVERRIDE all previous fo
 - For alarms/events: state the count and severity in one sentence, then list the top 3–5 by name only (e.g. "• Critical: Link down on spine-01").
 - For device/AP tables: one line per item — "• <Name>: <key stat>". Max 10 items; note total if more.
 - If a tool returns raw JSON or a data structure, translate it into plain English before responding.
-- Never say "here is the JSON" or "the raw output is" — always interpret and summarise.`;
+- Never say "here is the JSON" or "the raw output is" — always interpret and summarise.
+- **When you need the user's confirmation before running a diagnostic or remediation action, call the \`request_user_input\` tool** instead of asking in your response text. This pauses execution and routes the user's reply back to you. Always use it for "shall I proceed?"-style questions.**`;
 
 
     case 'dashboard':

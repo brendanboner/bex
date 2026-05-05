@@ -66,6 +66,7 @@ export async function requestRoutes(
         status: true,
         input: true,
         output: true,
+        inputPrompt: true,
         errorMsg: true,
         channel: true,
         createdAt: true,
@@ -141,7 +142,45 @@ export async function requestRoutes(
     return reply.send(ok({ status: 'DENIED' }));
   });
 
-  // POST /requests/:id/escalate — spawn a remediation agent for a monitoring result
+  // POST /requests/:id/reply — provide a user reply to an AWAITING_INPUT request
+  app.post<{ Params: { id: string }; Body: unknown }>('/requests/:id/reply', async (request, reply) => {
+    const { id } = request.params;
+    const body = request.body as { answer?: string };
+    const answer = typeof body?.answer === 'string' ? body.answer.trim() : '';
+
+    if (!answer) {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'answer is required'));
+    }
+
+    const agentRequest = await prisma.agentRequest.findUnique({
+      where: { id },
+      select: { id: true, agentId: true, userId: true, input: true, channel: true, status: true, inputPrompt: true, turns: true },
+    });
+
+    if (!agentRequest) {
+      return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Request not found'));
+    }
+
+    if (agentRequest.status !== 'AWAITING_INPUT') {
+      return reply.status(409).send(err(ErrorCodes.VALIDATION_ERROR, `Request is not awaiting input (status: ${agentRequest.status})`));
+    }
+
+    // Re-queue with the user's answer as the new input
+    await prisma.agentRequest.update({
+      where: { id },
+      data: { status: 'QUEUED', input: answer },
+    });
+
+    await queue.add(`reply-${id}`, {
+      requestId: id,
+      agentId: agentRequest.agentId,
+      userId: agentRequest.userId,
+      input: answer,
+      channel: agentRequest.channel as 'api' | 'telegram' | 'teams' | 'dashboard' | 'whatsapp' | 'scheduler',
+    });
+
+    return reply.status(202).send(ok({ requestId: id, status: 'QUEUED' }));
+  });
   app.post<{ Params: { id: string }; Body: unknown }>('/requests/:id/escalate', async (request, reply) => {
     const parent = await prisma.agentRequest.findUnique({ where: { id: request.params.id } });
     if (!parent) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Parent request not found'));

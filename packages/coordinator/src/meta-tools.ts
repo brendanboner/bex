@@ -568,3 +568,59 @@ export function makeCreateSkillTool(prisma: PrismaClient): CoreTool {
     },
   };
 }
+
+// ─── create_dashboard ─────────────────────────────────────────────────────────
+
+export function makeCreateDashboardTool(prisma: PrismaClient): CoreTool {
+  return {
+    description:
+      'Create a live dashboard for data that an agent has just produced. Use this when the user asks to "create a dashboard", "show as dashboard", or "save this as a dashboard". Returns a slug and URL for the dashboard.',
+    parameters: z.object({
+      name: z.string().describe('A short descriptive name for the dashboard (e.g. "Wireless Health - May 2026")'),
+      prompt: z.string().describe('The data or prompt to base the dashboard on. Include the agent output or a description of what the dashboard should display.'),
+      agentId: z.string().optional().describe('Optional: the ID of the agent that produced the data. Used to run the agent again on refresh.'),
+      refreshMode: z.enum(['manual', 'scheduled']).optional().describe('How the dashboard should refresh. Defaults to manual.'),
+    }),
+    execute: async ({
+      name,
+      prompt,
+      agentId,
+      refreshMode,
+    }: {
+      name: string;
+      prompt: string;
+      agentId?: string;
+      refreshMode?: 'manual' | 'scheduled';
+    }) => {
+      try {
+        const slug = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 80);
+
+        // Ensure unique slug by appending a short timestamp suffix if needed
+        const existing = await prisma.userDashboard.findUnique({ where: { slug } });
+        const finalSlug = existing ? `${slug}-${Date.now().toString(36)}` : slug;
+
+        await prisma.userDashboard.create({
+          data: {
+            slug: finalSlug,
+            name,
+            prompt,
+            agentId: agentId ?? null,
+            refreshMode: refreshMode ?? 'manual',
+            status: 'active',
+          },
+        });
+
+        const dashboardBaseUrl = process.env['DASHBOARD_URL'] ?? 'http://localhost:3000';
+        const dashboardUrl = `${dashboardBaseUrl}/dashboards/${finalSlug}`;
+
+        return { slug: finalSlug, dashboardUrl, name };
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e), name };
+      }
+    },
+  };
+}

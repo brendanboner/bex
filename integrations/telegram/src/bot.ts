@@ -14,6 +14,12 @@ const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json')
 
 interface SessionData {
   pendingRequestId?: string | undefined;
+  coordinatorSessionId?: string | undefined;
+  lastAgentId?: string | undefined;
+  lastAgentName?: string | undefined;
+  pendingAgentQuestion?: string | undefined;
+  pendingInputRequestId?: string | undefined;
+  lastRequestOutput?: string | undefined;
 }
 
 type BotContext = Context & SessionFlavor<SessionData>;
@@ -292,7 +298,13 @@ bot.command('status', async (ctx) => {
 // /cancel — forget pending request
 bot.command('cancel', async (ctx) => {
   ctx.session.pendingRequestId = undefined;
-  await ctx.reply('✅ Cleared pending request.');
+  ctx.session.coordinatorSessionId = undefined;
+  ctx.session.pendingAgentQuestion = undefined;
+  ctx.session.pendingInputRequestId = undefined;
+  ctx.session.lastAgentId = undefined;
+  ctx.session.lastAgentName = undefined;
+  ctx.session.lastRequestOutput = undefined;
+  await ctx.reply('✅ Cleared pending request and conversation context.');
 });
 
 // /jobs — quick scheduled jobs list (no AI, direct API call)
@@ -442,6 +454,47 @@ bot.on('message:text', async (ctx) => {
     return;
   }
 
+  // ── AWAITING_INPUT reply: user is answering an agent's question ───────────
+  if (ctx.session.pendingInputRequestId) {
+    const replyRequestId = ctx.session.pendingInputRequestId;
+    ctx.session.pendingInputRequestId = undefined;
+    ctx.session.pendingAgentQuestion = undefined;
+    const chatId = ctx.chat?.id ?? 0;
+    try {
+      const res = await fetch(`${API_GATEWAY_URL}/requests/${replyRequestId}/reply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${BOT_API_KEY}`,
+        },
+        body: JSON.stringify({ answer: input }),
+      });
+      const data = (await res.json()) as { ok: boolean; data?: { requestId: string } };
+      if (data.ok && data.data) {
+        await ctx.reply('⏳ Got it — continuing…', { parse_mode: 'Markdown' });
+        ctx.session.pendingRequestId = data.data.requestId;
+        void backgroundPoll(chatId, data.data.requestId, ctx.session);
+      } else {
+        await ctx.reply('❌ Could not submit your reply. The request may have expired. Please try again from the beginning.');
+      }
+    } catch (err) {
+      console.error('[telegram] Error submitting reply:', err);
+      await ctx.reply('❌ An error occurred submitting your reply. Please try again.');
+    }
+    return;
+  }
+
+  // ── Dashboard creation request ────────────────────────────────────────────
+  const isDashboardRequest =
+    /^dashboard$/i.test(input.trim()) ||
+    /create\s+(a\s+)?dashboard(\s+for\s+this)?/i.test(input) ||
+    /show\s+(as|this\s+as)\s+(a\s+)?dashboard/i.test(input);
+
+  if (isDashboardRequest) {
+    await handleDashboardRequest(ctx);
+    return;
+  }
+
   // @bex prefix → route to Nexus system admin agent, or coordinator if NEXUS_AGENT_ID not set
   const bexPrefixMatch = input.match(/^@bex\s+(.+)/i);
   if (bexPrefixMatch) {
@@ -461,6 +514,8 @@ bot.on('message:text', async (ctx) => {
     const agentInput = agentPrefixMatch[2]!.trim();
     const foundId = await resolveAgentByName(nameHint);
     if (foundId) {
+      // Clear follow-up state when user explicitly addresses a new agent
+      ctx.session.pendingAgentQuestion = undefined;
       await routeToAgent(ctx, agentInput, foundId);
     } else {
       await ctx.reply(
@@ -485,6 +540,7 @@ bot.on('message:text', async (ctx) => {
     const agentHint = nameMap[softHint] ?? softHint;
     const foundId = await resolveAgentByName(agentHint);
     if (foundId) {
+      ctx.session.pendingAgentQuestion = undefined;
       await routeToAgent(ctx, softInput, foundId);
       return;
     }
@@ -492,9 +548,17 @@ bot.on('message:text', async (ctx) => {
   }
 
   // Default: route through coordinator for intelligent intent routing.
-  // This ensures weather, multi-domain, and novel queries reach the right agent
-  // rather than always landing on the default agent.
-  await routeToCoordinator(ctx, input);
+  // If there's a pending follow-up from a direct @agent response, inject context
+  // so the coordinator knows what the agent was asking about.
+  let coordinatorInput = input;
+  if (ctx.session.pendingAgentQuestion && ctx.session.lastAgentName) {
+    const question = ctx.session.pendingAgentQuestion;
+    const agentName = ctx.session.lastAgentName;
+    coordinatorInput = `[Context: @${agentName} just completed a task and asked: "${question}"]\nUser reply: ${input}`;
+    ctx.session.pendingAgentQuestion = undefined;
+    ctx.session.lastAgentName = undefined;
+  }
+  await routeToCoordinator(ctx, coordinatorInput);
 });
 
 /**
@@ -540,9 +604,10 @@ async function routeToAgent(ctx: BotContext, input: string, agentId?: string): P
 
     const requestId = data.data.requestId;
     ctx.session.pendingRequestId = requestId;
+    ctx.session.lastAgentId = targetAgentId;
 
     await ctx.reply(`⏳ Working on it… (ID: \`${requestId}\`)`, { parse_mode: 'Markdown' });
-    void backgroundPoll(chatId, requestId);
+    void backgroundPoll(chatId, requestId, ctx.session);
   } catch (err) {
     console.error('[telegram] Error routing message:', err);
     await ctx.reply('❌ An error occurred. Please try again.');
@@ -569,12 +634,17 @@ async function routeToCoordinator(ctx: BotContext, input: string): Promise<void>
         Authorization: `Bearer ${BOT_API_KEY}`,
         'X-Bclaw-User-External-Id': telegramUserId,
       },
-      body: JSON.stringify({ message: input, channel: 'telegram' }),
+      body: JSON.stringify({
+        message: input,
+        channel: 'telegram',
+        // Pass coordinator session ID so conversation history is preserved across messages
+        ...(ctx.session.coordinatorSessionId ? { sessionId: ctx.session.coordinatorSessionId } : {}),
+      }),
     });
 
     const data = (await res.json()) as {
       ok: boolean;
-      data?: { output: string; pendingRequestIds?: string[] };
+      data?: { sessionId?: string; output: string; pendingRequestIds?: string[] };
     };
 
     if (!data.ok || !data.data) {
@@ -582,17 +652,35 @@ async function routeToCoordinator(ctx: BotContext, input: string): Promise<void>
       return;
     }
 
+    // Persist the session ID so subsequent messages continue this conversation
+    if (data.data.sessionId) {
+      ctx.session.coordinatorSessionId = data.data.sessionId;
+    }
+
     const { output, pendingRequestIds } = data.data;
 
     // Send the coordinator's own text response
     if (output && output.trim()) {
       await safeSendDirect(chatId, output);
+      ctx.session.lastRequestOutput = output.slice(0, 2000);
+
+      // Dashboard CTA for coordinator responses that are data-rich
+      if (looksDataRich(output)) {
+        try {
+          await bot.api.sendMessage(
+            chatId,
+            '📊 _Reply_ `dashboard` _to create a live dashboard for this data_',
+            { parse_mode: 'Markdown' },
+          );
+        } catch { /* non-fatal */ }
+      }
     }
 
     // If sub-agent tasks are still running, poll them and deliver when ready
     if (pendingRequestIds && pendingRequestIds.length > 0) {
       for (const requestId of pendingRequestIds) {
-        void backgroundPoll(chatId, requestId);
+        ctx.session.pendingRequestId = requestId;
+        void backgroundPoll(chatId, requestId, ctx.session);
       }
     }
   } catch (err) {
@@ -602,10 +690,11 @@ async function routeToCoordinator(ctx: BotContext, input: string): Promise<void>
 }
 
 /**
- * Polls until COMPLETED/FAILED/AWAITING_APPROVAL or timeout (10 min),
+ * Polls until COMPLETED/FAILED/AWAITING_APPROVAL/AWAITING_INPUT or timeout (10 min),
  * then delivers result via bot.api.sendMessage().
+ * `sessionRef` is optional — if provided, it is mutated to track follow-up state.
  */
-async function backgroundPoll(chatId: number, requestId: string): Promise<void> {
+async function backgroundPoll(chatId: number, requestId: string, sessionRef?: SessionData): Promise<void> {
   const POLL_INTERVAL_MS = 3_000;
   const MAX_WAIT_MS = 600_000; // 10 minutes
   const started = Date.now();
@@ -619,14 +708,54 @@ async function backgroundPoll(chatId: number, requestId: string): Promise<void> 
       });
       const statusData = (await statusRes.json()) as {
         ok: boolean;
-        data?: { status: string; output?: string; errorMsg?: string };
+        data?: { status: string; output?: string; inputPrompt?: string; errorMsg?: string; agentId?: string };
       };
 
       if (!statusData.ok || !statusData.data) continue;
-      const { status, output, errorMsg } = statusData.data;
+      const { status, output, inputPrompt, errorMsg } = statusData.data;
 
       if (status === 'COMPLETED') {
-        await safeSendDirect(chatId, output ?? '(No response)');
+        const text = output ?? '(No response)';
+        await safeSendDirect(chatId, text);
+
+        // Store output for dashboard CTA
+        if (sessionRef) {
+          sessionRef.lastRequestOutput = text.slice(0, 2000);
+          sessionRef.pendingInputRequestId = undefined;
+        }
+
+        // Check if the output ends with a question — if so, track it for context injection
+        if (sessionRef && looksLikeQuestion(text)) {
+          sessionRef.pendingAgentQuestion = extractQuestion(text);
+          // Try to find agent name from cache for context injection
+          const agentId = sessionRef.lastAgentId;
+          if (agentId) {
+            const cachedAgent = _agentCache.find((a) => a.id === agentId);
+            if (cachedAgent) sessionRef.lastAgentName = cachedAgent.name;
+          }
+        }
+
+        // Append dashboard CTA if the output looks data-rich
+        if (looksDataRich(text)) {
+          try {
+            await bot.api.sendMessage(
+              chatId,
+              '📊 _Reply_ `dashboard` _to create a live dashboard for this data_',
+              { parse_mode: 'Markdown' },
+            );
+          } catch { /* non-fatal */ }
+        }
+        return;
+      }
+
+      if (status === 'AWAITING_INPUT') {
+        const question = inputPrompt ?? output ?? 'The agent is waiting for your input.';
+        await safeSendDirect(chatId, question);
+        // Store the request ID so the next message is routed as a reply
+        if (sessionRef) {
+          sessionRef.pendingInputRequestId = requestId;
+          sessionRef.pendingAgentQuestion = undefined;
+        }
         return;
       }
 
@@ -656,6 +785,40 @@ async function backgroundPoll(chatId: number, requestId: string): Promise<void> 
   );
 }
 
+/** Returns true if the output text ends with a question that warrants a follow-up reply. */
+function looksLikeQuestion(text: string): boolean {
+  const lower = text.toLowerCase();
+  const endsWithQuestion = text.trimEnd().endsWith('?');
+  const hasFollowUpPhrase = [
+    'would you like', 'shall i', 'do you want', 'should i',
+    'would you prefer', 'do you wish', 'would you want',
+    'would you like me to', 'shall we', 'do you want me to',
+  ].some((phrase) => lower.includes(phrase));
+  return endsWithQuestion || hasFollowUpPhrase;
+}
+
+/** Extracts the last question sentence from an output. */
+function extractQuestion(text: string): string {
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  // Find the last sentence containing a question
+  for (let i = sentences.length - 1; i >= 0; i--) {
+    const s = sentences[i] ?? '';
+    if (s.includes('?') || looksLikeQuestion(s)) return s.trim().slice(0, 300);
+  }
+  // Fallback: last 300 chars
+  return text.slice(-300).trim();
+}
+
+/** Returns true if the output looks like it contains structured data worth dashboarding. */
+function looksDataRich(text: string): boolean {
+  if (text.length < 200) return false;
+  // Contains JSON-like structures, tables, or many numbers
+  const hasJson = /[{\[]/.test(text);
+  const hasTable = /\|.*\|/.test(text);
+  const hasNumbers = (text.match(/\b\d+(\.\d+)?\b/g) ?? []).length > 5;
+  return hasJson || hasTable || hasNumbers;
+}
+
 /**
  * Send directly to a chat ID (not via ctx) — used from background poller.
  * Falls back to plain text if MarkdownV2 parsing fails. Chunks long messages.
@@ -678,6 +841,66 @@ async function safeSendDirect(chatId: number, text: string): Promise<void> {
         console.error('[telegram] Failed to send message:', err);
       }
     }
+  }
+}
+
+/**
+ * Handle a "dashboard" request — creates a UserDashboard from the last agent output.
+ */
+async function handleDashboardRequest(ctx: BotContext): Promise<void> {
+  const lastOutput = ctx.session.lastRequestOutput;
+  const lastAgentId = ctx.session.lastAgentId;
+
+  if (!lastOutput) {
+    await ctx.reply(
+      '📊 No recent agent data found to create a dashboard from.\n\n' +
+      'Run an agent query first, then reply `dashboard` to create a dashboard from the results.',
+      { parse_mode: 'Markdown' },
+    );
+    return;
+  }
+
+  await ctx.reply('📊 Creating dashboard…', { parse_mode: 'Markdown' });
+
+  try {
+    const name = `Agent Report — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    const prompt = `Create a dashboard for the following agent output:\n\n${lastOutput}`;
+
+    const res = await fetch(`${API_GATEWAY_URL}/user-dashboards`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${BOT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        name,
+        prompt,
+        ...(lastAgentId ? { agentId: lastAgentId } : {}),
+        refreshMode: 'manual',
+      }),
+    });
+
+    const data = (await res.json()) as {
+      ok: boolean;
+      data?: { slug?: string; id?: string; name?: string };
+    };
+
+    if (!data.ok || !data.data) {
+      await ctx.reply('❌ Failed to create dashboard. Please try again.');
+      return;
+    }
+
+    const slug = data.data.slug ?? data.data.id ?? 'unknown';
+    const dashboardUrl = (process.env['DASHBOARD_URL'] ?? 'http://localhost:3000');
+    const link = `${dashboardUrl}/dashboards/${slug}`;
+
+    await ctx.reply(
+      `✅ *Dashboard created!*\n📊 *${data.data.name ?? name}*\n🔗 ${link}`,
+      { parse_mode: 'Markdown' },
+    );
+  } catch (err) {
+    console.error('[telegram] handleDashboardRequest error:', err);
+    await ctx.reply('❌ An error occurred creating the dashboard. Please try again.');
   }
 }
 

@@ -17,6 +17,7 @@ import {
   makeWriteKnowledgeTool,
   makeListKnowledgeTopicsTool,
   makeCreateSkillTool,
+  makeCreateDashboardTool,
   makeGetSystemStatusTool,
   makeGetCredentialStatusTool,
   makeGetAgentCapabilitiesTool,
@@ -70,6 +71,16 @@ When this happens:
 - Remember the requestId so you can use check_task_status if needed.
 When the user asks for an update (e.g. "any update?", "is it done?"), call check_task_status with the requestId.
 
+## Handling monitoring follow-up confirmations (CRITICAL)
+When the session history shows that an agent recently asked the user a question (e.g. "Would you like me to proceed with diagnostics for the inactive radios?") and the user replies "yes", "proceed", "go ahead", "sure", "ok", or similar:
+1. Identify from session history which agent asked the question and what it was asking.
+2. Check whether that agent has the skills to perform the follow-up task (call get_agent_capabilities).
+3. If the agent has the required skills, delegate the follow-up task back to that agent with explicit context:
+   e.g. "The user has confirmed: please proceed with [the specific follow-up task you asked about]."
+4. If the required skill does NOT exist yet, call create_skill to build it, then spawn_agent to provision it,
+   then delegate_task for the follow-up.
+5. NEVER respond with "I don't know what you're saying yes to." — always check session history first.
+
 ## Multi-domain questions
 When a question spans multiple domains (e.g. comparing XIQ + XCO data):
 1. Call check_domain_constraint to verify compatibility between the domains.
@@ -81,6 +92,12 @@ When a question spans multiple domains (e.g. comparing XIQ + XCO data):
 ## Capability gaps
 When no agent can handle a sub-task:
 - Call create_skill to trigger skill creation for that domain, then retry with spawn_agent.
+
+## Dashboard creation
+When the user says "create a dashboard", "dashboard", "show as dashboard", or "create a dashboard for this" after seeing agent output:
+- Call create_dashboard with a descriptive name and the agent's output as the prompt.
+- Reply with the dashboard URL so the user can open it immediately.
+- Format: "📊 Dashboard created: [name]\n🔗 <url>"
 
 ## Platform management queries (answer directly — do NOT route to an agent)
 For questions about the BEX platform itself, use your system tools directly without calling list_agents first:
@@ -146,6 +163,7 @@ export class CoordinatorAgent {
       write_knowledge: makeWriteKnowledgeTool(knowledgeDir),
       list_knowledge_topics: makeListKnowledgeTopicsTool(knowledgeDir),
       create_skill: makeCreateSkillTool(this.prisma),
+      create_dashboard: makeCreateDashboardTool(this.prisma),
       get_system_status: makeGetSystemStatusTool(this.prisma),
       get_credential_status: makeGetCredentialStatusTool(this.prisma),
       get_agent_capabilities: makeGetAgentCapabilitiesTool(this.prisma),
