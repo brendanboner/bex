@@ -1,132 +1,69 @@
-# Forge — Enterprise Agentic Platform
+# Forge
 
-**Autonomous domain agents with secure credential management, domain intelligence, federated skill sharing, and human-in-the-loop approval workflows.**
+> Autonomous AI agents for your infrastructure — with secure credential management, human-in-the-loop approvals, and real-time notifications via Telegram, Teams, or WhatsApp.
 
 ---
 
-## Quickstart
+## Get started in under 2 minutes
 
 ```bash
 git clone https://github.com/your-org/bex
 cd bex
-make install     # npm install + build all packages + link bex globally
-bex init         # interactive setup wizard
+make install   # build all packages + link bex CLI globally
+bex init       # guided setup: LLM key → channel → integrations → launch
 ```
 
-> **Prerequisites:** Node.js 20+, Docker (running)
+> **Requires:** Node.js 20+, Docker
 
-`bex init` guides you through:
-1. LLM provider + API key (validated live)
-2. Interface channel (Web Dashboard / Telegram / Teams / WhatsApp)
-3. Optional network integrations (ExtremeCloud IQ, XCO)
-4. Admin account creation
-5. Generates `.env`, runs migrations, seeds data, starts everything via pm2
-
-Dashboard is live at **http://localhost:3000** when done.
+`bex init` generates your `.env`, runs database migrations, seeds defaults, and starts everything. Dashboard is live at **http://localhost:3000**.
 
 ---
 
-## CLI Reference
+## How it works
+
+Describe what you need in plain English. Forge creates an agent, teaches it the right skills by reading the relevant documentation, and runs it — handling approvals, credential security, and notifications automatically.
+
+**Example: monitoring your wireless network**
+
+1. Open the dashboard → **Personas** → describe your goal:
+   > *"Monitor wireless access points for inactive radios, noise floor issues, and channel congestion. Alert me on Telegram."*
+
+2. Forge generates a Persona, spawns a **Wireless Network Monitor** agent, and discovers the right skills from your configured integrations.
+
+3. The agent runs on a schedule. When it finds a problem, it messages you:
+   > *"3 radios inactive on floor 2. Noise floor elevated on channels 6 and 11. Would you like me to run diagnostics?"*
+
+4. You reply **yes**. The agent proceeds, asks for approval before any writes, and posts a summary when done.
+   > *"Diagnostics complete. Reply **dashboard** to create a live view of this data."*
+
+---
+
+## Key capabilities
+
+| Capability | What it means |
+|---|---|
+| **Personas** | Describe a goal → Forge generates a full agent persona and spawns it into production |
+| **Skill Engine** | Agents learn from documentation URLs — no manual tool coding required |
+| **Credential Vault** | AES-256-GCM encryption; agents never see raw secrets; all calls proxied |
+| **Approval Workflows** | Write ops and destructive actions require explicit human sign-off |
+| **Agent Charter** | Per-agent posture: `AUTONOMOUS` / `SUPERVISED` / `INTERACTIVE` / `DELIBERATE` |
+| **Skill Registry** | Version, test, publish, and share skills across Forge instances |
+| **Coordinator** | Natural language routing across your entire agent pool via a single chat interface |
+| **Domain Intelligence** | Agents get deep context from scraped docs + auto-generated playbooks — no RAG setup |
+| **Dashboards** | Any agent producing data can create a live dashboard on demand |
+
+---
+
+## CLI
 
 ```bash
-bex init       # First-run setup wizard
-bex start      # Start all services (pm2 + Docker infra)
-bex stop       # Stop all services
-bex restart    # Restart all services
-bex status     # Health check all services
-bex logs       # Tail all service logs
-bex logs api   # Tail API gateway logs only
-bex logs worker
-bex logs telegram
-bex logs dashboard
+bex init      # first-run setup
+bex start     # start all services
+bex stop      # stop all services
+bex status    # health check
+bex logs      # tail all logs
+bex logs api  # tail a specific service (api / worker / telegram / dashboard)
 ```
-
-> If `bex` is not in your PATH after install, run `make install` from the repo root or use `npm run bex -- <command>`.
-
----
-┌──────────────────────────────────────────────────────────────────────┐
-│                      Communication Channels                          │
-│            Telegram · Teams · WhatsApp · Dashboard Chat · API        │
-└──────────────────────────┬───────────────────────────────────────────┘
-                           │  HTTP (JWT)
-                  ┌────────▼────────┐
-                  │   API Gateway   │  :4000 — JWT auth, audit log, rate limit
-                  └────────┬────────┘
-                           │  BullMQ / Redis
-          ┌────────────────┼────────────────────┐
-          │                │                    │
- ┌────────▼────────┐  ┌────▼──────┐  ┌──────────▼──────────┐
- │   Coordinator   │  │ Scheduler │  │    Skill Engine     │
- │  AgentMesh      │  │ BullMQ    │  │  Discovery + build  │
- │  intent routing │  │ cron      │  │  Doc link scraping  │
- └────────┬────────┘  └───────────┘  │  Playbook generation│
-          │                          └─────────────────────┘
- ┌────────▼────────┐
- │  Orchestrator   │
- │  LLM execution  │
- │  Domain Intel   │  ← injects entity graphs + playbooks
- │  Skill learning │
- └────────┬────────┘
-          │
-  ┌───────┴──────────────────────────┐
-  │                                  │
-┌─▼──────────────────┐  ┌────────────▼──────────────┐
-│  Credential Vault  │  │    Permission Gateway     │
-│  AES-256-GCM       │  │    Approval workflows     │
-│  HTTP + SSH proxy  │  │    Telegram/Teams/WA      │
-└────────────────────┘  └───────────────────────────┘
-          │
-┌─────────▼──────────┐   ┌───────────────────────────┐
-│  SSH Executor      │   │    Persona Factory        │
-│  ssh2 client       │   │    LLM-driven persona gen │
-│  createSshTool()   │   │    spawn Agent records    │
-└────────────────────┘   └───────────────────────────┘
-          │
-┌─────────▼──────────┐   ┌───────────────────────────┐
-│     PostgreSQL     │   │  Skill Registry  :5050    │
-│  Prisma ORM        │   │  Federated skill sharing  │
-└────────────────────┘   └───────────────────────────┘
-```
-
----
-
-## Key Concepts
-
-### Personas
-Describe a goal in plain English — the LLM generates a structured Persona (system prompt, tone, suggested skills, schedule). Spawn it into a running agent with one click. See [Personas guide](docs/guides/personas.md).
-
-### Domain Intelligence Layer
-When a skill is built from a URL, Forge automatically:
-1. Scrapes the source domain for all linked documentation (API guides, CLI refs, release notes)
-2. Generates 1–3 analysis playbooks for complex multi-step workflows
-3. Stores everything in `DomainKnowledge` and injects it into agent prompts at runtime
-
-This gives every agent deep domain awareness without RAG or manual curation. See [Domain Intelligence](docs/architecture/domain-intelligence.md).
-
-### Skill Registry
-Skills are versioned (`DRAFT → PENDING_REVIEW → PUBLISHED → DEPRECATED`), tested, and published. Any Forge instance can share skills via `SKILL_REGISTRY_URL`.
-
-### Credential Vault
-All credentials are AES-256-GCM encrypted. Agents never see raw secrets — all API calls and SSH sessions are proxied through the vault.
-
-### Approval Workflows
-Write operations, skill publishing, and remediation actions require explicit human approval via your configured channel (Telegram / Teams / WhatsApp) before executing.
-
-### Agent Charter System
-Every agent has an optional `AgentCharter` with a `posture`:
-- **AUTONOMOUS** — acts independently, notifies on completion
-- **SUPERVISED** — approval gates for writes and destructive ops
-- **INTERACTIVE** — confirms before each significant action
-- **DELIBERATE** — analysis only; awaits explicit instruction before each step
-
-### Coordinator
-`POST /coordinator/chat` routes a query to the best-fit agent from the active pool using `AgentMesh` capability matching. See [Coordinator guide](docs/guides/coordinator.md).
-
-### Agent Memory
-Each agent has `instructions.md`, `context.md`, and `memory.md` knowledge files. Memory is written by the agent at runtime (`write_memory` tool), capped at 8000 chars, and injected into every system prompt.
-
-### [NO_CHANGE] Signal
-Scheduled monitoring agents output `[NO_CHANGE]` when nothing has changed. The scheduler skips memory writes and Telegram notifications — preventing alert fatigue.
 
 ---
 
@@ -134,71 +71,54 @@ Scheduled monitoring agents output `[NO_CHANGE]` when nothing has changed. The s
 
 | Service | Port | Description |
 |---|---|---|
-| dashboard | 3000 | Next.js 14 management UI |
-| api-gateway | 4000 | Main REST API (JWT auth) |
-| dashboard-api | 4001 | Admin REST API |
-| skill-registry | 5050 | Federated skill sharing hub |
-| PostgreSQL | 5432 | Primary database (Prisma ORM) |
-| Redis | 6379 | BullMQ job queue |
+| Dashboard | 3000 | Next.js management UI |
+| API Gateway | 4000 | REST API — JWT auth, audit log |
+| Dashboard API | 4001 | Admin REST API |
+| Skill Registry | 5050 | Federated skill sharing |
+| PostgreSQL | 5432 | Primary database |
+| Redis | 6379 | Job queue (BullMQ) |
 
 ---
 
 ## Configuration
 
-**Minimum required:**
+`bex init` and `make setup` auto-generate all secrets. At minimum you need one LLM key:
+
 ```bash
-OPENAI_API_KEY=sk-...        # or ANTHROPIC_API_KEY
-JWT_SECRET=...               # auto-generated by bex init / make setup
-CREDENTIAL_VAULT_KEY=...     # 64 hex chars — auto-generated
-POSTGRES_PASSWORD=...        # auto-generated
-REDIS_PASSWORD=...           # auto-generated
+OPENAI_API_KEY=sk-...       # or ANTHROPIC_API_KEY
 ```
 
-**Notification channels (at least one recommended):**
+To receive notifications and approvals, add at least one channel:
+
 ```bash
-# Telegram
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_APPROVAL_CHAT_ID=...
-
-# Microsoft Teams
-TEAMS_APPROVAL_WEBHOOK_URL=...
-
-# WhatsApp (Twilio)
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
-WHATSAPP_APPROVAL_TO=whatsapp:+1234567890
 ```
 
-See [`.env.example`](.env.example) for the full reference.
+See [`.env.example`](.env.example) for the full list of options.
+
+---
+
+## Documentation
+
+- [Getting Started](docs/guides/getting-started.md)
+- [Personas](docs/guides/personas.md)
+- [Coordinator](docs/guides/coordinator.md)
+- [Domain Intelligence](docs/architecture/domain-intelligence.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [CLI Reference](docs/guides/cli.md)
 
 ---
 
 ## Development
 
 ```bash
-npm install          # install all workspace dependencies
-npm run build        # build all packages (Turborepo)
-npm run dev          # start all services in watch mode
-npm run typecheck    # type-check all packages
-npm run lint         # ESLint across all packages
-npm run test         # run all tests
-make db-studio       # open Prisma Studio
+npm install       # install workspace dependencies
+npm run dev       # start all services in watch mode
+npm run test      # run all tests
+npm run typecheck # type-check all packages
+make db-studio    # open Prisma Studio
 ```
-
----
-
-## Documentation
-
-Full docs are in [`docs/`](docs/README.md):
-
-- [Getting Started](docs/guides/getting-started.md)
-- [Architecture Overview](docs/architecture/overview.md)
-- [Domain Intelligence](docs/architecture/domain-intelligence.md)
-- [Personas](docs/guides/personas.md)
-- [Coordinator](docs/guides/coordinator.md)
-- [CLI Reference](docs/guides/cli.md)
-- [ExtremeCloud IQ Example](docs/examples/extremecloudiq-setup.md)
 
 ---
 
