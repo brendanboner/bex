@@ -1,13 +1,15 @@
 import { Queue, Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import { PrismaClient } from '@prisma/client';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { OrchestratorService } from '@bex/orchestrator';
 import { KnowledgeStore } from '@bex/knowledge-store';
 
 const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
+// Shared file: scheduler writes pending AWAITING_INPUT requestIds; bot reads on next message
+const PENDING_INPUT_FILE = resolve(__dirname, '../../../data/pending-scheduler-input.json');
 const knowledgeStore = new KnowledgeStore(process.env['KNOWLEDGE_BASE_DIR'] ?? './knowledge');
 
 function loadKnownChatIds(): number[] {
@@ -60,8 +62,27 @@ async function postJobActions(
 ): Promise<void> {
   const request = await prisma.agentRequest.findUnique({
     where: { id: requestId },
-    select: { status: true, output: true },
+    select: { status: true, output: true, inputPrompt: true },
   });
+
+  // Handle AWAITING_INPUT: agent is paused waiting for user input
+  if (request?.status === 'AWAITING_INPUT') {
+    const botToken = process.env['TELEGRAM_BOT_TOKEN'];
+    if (botToken) {
+      const chatIds = loadKnownChatIds();
+      const question = request.inputPrompt ?? request.output ?? 'The agent needs your input to continue.';
+      const msg = `📅 *${jobName}* needs your input:\n\n${question}\n\n_(Reply to continue this task)_`;
+      for (const chatId of chatIds) {
+        await sendTelegramMessage(botToken, chatId, msg);
+      }
+      // Write pending input state so the Telegram bot can correlate the next reply
+      try {
+        const pending = chatIds.map((chatId) => ({ chatId, requestId }));
+        writeFileSync(PENDING_INPUT_FILE, JSON.stringify(pending, null, 2));
+      } catch { /* non-fatal */ }
+    }
+    return;
+  }
 
   if (!request?.output || request.status !== 'COMPLETED') return;
 

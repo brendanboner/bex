@@ -11,6 +11,24 @@ import { loadSystemSecrets } from '@bex/credential-vault';
 dotenvConfig({ path: resolve(__dirname, '../../../.env'), override: true });
 
 const CHAT_IDS_FILE = resolve(__dirname, '../../../data/telegram-chat-ids.json');
+// Shared file written by the scheduler when a job is AWAITING_INPUT; read here to correlate replies
+const PENDING_INPUT_FILE = resolve(__dirname, '../../../data/pending-scheduler-input.json');
+
+/** Read pending scheduler AWAITING_INPUT entries and return the requestId for this chatId (if any). */
+function consumePendingSchedulerInput(chatId: number): string | undefined {
+  try {
+    if (!existsSync(PENDING_INPUT_FILE)) return undefined;
+    const entries = JSON.parse(readFileSync(PENDING_INPUT_FILE, 'utf8')) as Array<{ chatId: number; requestId: string }>;
+    const match = entries.find((e) => e.chatId === chatId);
+    if (!match) return undefined;
+    // Remove consumed entry and rewrite file
+    const remaining = entries.filter((e) => e.chatId !== chatId);
+    writeFileSync(PENDING_INPUT_FILE, JSON.stringify(remaining, null, 2));
+    return match.requestId;
+  } catch {
+    return undefined;
+  }
+}
 
 interface SessionData {
   pendingRequestId?: string | undefined;
@@ -455,11 +473,17 @@ bot.on('message:text', async (ctx) => {
   }
 
   // ── AWAITING_INPUT reply: user is answering an agent's question ───────────
+  // Check both session-stored requestId AND scheduler-written pending input file
+  const chatId = ctx.chat?.id ?? 0;
+  const schedulerPendingId = consumePendingSchedulerInput(chatId);
+  if (schedulerPendingId && !ctx.session.pendingInputRequestId) {
+    ctx.session.pendingInputRequestId = schedulerPendingId;
+  }
+
   if (ctx.session.pendingInputRequestId) {
     const replyRequestId = ctx.session.pendingInputRequestId;
     ctx.session.pendingInputRequestId = undefined;
     ctx.session.pendingAgentQuestion = undefined;
-    const chatId = ctx.chat?.id ?? 0;
     try {
       const res = await fetch(`${API_GATEWAY_URL}/requests/${replyRequestId}/reply`, {
         method: 'POST',
