@@ -103,20 +103,21 @@ The `migrate` container runs `prisma migrate deploy` automatically before the AP
 
 ## Configuration
 
-`bex init` and `make setup` auto-generate all secrets. At minimum you need one LLM key:
+Running `curl … | bash` or `bex init` generates all secrets automatically. You only need to supply:
 
+**An LLM key** (at least one):
 ```bash
-OPENAI_API_KEY=sk-...       # or ANTHROPIC_API_KEY
+OPENAI_API_KEY=sk-...
+# or ANTHROPIC_API_KEY, AZURE_OPENAI_API_KEY, OLLAMA_BASE_URL
 ```
 
-To receive notifications and approvals, add at least one channel:
-
+**A notification channel** (recommended — needed for approvals and agent alerts):
 ```bash
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_APPROVAL_CHAT_ID=...
 ```
 
-See [`.env.example`](.env.example) for the full list of options.
+For the full Docker path, see [`.env.docker.example`](.env.docker.example). For the Node hybrid path, see [`.env.example`](.env.example).
 
 ---
 
