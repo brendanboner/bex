@@ -4,18 +4,17 @@
 
 ---
 
-## Get started in under 2 minutes
+## Install
+
+**Requires:** Node.js 20+ and Docker
 
 ```bash
-git clone https://github.com/your-org/bex
-cd bex
-make install   # build all packages + link bex CLI globally
-bex init       # guided setup: LLM key → channel → integrations → launch
+curl -fsSL https://raw.githubusercontent.com/extremenetworks-emu/bex/main/install.sh | bash
 ```
 
-> **Requires:** Node.js 20+, Docker
+The script checks your prerequisites, clones the repo, builds everything, and launches the setup wizard. Dashboard is live at **http://localhost:3000** when done.
 
-`bex init` generates your `.env`, runs database migrations, seeds defaults, and starts everything. Dashboard is live at **http://localhost:3000**.
+> **Deploying to a server?** Skip down to [Server / VPS (full Docker)](#server--vps-full-docker).
 
 ---
 
@@ -64,6 +63,28 @@ bex status    # health check
 bex logs      # tail all logs
 bex logs api  # tail a specific service (api / worker / telegram / dashboard)
 ```
+
+---
+
+## Server / VPS (full Docker)
+
+No Node.js required on the host — everything runs in containers.
+
+```bash
+git clone https://github.com/extremenetworks-emu/bex.git
+cd bex
+cp .env.docker.example .env
+# edit .env — set OPENAI_API_KEY and your channel tokens
+docker compose up -d
+```
+
+With Telegram:
+
+```bash
+docker compose --profile telegram up -d
+```
+
+The `migrate` container runs `prisma migrate deploy` automatically before the API starts — no manual migration step.
 
 ---
 

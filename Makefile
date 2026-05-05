@@ -67,7 +67,11 @@ db-reset: ## Reset database — WARNING: destroys all data
 ##@ Cleanup
 
 clean: ## Stop services and remove Docker data volumes
-	docker compose -f infra/docker-compose.yml down -v
+	docker compose -f docker-compose.infra.yml down -v
+	@echo "🗑️  All Docker volumes removed."
+
+clean-all: ## Stop ALL services (full Docker mode) and remove volumes
+	docker compose down -v
 	@echo "🗑️  All Docker volumes removed."
 
 ##@ Help

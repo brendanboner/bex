@@ -1,0 +1,247 @@
+# docker-compose.yml — full Docker deployment
+#
+# All Forge services + infrastructure in containers.
+# Intended for server / VPS deployments where Node is not installed on the host.
+#
+# Quick start:
+#   cp .env.example .env
+#   # edit .env — set OPENAI_API_KEY (or ANTHROPIC_API_KEY), and your channel tokens
+#   docker compose up -d
+#
+# With Telegram bot:
+#   docker compose --profile telegram up -d
+#
+# With Teams bot:
+#   docker compose --profile teams up -d
+
+services:
+  # ── Infrastructure ─────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bex}
+      POSTGRES_USER: ${POSTGRES_USER:-bex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bex}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Database migration (runs once on startup, exits) ───────────────────────
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/api-gateway/Dockerfile
+    command: >
+      sh -c "npx prisma migrate deploy --schema packages/shared/prisma/schema.prisma"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bex}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Application services ───────────────────────────────────────────────────
+
+  skill-registry:
+    build:
+      context: .
+      dockerfile: packages/skill-registry/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "5050"
+      DATA_DIR: /data
+      REGISTRY_AUTH_TOKEN: ${SKILL_REGISTRY_TOKEN:-}
+    volumes:
+      - skill_registry_data:/data
+    ports:
+      - "5050:5050"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5050/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: packages/api-gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bex}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY:?CREDENTIAL_VAULT_KEY is required}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "4000"
+      SKILL_REGISTRY_URL: http://skill-registry:5050
+      SKILL_REGISTRY_TOKEN: ${SKILL_REGISTRY_TOKEN:-}
+      KNOWLEDGE_DIR: /knowledge
+    ports:
+      - "4000:4000"
+    volumes:
+      - knowledge_data:/knowledge
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      skill-registry:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: packages/scheduler/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bex}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      TELEGRAM_APPROVAL_CHAT_ID: ${TELEGRAM_APPROVAL_CHAT_ID:-}
+      TEAMS_APPROVAL_WEBHOOK_URL: ${TEAMS_APPROVAL_WEBHOOK_URL:-}
+      PERMISSION_GATEWAY_CALLBACK_URL: ${PERMISSION_GATEWAY_CALLBACK_URL:-http://api-gateway:4000}
+      DEFAULT_APPROVAL_CHANNEL: ${DEFAULT_APPROVAL_CHANNEL:-telegram}
+      SKILL_REGISTRY_URL: http://skill-registry:5050
+      SKILL_REGISTRY_TOKEN: ${SKILL_REGISTRY_TOKEN:-}
+      KNOWLEDGE_DIR: /knowledge
+      SCHEDULER_CONCURRENCY: ${SCHEDULER_CONCURRENCY:-5}
+    volumes:
+      - knowledge_data:/knowledge
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: packages/dashboard-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bex}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT: "4001"
+    ports:
+      - "4001:4001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    build:
+      context: apps/dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_ADMIN_API_URL: ${NEXT_PUBLIC_ADMIN_API_URL:-http://localhost:4001}
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      dashboard-api:
+        condition: service_started
+
+  # ── Optional integration channels (use --profile) ─────────────────────────
+
+  telegram-bot:
+    build:
+      context: integrations/telegram
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TELEGRAM_DEFAULT_AGENT_ID: ${TELEGRAM_DEFAULT_AGENT_ID:-}
+      BEX_BOT_API_KEY: ${BEX_BOT_API_KEY:-}
+      API_GATEWAY_URL: http://api-gateway:4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bex}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      CREDENTIAL_VAULT_KEY: ${CREDENTIAL_VAULT_KEY}
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    profiles:
+      - telegram
+
+  teams-bot:
+    build:
+      context: integrations/teams
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TEAMS_BOT_ID: ${TEAMS_BOT_ID:-}
+      TEAMS_BOT_PASSWORD: ${TEAMS_BOT_PASSWORD:-}
+      TEAMS_DEFAULT_AGENT_ID: ${TEAMS_DEFAULT_AGENT_ID:-}
+      BEX_BOT_API_KEY: ${BEX_BOT_API_KEY:-}
+      API_GATEWAY_URL: http://api-gateway:4000
+    ports:
+      - "3978:3978"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    profiles:
+      - teams
+
+  whatsapp-bot:
+    build:
+      context: integrations/whatsapp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_WHATSAPP_FROM: ${TWILIO_WHATSAPP_FROM:-}
+      WHATSAPP_APPROVAL_TO: ${WHATSAPP_APPROVAL_TO:-}
+      BEX_API_URL: http://api-gateway:4000
+    ports:
+      - "3980:3980"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    profiles:
+      - whatsapp
+
+volumes:
+  postgres_data:
+  redis_data:
+  skill_registry_data:
+  knowledge_data:

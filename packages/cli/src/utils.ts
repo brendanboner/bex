@@ -14,16 +14,20 @@ export interface ServiceDef {
   env: (rootEnv: Record<string, string>, root: string) => Record<string, string>;
 }
 
-// Walk up from current working directory to find project root (contains infra/docker-compose.yml)
+// Walk up from current working directory to find project root (contains docker-compose.infra.yml)
 export function findProjectRoot(): string {
   let dir = process.cwd();
   for (let i = 0; i < 10; i++) {
-    if (existsSync(resolve(dir, 'infra', 'docker-compose.yml'))) return dir;
+    if (
+      existsSync(resolve(dir, 'docker-compose.infra.yml')) ||
+      // legacy fallback — still works if running from an older checkout
+      existsSync(resolve(dir, 'infra', 'docker-compose.yml'))
+    ) return dir;
     const parent = resolve(dir, '..');
     if (parent === dir) break;
     dir = parent;
   }
-  throw new Error('Could not find project root (no infra/docker-compose.yml found)');
+  throw new Error('Could not find project root (no docker-compose.infra.yml found)');
 }
 
 export function getEnvPath(): string {
@@ -69,7 +73,7 @@ export function isDockerRunning(): boolean {
 }
 
 export function composeCommand(args: string[], projectRoot: string): ReturnType<typeof spawnSync> {
-  const composePath = resolve(projectRoot, 'infra', 'docker-compose.yml');
+  const composePath = resolve(projectRoot, 'docker-compose.infra.yml');
   const envFilePath = resolve(projectRoot, '.env');
   return spawnSync('docker', ['compose', '-f', composePath, '--env-file', envFilePath, ...args], {
     stdio: 'inherit',
@@ -179,7 +183,7 @@ export function getServiceDefs(_root: string, _env: Record<string, string>): nev
 
 export function ensureInfraRunning(root: string): void {
   if (!isDockerRunning()) return;
-  const composePath = resolve(root, 'infra', 'docker-compose.yml');
+  const composePath = resolve(root, 'docker-compose.infra.yml');
   const envFilePath = resolve(root, '.env');
   // Only start postgres+redis, not app services
   const result = spawnSync(
@@ -202,7 +206,7 @@ export async function waitForPostgres(
   dbUser = 'bex',
   timeoutMs = 60_000,
 ): Promise<boolean> {
-  const composePath = resolve(root, 'infra', 'docker-compose.yml');
+  const composePath = resolve(root, 'docker-compose.infra.yml');
   const envFilePath = resolve(root, '.env');
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
