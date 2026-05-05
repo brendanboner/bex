@@ -29,6 +29,7 @@ const SESSION_STORAGE_KEY = 'nexus_coordinator_session_id';
 const SUGGESTIONS = [
   'Give me a health summary of everything',
   'Show any active alarms',
+  '@xco Show the fabric topology as a Mermaid diagram and list all switches in a table with hostname, management IP, fabric, role, and app state.',
   'How many clients are connected?',
   'What skills are available?',
 ];
