@@ -9,6 +9,37 @@ import { parseMarkdown, parseOpenApi, parsePdf, discoverLinkedDocs } from './kno
 import type { ParsedKnowledge, DocRef } from './knowledge-parser.js';
 import { buildModel } from './model.js';
 
+/**
+ * Validates a URL provided as a skill knowledge source.
+ * Allows only http/https and blocks well-known SSRF targets (loopback, cloud metadata).
+ */
+function validateFetchUrl(rawUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid URL: ${rawUrl}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Disallowed URL scheme "${parsed.protocol}" — only http and https are permitted`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  // Block loopback and cloud metadata endpoints
+  const blocked = [
+    /^localhost$/,
+    /^127\./,
+    /^::1$/,
+    /^0\.0\.0\.0$/,
+    /^169\.254\./,     // link-local / cloud metadata
+    /^10\.\d+\.\d+\.\d+$/,        // RFC-1918
+    /^172\.(1[6-9]|2\d|3[01])\./,  // RFC-1918
+    /^192\.168\./,                 // RFC-1918
+  ];
+  if (blocked.some((re) => re.test(host))) {
+    throw new Error(`URL target "${host}" is not permitted for remote skill sources`);
+  }
+}
+
 const BUILDER_SYSTEM_PROMPT = `You are a skill architect for an enterprise agentic platform.
 Given a description of a capability and relevant knowledge sources (API docs, PDFs, etc.),
 generate a comprehensive skill definition.
@@ -206,6 +237,7 @@ export class SkillBuilderService {
       switch (source.type) {
         case 'openapi_url': {
           if (!source.url) throw new Error(`Source "${source.label}" requires a url`);
+          validateFetchUrl(source.url);
           const res = await fetch(source.url);
           if (!res.ok)
             throw new Error(`Failed to fetch OpenAPI from ${source.url}: ${res.statusText}`);
@@ -215,6 +247,7 @@ export class SkillBuilderService {
         }
         case 'pdf_url': {
           if (!source.url) throw new Error(`Source "${source.label}" requires a url`);
+          validateFetchUrl(source.url);
           const res = await fetch(source.url);
           if (!res.ok)
             throw new Error(`Failed to fetch PDF from ${source.url}: ${res.statusText}`);
@@ -224,6 +257,7 @@ export class SkillBuilderService {
         }
         case 'markdown_url': {
           if (!source.url) throw new Error(`Source "${source.label}" requires a url`);
+          validateFetchUrl(source.url);
           const res = await fetch(source.url);
           if (!res.ok)
             throw new Error(`Failed to fetch Markdown from ${source.url}: ${res.statusText}`);

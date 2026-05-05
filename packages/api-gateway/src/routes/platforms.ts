@@ -119,9 +119,9 @@ export async function platformRoutes(app: FastifyInstance, prisma: PrismaClient)
         const { CredentialVaultService } = await import('@bex/credential-vault');
         const vault = new CredentialVaultService(prisma);
         await provision(prisma, vault);
-        console.info(`[platforms] Manual provision triggered for ${id}`);
+        console.info('[platforms] Manual provision triggered for platform', id);
       } catch (e) {
-        console.warn(`[platforms] Provision failed for ${id}:`, (e as Error).message);
+        console.warn('[platforms] Provision failed for platform', id, '-', (e as Error).message);
       }
     })();
 

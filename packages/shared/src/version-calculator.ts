@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 /**
@@ -26,8 +26,11 @@ const CACHE_TTL_MS = 30000; // 30 seconds
  */
 function getLastCommitDate(packagePath: string): Date | null {
   try {
-    const cmd = `git log -1 --format=%aI -- "${packagePath}"`;
-    const output = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    const result = spawnSync('git', ['log', '-1', '--format=%aI', '--', packagePath], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    const output = result.stdout?.trim();
     if (!output) return null;
     return new Date(output);
   } catch {
@@ -41,9 +44,12 @@ function getLastCommitDate(packagePath: string): Date | null {
 function countCommitsUntilDate(packagePath: string, targetDate: Date): number {
   try {
     const dateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    const cmd = `git rev-list --count --until="${dateStr}T23:59:59Z" HEAD -- "${packagePath}"`;
-    const output = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
-    return parseInt(output, 10) || 0;
+    const result = spawnSync(
+      'git',
+      ['rev-list', '--count', `--until=${dateStr}T23:59:59Z`, 'HEAD', '--', packagePath],
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] },
+    );
+    return parseInt(result.stdout?.trim() ?? '0', 10) || 0;
   } catch {
     return 0;
   }
@@ -96,7 +102,12 @@ function calculateVersion(packagePath: string): VersionInfo | null {
  */
 function getGitRoot(): string {
   try {
-    const root = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    const root = result.stdout?.trim();
+    if (!root) throw new Error('Not in a git repository');
     return root;
   } catch {
     throw new Error('Not in a git repository');

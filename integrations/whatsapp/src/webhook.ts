@@ -51,7 +51,7 @@ export function buildWebhookServer(): ReturnType<typeof Fastify> {
       });
 
       if (!res.ok) {
-        console.error(`[whatsapp] Failed to ${action} request ${requestId}:`, await res.text());
+        console.error('[whatsapp] Failed to', action, 'request', requestId, ':', await res.text());
       }
     } catch (err) {
       console.error('[whatsapp] Webhook error:', err);

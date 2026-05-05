@@ -36,6 +36,7 @@ async function buildTestApp() {
   await app.register(jwt, { secret: 'test-secret' });
 
   // Add auth hook
+  // lgtm[js/missing-rate-limiting] — test-only app; rate limiting is not required in unit tests
   app.addHook('onRequest', async (req) => {
     await req.jwtVerify();
   });

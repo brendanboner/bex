@@ -239,7 +239,7 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
   // POST /registry/install/:domain/:version — pull a skill from the remote registry and install locally
   app.post<{ Params: { domain: string; version: string } }>(
     '/registry/install/:domain/:version',
-    { preHandler: [app.requireSystemUser] },
+    { preHandler: [app.requireSystemUser], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request, reply) => {
       try {
         const manifest = await client.fetch(request.params.domain, request.params.version);
@@ -305,7 +305,7 @@ export async function registryRoutes(app: FastifyInstance, prisma: PrismaClient)
   // POST /registry/pull — pull a skill from the remote registry by domain+version in body
   app.post<{ Body: { domain?: string; version?: string } }>(
     '/registry/pull',
-    { preHandler: [app.requireSystemUser] },
+    { preHandler: [app.requireSystemUser], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const { domain, version } = request.body ?? {};
 

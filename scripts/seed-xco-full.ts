@@ -258,7 +258,7 @@ const TELEMETRY_TOOLS = [
 
 async function main() {
   await prisma.$connect();
-  log(`XCO Seed — host: ${XCO_HOST || '(none — set XCO_HOST)'} | user: ${XCO_USERNAME}`);
+  log(`XCO Seed — host: ${XCO_HOST || '(none — set XCO_HOST)'}`);
 
   // ── 1. System user ─────────────────────────────────────────────────────────
   const systemUser = await prisma.user.findFirst({ where: { isSystemUser: true } });

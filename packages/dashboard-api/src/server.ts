@@ -30,7 +30,10 @@ export async function buildDashboardApi() {
     origin: allowedOrigins.length === 1 ? allowedOrigins[0]! : allowedOrigins,
     credentials: true,
   });
-  await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
+  await app.register(rateLimit, {
+    max: Number(process.env['DASHBOARD_RATE_LIMIT_MAX'] ?? process.env['RATE_LIMIT_MAX'] ?? '200'),
+    timeWindow: '1 minute',
+  });
   await app.register(sensible);
   await app.register(jwt, { secret: process.env['JWT_SECRET'] ?? 'change-me' });
 

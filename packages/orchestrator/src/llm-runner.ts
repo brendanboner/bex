@@ -264,9 +264,12 @@ export function buildTools(
             return `${k}=${encodeURIComponent(String(v))}`;
           };
 
+          // Guard against ReDoS: URL templates should never be excessively long
+          if (urlTemplate.length > 4096) return { error: 'URL template exceeds maximum allowed length' };
+
           let rawUrl = urlTemplate
-            // Query string params: [?&]key={param}
-            .replace(/([?&])([^=]+)=\{(\w+)\}/g, (full, sep, k, argKey) => {
+            // Query string params: [?&]key={param} — use \w+ for key names to avoid backtracking
+            .replace(/([?&])(\w+)=\{(\w+)\}/g, (full, sep, k, argKey) => {
               const v = args[argKey];
               if (v == null || v === '') return '';
               return `${sep}${expandValue(k, v)}`;
@@ -276,8 +279,9 @@ export function buildTools(
 
           // Normalize: if ? was stripped but & params remain, promote the first & to ?
           // e.g. "https://api.example.com/devices&limit=100" → "...devices?limit=100"
+          // Use regex replacement to make single-occurrence intent explicit.
           if (!rawUrl.includes('?') && rawUrl.includes('&')) {
-            rawUrl = rawUrl.replace('&', '?');
+            rawUrl = rawUrl.replace(/^([^&]*)&/, '$1?');
           }
           // Clean up any double ? or dangling & at end
           const url = rawUrl.replace(/[?&]+$/, '').replace(/\?&/g, '?').replace(/&&+/g, '&');
@@ -333,6 +337,8 @@ export function buildTools(
 
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
           if (!urlTemplate) return { error: 'No URL template configured for xco_http_call tool' };
+          // Guard against ReDoS: URL templates should never be excessively long
+          if (urlTemplate.length > 4096) return { error: 'URL template exceeds maximum allowed length' };
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
 
           // Resolve credential early so we can extract `host` for {xco-host} template substitution.
@@ -340,9 +346,9 @@ export function buildTools(
           const credsForHost = await vault.resolve(effectiveCredId, agentPermissions);
           const credHost = String(credsForHost['host'] ?? credsForHost['xco_host'] ?? credsForHost['xco-host'] ?? '');
 
-          // Replace {param} placeholders — support both word-chars and hyphenated names (e.g. {fabric-name}).
+          // Replace {param} placeholders — hyphenated names like {fabric-name} use [-\w]+ (bounded).
           // {xco-host} is resolved from the credential vault first, falling back to LLM-supplied arg.
-          const url = urlTemplate.replace(/\{([^}]+)\}/g, (full, k: string) => {
+          const url = urlTemplate.replace(/\{([-\w]+)\}/g, (full, k: string) => {
             const isXcoHost = k === 'xco-host' || k === 'xco_host';
             const val = isXcoHost
               ? (credHost || (args[k] ?? args[k.replace(/-/g, '_')] ?? args[k.replace(/_/g, '-')]))
@@ -454,13 +460,16 @@ export function buildTools(
         if (handlerType === 'public_http_call') {
           const urlTemplate = (config['urlTemplate'] as string | undefined) ?? skillTool.endpoint ?? '';
           if (!urlTemplate) return { error: 'No URL template configured for this tool' };
+          // Guard against ReDoS: URL templates should never be excessively long
+          if (urlTemplate.length > 4096) return { error: 'URL template exceeds maximum allowed length' };
           const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
-          // Replace {param} placeholders in URL template
-          let publicRawUrl = urlTemplate.replace(/([?&][^=]+=)\{(\w+)\}/g, (full, prefix, k) => {
+          // Replace {param} placeholders in URL template — use \w+ to avoid backtracking on key names
+          let publicRawUrl = urlTemplate.replace(/([?&]\w+=)\{(\w+)\}/g, (full, prefix, k) => {
             const v = args[k];
             return v != null && v !== '' ? `${prefix}${encodeURIComponent(String(v))}` : '';
           }).replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
-          if (!publicRawUrl.includes('?') && publicRawUrl.includes('&')) publicRawUrl = publicRawUrl.replace('&', '?');
+          // Use regex replacement to make single-occurrence intent explicit
+          if (!publicRawUrl.includes('?') && publicRawUrl.includes('&')) publicRawUrl = publicRawUrl.replace(/^([^&]*)&/, '$1?');
           const url = publicRawUrl.replace(/[?&]+$/, '').replace(/\?&/g, '?').replace(/&&+/g, '&');
 
           // Quick reachability check

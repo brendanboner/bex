@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 
 export interface KnowledgeTopic {
   domain: string;
@@ -19,8 +19,28 @@ export interface KnowledgeEntry {
 export class KnowledgeStore {
   constructor(private baseDir: string) {}
 
+  /** Validates a path segment (domain or topic) to prevent path traversal. */
+  private sanitizeName(name: string): string {
+    // Allow alphanumeric, hyphens, underscores, dots, and forward slashes for sub-domains.
+    // Reject empty segments, leading slashes, and traversal sequences.
+    if (!name || name.startsWith('/') || name.includes('..') || !/^[a-zA-Z0-9_\-./]+$/.test(name)) {
+      throw Object.assign(new Error(`Invalid knowledge path segment: "${name}"`), { code: 'INVALID_PATH' });
+    }
+    return name;
+  }
+
+  /** Asserts that a resolved file path is within baseDir. */
+  private assertWithinBase(filePath: string): void {
+    const abs = resolve(filePath);
+    const base = resolve(this.baseDir);
+    if (!abs.startsWith(base + '/') && abs !== base) {
+      throw Object.assign(new Error('Path traversal detected'), { code: 'PATH_TRAVERSAL' });
+    }
+  }
+
   async read(domain: string, topic: string): Promise<KnowledgeEntry | null> {
-    const filePath = join(this.baseDir, domain, `${topic}.md`);
+    const filePath = join(this.baseDir, this.sanitizeName(domain), `${this.sanitizeName(topic)}.md`);
+    this.assertWithinBase(filePath);
     try {
       const [content, stat] = await Promise.all([
         fs.readFile(filePath, 'utf-8'),
@@ -34,7 +54,8 @@ export class KnowledgeStore {
   }
 
   async write(domain: string, topic: string, content: string): Promise<KnowledgeEntry> {
-    const filePath = join(this.baseDir, domain, `${topic}.md`);
+    const filePath = join(this.baseDir, this.sanitizeName(domain), `${this.sanitizeName(topic)}.md`);
+    this.assertWithinBase(filePath);
     await fs.mkdir(dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, content, 'utf-8');
     const stat = await fs.stat(filePath);
@@ -42,7 +63,8 @@ export class KnowledgeStore {
   }
 
   async delete(domain: string, topic: string): Promise<void> {
-    const filePath = join(this.baseDir, domain, `${topic}.md`);
+    const filePath = join(this.baseDir, this.sanitizeName(domain), `${this.sanitizeName(topic)}.md`);
+    this.assertWithinBase(filePath);
     try {
       await fs.unlink(filePath);
     } catch (err: unknown) {
@@ -96,7 +118,7 @@ export class KnowledgeStore {
   }
 
   private async _listDomain(domain: string): Promise<KnowledgeTopic[]> {
-    const domainDir = join(this.baseDir, domain);
+    const domainDir = join(this.baseDir, this.sanitizeName(domain));
     let files: string[];
     try {
       files = await fs.readdir(domainDir);

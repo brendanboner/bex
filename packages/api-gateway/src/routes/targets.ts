@@ -72,8 +72,10 @@ export async function targetRoutes(
     return reply.status(204).send();
   });
 
-  // POST /targets/:id/verify-ssh — Test SSH connectivity
-  app.post<{ Params: { id: string } }>('/targets/:id/verify-ssh', async (request, reply) => {
+  // POST /targets/:id/verify-ssh — Test SSH connectivity (tighter rate limit: SSH is expensive)
+  app.post<{ Params: { id: string } }>('/targets/:id/verify-ssh', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
     const existing = await prisma.target.findUnique({ where: { id: request.params.id } });
     if (!existing) return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Target not found'));
 

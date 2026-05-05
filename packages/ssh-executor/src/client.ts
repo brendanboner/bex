@@ -21,6 +21,9 @@ const DEFAULT_MAX_BUFFER = 1_048_576; // 1 MB
  * Executes a single command on a remote host over SSH.
  * Credentials are passed in directly — the caller is responsible for
  * resolving them from the credential vault.
+ *
+ * Security: `command` is sent verbatim to the remote SSH server and executed
+ * by the device's shell/CLI. Only system-user-gated callers should invoke this.
  */
 export function sshExec(
   host: string,
@@ -29,6 +32,16 @@ export function sshExec(
   command: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<SshExecResult> {
+  // Reject commands containing null bytes (common injection vector)
+  if (command.includes('\0')) {
+    return Promise.reject(new Error('SSH command must not contain null bytes'));
+  }
+  // Trim whitespace to avoid accidental leading/trailing control characters
+  const sanitizedCommand = command.trim();
+  if (!sanitizedCommand) {
+    return Promise.reject(new Error('SSH command must not be empty'));
+  }
+
   return new Promise((resolve, reject) => {
     const client = new SshClient();
     let stdout = '';
@@ -76,7 +89,7 @@ export function sshExec(
     }
 
     client.on('ready', () => {
-      client.exec(command, (err, stream) => {
+      client.exec(sanitizedCommand, (err, stream) => {
         if (err) return done(err);
 
         let stdoutLen = 0;

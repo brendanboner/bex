@@ -116,7 +116,14 @@ async function addLlmConfig(): Promise<void> {
   } else if (provider === 'azure-openai') {
     endpoint = await input({
       message: 'Azure endpoint URL (e.g. https://my-resource.openai.azure.com/):',
-      validate: (v: string) => (v.startsWith('https://') && v.includes('.openai.azure.com')) || 'Enter a valid Azure endpoint',
+      validate: (v: string) => {
+      try {
+        const u = new URL(v);
+        return (u.protocol === 'https:' && u.hostname.endsWith('.openai.azure.com')) || 'Enter a valid Azure endpoint';
+      } catch {
+        return 'Enter a valid Azure endpoint';
+      }
+    },
     });
     apiVersion = await input({
       message: 'API version:',

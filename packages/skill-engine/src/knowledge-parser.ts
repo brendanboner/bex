@@ -211,15 +211,14 @@ export async function discoverLinkedDocs(sourceUrl: string): Promise<DocRef[]> {
       const rawUrl = match[1]!.trim();
       const linkText = match[2]!.replace(/\s+/g, ' ').trim();
 
-      // Skip anchors, mailto, javascript
-      if (!rawUrl || rawUrl.startsWith('#') || rawUrl.startsWith('mailto:') || rawUrl.startsWith('javascript:')) continue;
-
       let resolved: URL;
       try {
         resolved = new URL(rawUrl, base);
       } catch {
         continue;
       }
+      // Allowlist: only follow http/https links (blocks javascript:, data:, file:, etc.)
+      if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') continue;
 
       // Only same host
       if (resolved.hostname !== base.hostname) continue;
