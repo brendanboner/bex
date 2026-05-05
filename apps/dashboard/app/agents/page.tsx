@@ -116,7 +116,7 @@ export default function AgentsPage() {
 
   const { data: agentMemory } = useQuery({
     queryKey: ['agent-memory', viewingMemoryFor],
-    queryFn: () => api.get<{ memory: string | null; updatedAt: string | null }>(`/agents/${viewingMemoryFor}/workspace/memory`),
+    queryFn: () => api.get<{ content: string; updatedAt: string | Date }>(`/agents/${viewingMemoryFor}/workspace/memory`),
     enabled: !!viewingMemoryFor,
   });
 
@@ -357,12 +357,12 @@ export default function AgentsPage() {
                               <span className="text-xs text-muted-foreground">last updated {formatDate(agentMemory.updatedAt)}</span>
                             )}
                           </div>
-                          {agentMemory?.memory === null && (
+                          {!agentMemory?.content && (
                             <p className="text-xs text-muted-foreground italic">No memory stored yet. The agent writes memory during runs when it learns something worth remembering.</p>
                           )}
                           <Textarea
                             className="font-mono text-xs min-h-[160px] bg-background"
-                            value={memoryDraft || agentMemory?.memory || ''}
+                            value={memoryDraft || agentMemory?.content || ''}
                             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMemoryDraft(e.target.value)}
                             placeholder="Memory content will appear here after the agent runs..."
                           />
@@ -371,7 +371,7 @@ export default function AgentsPage() {
                               size="sm"
                               className="h-7 text-xs"
                               disabled={saveMemoryMutation.isPending}
-                              onClick={() => saveMemoryMutation.mutate({ agentId: a.id, content: memoryDraft || agentMemory?.memory || '' })}
+                              onClick={() => saveMemoryMutation.mutate({ agentId: a.id, content: memoryDraft || agentMemory?.content || '' })}
                             >
                               Save Memory
                             </Button>
