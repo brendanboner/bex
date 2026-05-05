@@ -178,6 +178,15 @@ export async function startCommand(args: string[] = []): Promise<void> {
     } else {
       migrateSpinner.succeed('Database up to date');
     }
+
+    // Regenerate Prisma client so compiled code matches the current schema
+    const generateResult = spawnSync(
+      'npx', ['prisma', 'generate', '--schema', resolve(root, 'packages/shared/prisma/schema.prisma')],
+      { cwd: root, env: { ...process.env, ...envVars }, stdio: 'pipe', encoding: 'utf-8' },
+    );
+    if (generateResult.status !== 0) {
+      ora().warn('Prisma client generation had issues — services may have stale types');
+    }
   }
 
   // Ensure dashboard is built before starting
