@@ -1,4 +1,4 @@
-# Forge
+# BEX - Brendan's Exchange Forge
 
 > Autonomous AI agents for your infrastructure — with secure credential management, human-in-the-loop approvals, and real-time notifications via Telegram, Teams, or WhatsApp.
 
