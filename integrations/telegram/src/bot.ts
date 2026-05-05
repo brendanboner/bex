@@ -728,10 +728,29 @@ async function backgroundPoll(chatId: number, requestId: string, sessionRef?: Se
         if (sessionRef && looksLikeQuestion(text)) {
           sessionRef.pendingAgentQuestion = extractQuestion(text);
           // Try to find agent name from cache for context injection
-          const agentId = sessionRef.lastAgentId;
+          const agentId = sessionRef.lastAgentId ?? statusData.data?.agentId;
+          let agentName: string | undefined;
           if (agentId) {
             const cachedAgent = _agentCache.find((a) => a.id === agentId);
-            if (cachedAgent) sessionRef.lastAgentName = cachedAgent.name;
+            if (cachedAgent) {
+              sessionRef.lastAgentName = cachedAgent.name;
+              agentName = cachedAgent.name;
+            }
+          }
+
+          // Inject the agent's output into the coordinator session so the coordinator
+          // has full context when the user sends a follow-up reply (e.g. "yes").
+          if (sessionRef.coordinatorSessionId) {
+            try {
+              await fetch(`${API_GATEWAY_URL}/coordinator/sessions/${sessionRef.coordinatorSessionId}/append`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${BOT_API_KEY}`,
+                },
+                body: JSON.stringify({ role: 'assistant', content: text, agentName }),
+              });
+            } catch { /* non-fatal — context injection is best-effort */ }
           }
         }
 

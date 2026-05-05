@@ -94,4 +94,27 @@ export async function coordinatorRoutes(app: FastifyInstance, prisma: PrismaClie
     }
     return reply.send(ok(session));
   });
+
+  // POST /coordinator/sessions/:id/append — inject an assistant turn into session history
+  // Used by integrations (e.g. Telegram bot) to record agent sub-task outputs so the
+  // coordinator has full context when the user sends a follow-up reply.
+  app.post<{ Params: { id: string }; Body: unknown }>('/coordinator/sessions/:id/append', async (request, reply) => {
+    const session = await sessionManager.get(request.params.id);
+    if (session === null) {
+      return reply.status(404).send(err(ErrorCodes.NOT_FOUND, 'Session not found'));
+    }
+    const body = request.body as { role?: string; content?: string; agentName?: string };
+    const role = (body.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant';
+    const content = typeof body.content === 'string' ? body.content.trim() : '';
+    if (!content) {
+      return reply.status(400).send(err(ErrorCodes.VALIDATION_ERROR, 'content is required'));
+    }
+    const prefix = body.agentName ? `[${body.agentName}]: ` : '';
+    await sessionManager.appendTurn(session.id, {
+      role,
+      content: prefix + content,
+      timestamp: new Date().toISOString(),
+    });
+    return reply.send(ok({ appended: true }));
+  });
 }

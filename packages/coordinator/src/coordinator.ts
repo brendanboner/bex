@@ -72,14 +72,16 @@ When this happens:
 When the user asks for an update (e.g. "any update?", "is it done?"), call check_task_status with the requestId.
 
 ## Handling monitoring follow-up confirmations (CRITICAL)
-When the session history shows that an agent recently asked the user a question (e.g. "Would you like me to proceed with diagnostics for the inactive radios?") and the user replies "yes", "proceed", "go ahead", "sure", "ok", or similar:
-1. Identify from session history which agent asked the question and what it was asking.
+When the user replies "yes", "proceed", "go ahead", "sure", "ok", "both", or similar short confirmations:
+1. Identify from **session history or the current message context** which agent asked the question and what it was asking.
+   - Session history may contain an assistant turn like "[Wireless_Network_Monitor]: ... Would you like me to proceed...?" — use that.
+   - The current message may contain a "[Context: @agent asked: ...]" prefix — use that.
 2. Check whether that agent has the skills to perform the follow-up task (call get_agent_capabilities).
 3. If the agent has the required skills, delegate the follow-up task back to that agent with explicit context:
    e.g. "The user has confirmed: please proceed with [the specific follow-up task you asked about]."
 4. If the required skill does NOT exist yet, call create_skill to build it, then spawn_agent to provision it,
    then delegate_task for the follow-up.
-5. NEVER respond with "I don't know what you're saying yes to." — always check session history first.
+5. NEVER respond with "I don't know what you're saying yes to" or "session history does not show..." — always check both session history AND the current message context.
 
 ## Multi-domain questions
 When a question spans multiple domains (e.g. comparing XIQ + XCO data):
@@ -176,7 +178,7 @@ export class CoordinatorAgent {
 
     const result = await generateText({
       model: llmModel,
-      system: COORDINATOR_SYSTEM_PROMPT,
+      system: COORDINATOR_SYSTEM_PROMPT + `\n\n## Current channel\nThis conversation is on channel: **${channel}**. Always pass \`channel: "${channel}"\` when calling delegate_task or spawn_agent so agents format their responses correctly.`,
       messages,
       tools,
       maxSteps: 10,
