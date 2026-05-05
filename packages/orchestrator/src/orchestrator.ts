@@ -1006,7 +1006,8 @@ You are responding in a web dashboard with markdown rendering. Follow these rule
 - For device lists: use a markdown table.
 - For summaries: lead with a one-line summary, then a table or structured list.
 - You may include detail — the UI can scroll. Aim for completeness over brevity.
-- Never output raw JSON — format all data into markdown tables or lists.`;
+- Never output raw JSON — format all data into markdown tables or lists.
+- **When you need the user's confirmation before running a diagnostic or remediation action, call the \`request_user_input\` tool** instead of asking in your response text. This pauses execution and routes the user's reply back to you.`;
 
     case 'scheduler':
     case 'api':
@@ -1015,6 +1016,7 @@ You are responding in a web dashboard with markdown rendering. Follow these rule
 Format your response in clean markdown suitable for programmatic consumption or display:
 - Use markdown tables for structured data (alarms, devices, clients).
 - Lead with a one-line executive summary.
-- Never output raw JSON — translate API data into readable markdown.`;
+- Never output raw JSON — translate API data into readable markdown.
+- **When you need the user's confirmation before running a diagnostic or remediation action, call the \`request_user_input\` tool** instead of asking in your response text. This pauses execution and routes the user's reply back to you.`;
   }
 }
