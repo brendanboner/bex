@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ok, err, ErrorCodes } from '@bex/shared';
 import { CoordinatorAgent, SessionManager } from '@bex/coordinator';
 import { createAgentQueue, type AgentJobData } from '@bex/scheduler';
+import { resolveAgentAlias } from '../agent-alias.js';
 
 const ChatBodySchema = z.object({
   message: z.string().min(1),
@@ -18,6 +19,22 @@ const PlanBodySchema = z.object({
 
 export async function coordinatorRoutes(app: FastifyInstance, prisma: PrismaClient): Promise<void> {
   const queue = createAgentQueue();
+
+  /** Quick-poll a request until it completes or times out (ms). */
+  async function quickPoll(requestId: string, timeoutMs: number): Promise<string | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const record = await prisma.agentRequest.findUnique({
+        where: { id: requestId },
+        select: { status: true, output: true, errorMsg: true },
+      });
+      if (!record) return null;
+      if (record.status === 'COMPLETED') return record.output ?? '';
+      if (record.status === 'FAILED') return record.errorMsg ?? '(agent reported failure)';
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+    return null; // timed out — caller should surface as PENDING
+  }
 
   const coordinator = new CoordinatorAgent(prisma, {
     knowledgeDir: process.env['KNOWLEDGE_DIR'] ?? './knowledge',
@@ -45,14 +62,71 @@ export async function coordinatorRoutes(app: FastifyInstance, prisma: PrismaClie
     }
 
     const userId = (request.user as { sub: string }).sub;
-    const { message, sessionId, channel } = parsed.data;
+    const { message, sessionId } = parsed.data;
+    const channel = parsed.data.channel ?? 'api';
+
+    // ── @bex prefix: strip it — always goes to coordinator ───────────────────
+    let messageToProcess = /^@bex\s+/i.test(message)
+      ? message.replace(/^@bex\s+/i, '').trim()
+      : message;
+
+    // ── @alias prefix: resolve and route directly to the named agent ──────────
+    // e.g. "@xiq show connected clients" or "@rd what's the weather?"
+    // @bex is excluded — it always goes to the coordinator above.
+    const aliasMatch = messageToProcess === message  // only if @bex wasn't stripped
+      ? message.match(/^@(\S+)\s+([\s\S]+)/i)
+      : null;
+
+    if (aliasMatch) {
+      const alias = aliasMatch[1]!;
+      const agentInput = aliasMatch[2]!.trim();
+      const agentId = await resolveAgentAlias(alias, prisma);
+
+      if (agentId) {
+        try {
+          const systemUser = await prisma.user.findFirst({
+            where: { isSystemUser: true },
+            select: { id: true },
+          });
+          const effectiveUserId = systemUser?.id ?? userId;
+
+          const agentReq = await prisma.agentRequest.create({
+            data: { agentId, userId: effectiveUserId, status: 'QUEUED', input: agentInput, channel },
+            select: { id: true },
+          });
+
+          const jobData: AgentJobData = {
+            requestId: agentReq.id,
+            agentId,
+            userId: effectiveUserId,
+            input: agentInput,
+            channel: channel as AgentJobData['channel'],
+          };
+          await queue.add(agentReq.id, jobData);
+
+          const output = await quickPoll(agentReq.id, 30_000);
+          if (output !== null) {
+            return reply.send(ok({ sessionId: sessionId ?? agentReq.id, output }));
+          }
+          return reply.send(ok({
+            sessionId: sessionId ?? agentReq.id,
+            output: '⏳ On it — the result will appear shortly.',
+            pendingRequestIds: [agentReq.id],
+          }));
+        } catch (e) {
+          return reply.status(500).send(err(ErrorCodes.INTERNAL, (e as Error).message));
+        }
+      }
+      // Unknown alias — fall through to coordinator so it can try to route
+      messageToProcess = message;
+    }
 
     try {
       const result = await coordinator.chat(
         sessionId ?? null,
         userId,
-        message,
-        channel ?? 'api',
+        messageToProcess,
+        channel,
       );
       return reply.send(ok(result));
     } catch (e) {

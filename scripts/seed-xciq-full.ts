@@ -460,6 +460,22 @@ WRITE ops (${writeCount}): ${writeCount > 0 ? 'Always describe the change and ge
         required: [] as string[],
       },
     },
+    {
+      name: 'xiq_wireless_performance',
+      description: 'Wireless performance across ALL locations — automatically enumerates every building and returns performance, quality index, and time-to-connect metrics per building. ALWAYS use this instead of get_wireless_performance, get_wireless_quality_index, get_wireless_connectivity_experience, get_wireless_views, get_wireless_time_to_connect, get_wireless_events, or get_wireless_apps — those tools all fail with 400 BAD_REQUEST due to an unresolvable viewType enum in the XIQ API.',
+      handlerType: 'xiq_wireless_performance_all_locations',
+      config: { loginUrl: XCIQ_LOGIN_URL, isWrite: false, operationId: 'xiq_wireless_performance' },
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          startTime: { type: 'number', description: 'Start of time window in epoch milliseconds (default: 24 hours ago)' },
+          endTime:   { type: 'number', description: 'End of time window in epoch milliseconds (default: now)' },
+          ssid:      { type: 'string', description: 'Optional: filter results to a specific SSID name' },
+          osType:    { type: 'string', description: 'Optional: filter by client OS type (e.g. "Mac OS X", "Android")' },
+        },
+        required: [] as string[],
+      },
+    },
   ];
 
   const compositeDomain = 'extremecloudiq.composite';
@@ -483,6 +499,7 @@ ALWAYS prefer composite tools over raw API calls when they cover the query:
 - Device health score → xiq_device_health (same — resolves locationName to ID automatically)
 - Radio quality for a named client device → xiq_client_radio_quality (e.g. "fridge", "iPad")
 - Connection/roaming history for a named client → xiq_client_connection_history (e.g. "history of the iPad")
+- Wireless performance, quality, time-to-connect across all sites → xiq_wireless_performance (auto-enumerates all buildings; NEVER use the raw viewType endpoints)
 
 These tools handle all required API chaining automatically.
 
@@ -532,8 +549,10 @@ OUTPUT FORMAT FOR DIAGRAMS: When either sankey tool returns a result, the "sanke
         'VLAN resolution requires chain: GET /network-policies → GET /network-policies/{id}/ssids → GET /user-profiles/{up_id} → GET /network/vlan-profiles. Use xiq_topology_report to get full SSID→VLAN mapping. Do NOT guess VLAN IDs.',
       'extremecloudiq.composite':
         'NEVER guess locationId. Use xiq_network_health or xiq_device_health — they auto-resolve locationName to a real integer ID by searching the XIQ locations API. Use xiq_radio_quality_by_ap for radio/signal/SNR for APs. Use xiq_client_radio_quality for radio quality of a specific named client (e.g. "fridge", "iPad"). Use xiq_client_connection_history for connection/roaming history of a named client. Use xiq_clients_by_vendor for vendor filtering. Use xiq_topology_report for SSID/VLAN correlation. Use xiq_client_snapshot for single device troubleshooting. Use xiq_ap_client_sankey for ANY Sankey where AP is the root (APs, SSIDs, device makers, device types). Use xiq_policy_sankey for ANY Sankey where Network Policy is the root (policy → AP → SSID → maker → IP). Never use xiq_ap_client_sankey for policy-first requests.',
+      'extremecloudiq.alerts.logs':
+        'NEVER pass sortField or order to list_alerts — the sortField parameter maps to a Java enum (XiqAlertSortField) that rejects every string value and returns 400 BAD_REQUEST. Always call list_alerts WITHOUT sortField and order. The API returns unsorted results by default, which is fine. Other parameters (severityIds, categoryIds, startTime, endTime, keyword, buildingId, siteId) work correctly.',
       'extremecloudiq.monitoring':
-        'NEVER guess locationId. The correct pattern is: 1) Check if agent facts contain default_xiq_location. 2) ALWAYS use the xiq_network_health or xiq_device_health composite tools — they resolve location names to IDs automatically. 3) If no location is known, call get_location_tree to discover valid location IDs. NEVER pass locationId: 1, locationId: 0, or any guessed ID.',
+        'CRITICAL: NEVER use get_wireless_performance, get_wireless_quality_index, get_wireless_connectivity_experience, get_wireless_views, get_wireless_time_to_connect, get_wireless_events, or get_wireless_apps — ALL of these fail with 400 BAD_REQUEST because the XIQ API rejects every string value for the required viewType enum (XiqConnectivityExperienceViewType). ALWAYS use the composite xiq_wireless_performance tool instead — it bypasses viewType entirely by enumerating all buildings and calling the working /locations/* endpoints. Additionally: NEVER guess locationId. The correct pattern is: 1) Check if agent facts contain default_xiq_location. 2) ALWAYS use the xiq_network_health or xiq_device_health composite tools — they resolve location names to IDs automatically. 3) If no location is known, call get_location_tree to discover valid location IDs. NEVER pass locationId: 1, locationId: 0, or any guessed ID.',
     };
 
     for (const [domain, note] of Object.entries(learnedNotesMap)) {

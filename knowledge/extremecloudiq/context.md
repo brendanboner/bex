@@ -341,3 +341,53 @@ If the tool returns data, report it immediately. You are synchronous — there i
 | SNR | ≥ 25 dB | 15–24 dB | < 15 dB |
 | RSSI | ≥ -67 dBm | -68 to -80 dBm | < -80 dBm |
 | Health Score | ≥ 70 | 40–69 | < 40 |
+
+---
+
+## ⚠️ CRITICAL: Wireless Performance API — viewType Enum Is Broken
+
+The following endpoints all require a `viewType` query parameter that maps to a Java enum (`XiqConnectivityExperienceViewType`) in the XIQ backend. **No string value is accepted** — the API returns `400 BAD_REQUEST` with a Spring `ConversionFailedException` for every value tried (`global`, `device`, `location`, `SSID`, `AP`, etc.).
+
+### Broken tools — NEVER call these directly
+
+| Tool | Broken endpoint |
+|---|---|
+| `get_wireless_performance` | `/copilot/connectivity/wireless/performance?viewType=…` |
+| `get_wireless_quality_index` | `/copilot/connectivity/wireless/quality-index?viewType=…` |
+| `get_wireless_connectivity_experience` | `/copilot/connectivity/wireless/experience?viewType=…` |
+| `get_wireless_views` | `/copilot/connectivity/wireless/views?viewType=…` |
+| `get_wireless_time_to_connect` | `/copilot/connectivity/wireless/time-to-connect?viewType=…` |
+| `get_wireless_events` | `/copilot/connectivity/wireless/events?viewType=…` |
+| `get_wireless_apps` | `/copilot/connectivity/wireless/apps?viewType=…` |
+
+### Correct approach — use the composite tool
+
+```
+xiq_wireless_performance(startTime?, endTime?, ssid?, osType?)
+  → Enumerates all buildings via GET /locations/buildings
+  → Calls /copilot/connectivity/wireless/locations/performance?buildingId={id} per building  ✅
+  → Calls /copilot/connectivity/wireless/locations/quality-index?buildingId={id} per building ✅
+  → Calls /copilot/connectivity/wireless/locations/time-to-connect?buildingId={id} per building ✅
+  → Returns array of { buildingId, buildingName, performance, qualityIndex, timeToConnect }
+```
+
+The `_by_location` endpoints use `buildingId` instead of `viewType` and work correctly.
+
+### Rule
+
+> For **any** question about wireless performance, quality index, connectivity experience, or time-to-connect — always call `xiq_wireless_performance`. Never attempt to call the broken global endpoints.
+
+---
+
+## ⚠️ CRITICAL: list_alerts — sortField Enum Is Broken
+
+The `list_alerts` tool (`GET /alerts`) accepts a `sortField` parameter that maps to a Java enum (`XiqAlertSortField`). **No string value is accepted** — passing `sortField=severity` (or any other string) returns `400 BAD_REQUEST`.
+
+### Rule
+
+> **Never pass `sortField` or `order` to `list_alerts`.** Call it without those parameters. The API returns results by default ordering, which is sufficient. All other parameters work normally: `severityIds`, `categoryIds`, `startTime`, `endTime`, `keyword`, `buildingId`, `siteId`, `acknowledged`, `page`, `limit`.
+
+```
+✅  list_alerts(limit=20, startTime=..., endTime=..., severityIds=[1,2])
+❌  list_alerts(sortField="severity", order="desc")   → 400 BAD_REQUEST
+```

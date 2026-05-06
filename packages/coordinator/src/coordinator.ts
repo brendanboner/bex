@@ -113,6 +113,41 @@ Never route platform management questions to domain agents (XIQ, XCO etc.) — t
 
 Always be concise, structured, and cite which agent produced each piece of data.`;
 
+// ─── Channel-aware formatting prompt ─────────────────────────────────────────
+
+function buildChannelFormattingPrompt(channel: string): string {
+  switch (channel) {
+    case 'telegram':
+    case 'whatsapp':
+      return `## CRITICAL: Response Format — ${channel}
+You are responding in a CHAT MESSAGING APP. These rules OVERRIDE all previous formatting instructions:
+- **NEVER output raw JSON, code blocks, or \`\`\`json … \`\`\` sections** in your final response.
+- Write in plain, conversational prose only.
+- Use short bullet points (•) for lists. Do NOT use markdown tables or ## headings.
+- Keep responses concise — under 400 words unless the user explicitly asks for detail.
+- For client/device lists: one line per item — "• <Name>: <key stat>". Max 10 items; note total if more.
+- If an agent returns raw JSON or a data structure, translate it into plain English before responding.
+- Never say "here is the JSON" or "the raw output is" — always interpret and summarise.`;
+
+    case 'dashboard':
+      return `## CRITICAL: Response Format — dashboard
+You are responding in a web dashboard with full markdown rendering. These rules OVERRIDE all previous instructions:
+- **NEVER output raw JSON or \`\`\`json … \`\`\` blocks** — always translate data into readable markdown.
+- Use markdown: ## headings, **bold**, tables (| col | col |), and bullet lists.
+- For client/device/AP lists: use a markdown table with relevant columns (Name, MAC, IP, SSID, Signal, etc.).
+- For alarms/events: use a markdown table with Severity, Name, Device, Time columns.
+- For summaries: lead with a one-line summary, then present data in a table or structured list.
+- If an agent returns JSON or a data array, parse it and render it as a markdown table or list.
+- You may include detail — the UI can scroll. Aim for completeness.`;
+
+    default:
+      return `## Response Format
+- Use markdown tables for structured data (clients, devices, alarms).
+- Lead with a one-line executive summary.
+- Never output raw JSON — translate API data into readable markdown.`;
+  }
+}
+
 // ─── CoordinatorAgent ─────────────────────────────────────────────────────────
 
 export class CoordinatorAgent {
@@ -178,7 +213,7 @@ export class CoordinatorAgent {
 
     const result = await generateText({
       model: llmModel,
-      system: COORDINATOR_SYSTEM_PROMPT + `\n\n## Current channel\nThis conversation is on channel: **${channel}**. Always pass \`channel: "${channel}"\` when calling delegate_task or spawn_agent so agents format their responses correctly.`,
+      system: COORDINATOR_SYSTEM_PROMPT + `\n\n## Current channel\nThis conversation is on channel: **${channel}**. Always pass \`channel: "${channel}"\` when calling delegate_task or spawn_agent so agents format their responses correctly.\n\n` + buildChannelFormattingPrompt(channel),
       messages,
       tools,
       maxSteps: 10,

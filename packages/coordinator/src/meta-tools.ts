@@ -593,13 +593,37 @@ export function makeCreateDashboardTool(prisma: PrismaClient): CoreTool {
       refreshMode?: 'manual' | 'scheduled';
     }) => {
       try {
-        const slug = name
+        // Build slug: {agentPrefix}{YYMMDD}-{useful-name}
+        const now = new Date();
+        const yy = String(now.getFullYear()).slice(2);
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const datePart = `${yy}${mm}${dd}`;
+
+        // Derive a short agent prefix from the agent's name if available
+        let agentPrefix = '';
+        if (agentId) {
+          const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { name: true } });
+          if (agent) {
+            agentPrefix = agent.name
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '')   // strip non-alphanumeric
+              .slice(0, 8);                   // keep it short
+          }
+        }
+
+        // Slugify the dashboard name into the useful suffix
+        const nameSuffix = name
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-+|-+$/g, '')
-          .slice(0, 80);
+          .slice(0, 40);
 
-        // Ensure unique slug by appending a short timestamp suffix if needed
+        const slug = agentPrefix
+          ? `${agentPrefix}-${datePart}-${nameSuffix}`
+          : `${datePart}-${nameSuffix}`;
+
+        // Ensure unique slug by appending a short random suffix if needed
         const existing = await prisma.userDashboard.findUnique({ where: { slug } });
         const finalSlug = existing ? `${slug}-${Date.now().toString(36)}` : slug;
 

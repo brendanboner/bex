@@ -266,6 +266,13 @@ class TeamsBot extends ActivityHandler {
 
       // ── Route message to agent ─────────────────────────────────────────────
 
+      // @alias prefix (e.g. @xiq, @xco, @rd) or @bex → route via coordinator chat
+      if (/^@\S+\s+/i.test(input)) {
+        await this.routeViaCoordinator(context, input);
+        await next();
+        return;
+      }
+
       const agentId = conversationAgentMap.get(convId) || DEFAULT_AGENT_ID;
       if (!agentId) {
         await context.sendActivity(
@@ -347,6 +354,31 @@ class TeamsBot extends ActivityHandler {
     } catch (err) {
       console.error('[teams] /status error:', err);
       await context.sendActivity('❌ Failed to fetch status.');
+    }
+  }
+
+  private async routeViaCoordinator(context: TurnContext, input: string): Promise<void> {
+    try {
+      type CoordResult = { sessionId: string; output: string; pendingRequestIds?: string[] };
+      const resp = await apiPost<CoordResult>('/coordinator/chat', {
+        message: input,
+        channel: 'teams',
+      });
+      if (resp.ok && resp.data) {
+        const { output, pendingRequestIds } = resp.data;
+        if (output) {
+          await context.sendActivity(output);
+        }
+        // Poll any pending sub-tasks and notify when done
+        for (const reqId of pendingRequestIds ?? []) {
+          pollAndNotify(reqId, context.activity.conversation.id);
+        }
+      } else {
+        await context.sendActivity('❌ Could not route your request. Please try again.');
+      }
+    } catch (err) {
+      console.error('[teams] routeViaCoordinator error:', err);
+      await context.sendActivity('❌ An error occurred. Please try again.');
     }
   }
 

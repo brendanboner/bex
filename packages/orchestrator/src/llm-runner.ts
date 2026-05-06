@@ -2614,6 +2614,105 @@ export function buildTools(
           }
         }
 
+        // ── xiq_wireless_performance_all_locations ─────────────────────────────
+        // The global /copilot/connectivity/wireless/performance|quality-index|experience
+        // endpoints require a `viewType` Java enum that rejects every string value tried.
+        // This composite handler bypasses them entirely: enumerate all buildings, then
+        // fan-out to the working /locations/* endpoints (no viewType required).
+        if (handlerType === 'xiq_wireless_performance_all_locations') {
+          if (!credentialId) return { error: 'xiq_wireless_performance_all_locations requires a credentialId' };
+
+          const wpLogin = (config['loginUrl'] as string | undefined) ?? 'https://api.extremecloudiq.com/login';
+          const wpBase  = 'https://api.extremecloudiq.com';
+
+          const reachWp = await checkReachable(wpLogin);
+          if (!reachWp.reachable) return { error: reachWp.error ?? `Cannot reach ${wpLogin}` };
+
+          const { fetch: wpFetch } = await import('undici');
+
+          const getWpToken = async (): Promise<string | null> => {
+            let token = getCachedToken(credentialId!);
+            if (!token) {
+              const creds = await vault.resolve(credentialId!, agentPermissions);
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const resp = await wpFetch(wpLogin, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!resp.ok) return null;
+              const data = await resp.json() as { access_token?: string; expires_in?: number };
+              token = data.access_token ?? null;
+              if (token) setCachedToken(credentialId!, token, data.expires_in ?? 82800);
+            }
+            return token;
+          };
+
+          const wpGet = async (token: string, path: string, params: Record<string, string | number> = {}): Promise<unknown> => {
+            const qs = Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+            const url = `${wpBase}${path}${qs ? '?' + qs : ''}`;
+            const resp = await wpFetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            console.info(`[xiq_wireless_performance] GET ${url} → ${resp.status}`);
+            if (!resp.ok) {
+              const txt = await resp.text().catch(() => '');
+              return { error: `XIQ API ${resp.status}`, detail: txt.slice(0, 300) };
+            }
+            return resp.json();
+          };
+
+          try {
+            const token = await getWpToken();
+            if (!token) return { error: 'XIQ login failed — check credentials in vault' };
+
+            const now = Date.now();
+            const startTime = typeof args['startTime'] === 'number' ? (args['startTime'] as number) : now - 24 * 60 * 60 * 1000;
+            const endTime   = typeof args['endTime']   === 'number' ? (args['endTime']   as number) : now;
+            const ssid      = typeof args['ssid']      === 'string' ? (args['ssid']      as string) : '';
+            const osType    = typeof args['osType']    === 'string' ? (args['osType']    as string) : '';
+
+            // Step 1: enumerate all buildings
+            const buildingsRes = await wpGet(token, '/locations/buildings', { limit: 100 }) as { data?: Array<{ id: number; name: string }> };
+            const buildings = buildingsRes?.data ?? [];
+
+            if (buildings.length === 0) {
+              // Fall back to sites if no buildings defined
+              const sitesRes = await wpGet(token, '/locations/sites', { limit: 100 }) as { data?: Array<{ id: number; name: string }> };
+              const sites = sitesRes?.data ?? [];
+              buildings.push(...sites);
+            }
+
+            if (buildings.length === 0) {
+              return { error: 'No buildings or sites found in XIQ location tree. Ensure locations are configured.' };
+            }
+
+            // Step 2: fan-out to working _by_location endpoints per building
+            const timeParams: Record<string, string | number> = { startTime, endTime };
+            if (ssid)   timeParams['ssid']   = ssid;
+            if (osType) timeParams['osType'] = osType;
+
+            const results = await Promise.all(
+              buildings.map(async (b) => {
+                const bParams = { ...timeParams, buildingId: b.id };
+                const [performance, qualityIndex, timeToConnect] = await Promise.all([
+                  wpGet(token, '/copilot/connectivity/wireless/locations/performance', bParams),
+                  wpGet(token, '/copilot/connectivity/wireless/locations/quality-index', bParams),
+                  wpGet(token, '/copilot/connectivity/wireless/locations/time-to-connect', bParams),
+                ]);
+                return { buildingId: b.id, buildingName: b.name, performance, qualityIndex, timeToConnect };
+              }),
+            );
+
+            return {
+              buildingCount: buildings.length,
+              timeRangeMs:   { startTime, endTime },
+              results,
+            };
+          } catch (e) {
+            return { error: `xiq_wireless_performance_all_locations failed: ${e instanceof Error ? e.message : String(e)}` };
+          }
+        }
+
         // ── xiq_client_radio_quality: find named client → AP device ID → radio-information ──
         // Use for: "show radio quality of the fridge", "what are the radio stats for the iPad"
         if (handlerType === 'xiq_client_radio_quality') {

@@ -157,52 +157,23 @@ export default function NexusPage() {
 
   async function handleSend() {
     if (!input.trim() || sending) return;
-    let content = input.trim();
+    const content = input.trim();
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', content }]);
     setInput('');
     setSending(true);
 
-    // @xco/@xiq prefix: resolve to the matching agent and route directly
-    const xcoAlias = /^@xco\s+/i.test(content);
-    const xiqAlias = /^@xiq\s+/i.test(content);
-    if (xcoAlias || xiqAlias) {
-      content = content.replace(/^@x(?:co|iq)\s+/i, '').trim();
-      const aliasAgent = xcoAlias
-        ? (agents as Agent[]).find(a => /orchestrat/i.test(a.name) || /\bxco\b/i.test(a.name))
-        : (agents as Agent[]).find(a => /extremecloud.*iq/i.test(a.name) || /\bxiq\b/i.test(a.name));
-      if (aliasAgent) {
-        try {
-          const record = await api.post<{ id: string; requestId?: string }>('/requests', {
-            agentId: aliasAgent.id, input: content, channel: 'dashboard',
-          });
-          setPollingId(record.id ?? record.requestId ?? null);
-        } catch (e) {
-          setSending(false);
-          setMessages(prev => [...prev, {
-            id: `err-${Date.now()}`,
-            role: 'agent',
-            content: (e as Error).message ?? 'Failed to send request.',
-            agentName: aliasAgent.name,
-            routed: false,
-            error: true,
-          }]);
-        }
-        return;
-      }
-      // If we couldn't resolve the alias agent, fall through to normal routing
-    }
-
-    // @bex prefix routes to coordinator (system management interface) — strip prefix
+    // @alias prefix (e.g. @xiq, @xco, @rd) — always route through coordinator;
+    // the server resolves the alias and routes directly to the right agent.
+    // @bex is also sent to coordinator (server strips the prefix).
+    const hasAlias = /^@\S+\s+/i.test(content);
     const isBexCommand = /^@bex\s+/i.test(content);
-    if (isBexCommand) {
-      content = content.replace(/^@bex\s+/i, '').trim();
-      if (mode !== 'coordinator') {
-        setMode('coordinator');
-        setPinnedAgent(null);
-      }
+
+    if (isBexCommand && mode !== 'coordinator') {
+      setMode('coordinator');
+      setPinnedAgent(null);
     }
 
-    if (mode === 'coordinator' || isBexCommand) {
+    if (mode === 'coordinator' || hasAlias) {
       try {
         const result = await api.post<CoordResult>('/coordinator/chat', {
           message: content,
@@ -219,7 +190,6 @@ export default function NexusPage() {
           agentName: 'Nexus',
           routed: true,
         }]);
-        // If any sub-tasks are still running, auto-poll for their results
         if (result.pendingRequestIds && result.pendingRequestIds.length > 0) {
           setPendingCoordIds(prev => [...new Set([...prev, ...result.pendingRequestIds!])]);
         }

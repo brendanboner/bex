@@ -222,7 +222,18 @@ async function safeSend(ctx: BotContext, text: string): Promise<void> {
     // 2. Name starts with hint
     found = _agentCache.find((a) => a.name.toLowerCase().startsWith(q));
     if (found) return found.id;
-    // 3. All hint words appear in name (e.g. "xco" matches "XCO Monitor")
+    // 3. Initials match: "rd" → "R. Daneel (Weather)" → initials "rdw"
+    found = _agentCache.find((a) => {
+      const ini = a.name
+        .replace(/[()[\]]/g, ' ')
+        .split(/[\s.,-]+/)
+        .filter((w) => w.length > 0 && /[a-zA-Z]/.test(w[0]!))
+        .map((w) => w[0]!.toLowerCase())
+        .join('');
+      return ini.startsWith(q) || ini === q;
+    });
+    if (found) return found.id;
+    // 4. All hint words appear in name (e.g. "xco" matches "XCO Monitor")
     const words = q.split(' ').filter(Boolean);
     found = _agentCache.find((a) => words.every((w) => a.name.toLowerCase().includes(w)));
     if (found) return found.id;
@@ -687,17 +698,6 @@ async function routeToCoordinator(ctx: BotContext, input: string): Promise<void>
     if (output && output.trim()) {
       await safeSendDirect(chatId, output);
       ctx.session.lastRequestOutput = output.slice(0, 2000);
-
-      // Dashboard CTA for coordinator responses that are data-rich
-      if (looksDataRich(output)) {
-        try {
-          await bot.api.sendMessage(
-            chatId,
-            '📊 _Reply_ `dashboard` _to create a live dashboard for this data_',
-            { parse_mode: 'Markdown' },
-          );
-        } catch { /* non-fatal */ }
-      }
     }
 
     // If sub-agent tasks are still running, poll them and deliver when ready
@@ -778,16 +778,6 @@ async function backgroundPoll(chatId: number, requestId: string, sessionRef?: Se
           }
         }
 
-        // Append dashboard CTA if the output looks data-rich
-        if (looksDataRich(text)) {
-          try {
-            await bot.api.sendMessage(
-              chatId,
-              '📊 _Reply_ `dashboard` _to create a live dashboard for this data_',
-              { parse_mode: 'Markdown' },
-            );
-          } catch { /* non-fatal */ }
-        }
         return;
       }
 
@@ -853,15 +843,6 @@ function extractQuestion(text: string): string {
 }
 
 /** Returns true if the output looks like it contains structured data worth dashboarding. */
-function looksDataRich(text: string): boolean {
-  if (text.length < 200) return false;
-  // Contains JSON-like structures, tables, or many numbers
-  const hasJson = /[{\[]/.test(text);
-  const hasTable = /\|.*\|/.test(text);
-  const hasNumbers = (text.match(/\b\d+(\.\d+)?\b/g) ?? []).length > 5;
-  return hasJson || hasTable || hasNumbers;
-}
-
 /**
  * Send directly to a chat ID (not via ctx) — used from background poller.
  * Falls back to plain text if MarkdownV2 parsing fails. Chunks long messages.
