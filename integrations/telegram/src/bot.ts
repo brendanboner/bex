@@ -256,25 +256,23 @@ bot.command('start', async (ctx) => {
   await ctx.reply(
     '👋 *Welcome to BEX!*\n\n' +
     'Send me any message and I\'ll route it to your AI agent.\n\n' +
-    '*Commands:*\n' +
+    '*Bot commands:*\n' +
     '/status — check your last request\n' +
     '/jobs — list scheduled jobs\n' +
     '/agents — list available agents\n' +
     '/skills — list loaded skills\n' +
-    '/tools — show tools for current agent\n' +
-    '/help — show this message\n\n' +
-    '*Route to a specific agent:*\n' +
-    '  `@xco` — XCO Monitor (fabric health, topology)\n' +
-    '  `@xco-operator` — XCO Operator (alarm management)\n' +
-    '  `@xiq` — ExtremeCloud IQ\n' +
-    '  `@ep1` — Extreme Platform One\n' +
-    '  `@bex` — BEX system admin (Nexus)\n\n' +
-    '*Examples:*\n' +
-    '  `@xco give me a full fabric overview`\n' +
+    '/tools — show tools by domain\n' +
+    '/help — full command reference\n\n' +
+    '*Route to a specific agent with @:*\n' +
+    '  `@ep1` — Extreme Platform One (devices, clients, health)\n' +
+    '  `@xco` — XCO Orchestrator (fabric & switching)\n' +
+    '  `@bex` — BEX system admin\n\n' +
+    '*Try:*\n' +
     '  `@ep1 list all devices`\n' +
-    '  `@ep1 show me all active clients`\n' +
-    '  `@xiq show network health for Beverly`\n' +
-    '  `@bex show me scheduled jobs`',
+    '  `@ep1 show all Apple devices`\n' +
+    '  `@ep1 show network topology`\n' +
+    '  `@ep1 device health`\n' +
+    '  `@xco fabric overview`',
     { parse_mode: 'Markdown' },
   );
 });
@@ -283,23 +281,25 @@ bot.command('help', async (ctx) => {
   trackChatId(ctx.chat.id);
   await ctx.reply(
     '🤖 *BEX Bot Commands*\n\n' +
-    '*/start* — welcome & command list\n' +
+    '*/start* — welcome & quick examples\n' +
     '*/status* — check your last request status\n' +
     '*/jobs* — list scheduled jobs \\(quick view, no AI\\)\n' +
     '*/agents* — list available agents\n' +
     '*/skills* — list loaded skills & domains\n' +
-    '*/tools* — list all tools by domain \\(e\\.g\\. `/tools xco` or `/tools xiq`\\)\n' +
+    '*/tools* — list all tools by domain \\(e\\.g\\. `/tools ep1` or `/tools xco`\\)\n' +
     '*/agent \\<id\\>* — switch to a different agent\n' +
     '*/cancel* — forget the current pending request\n\n' +
-    '*Route to a specific agent with @name:*\n' +
-    '  `@xco give me a full fabric overview`\n' +
-    '  `@xco\\-monitor how is my network?`\n' +
-    '  `@xco\\-operator acknowledge all major alarms`\n' +
-    '  `@xiq show network health for Beverly`\n' +
-    '  `@ep1 list all devices` \\(or `ep1 list all devices`\\)\n' +
-    '  `@ep1 show active clients`\n' +
-    '  `@bex system status`\n\n' +
-    'Or just type any message to ask your default agent\\.',
+    '*Extreme Platform One — `@ep1`:*\n' +
+    '  `@ep1 list all devices`\n' +
+    '  `@ep1 show all Apple devices`\n' +
+    '  `@ep1 show network topology`\n' +
+    '  `@ep1 device health`\n' +
+    '  `@ep1 show active clients on PoxieMoxie`\n' +
+    '  `@ep1 list all alerts`\n\n' +
+    '*XCO Orchestrator — `@xco`:*\n' +
+    '  `@xco fabric overview`\n' +
+    '  `@xco\\-operator acknowledge all alarms`\n\n' +
+    'Or just type any message to route automatically\\.',
     { parse_mode: 'MarkdownV2' },
   );
 });
@@ -546,11 +546,19 @@ bot.on('message:text', async (ctx) => {
     return;
   }
 
-  // @<agent-name> prefix → route to a named agent ("@xco", "@xco-monitor", "@xiq" etc.)
+  // @<agent-name> prefix → route to a named agent ("@xco", "@xco-monitor", "@ep1" etc.)
   const agentPrefixMatch = input.match(/^@(\S+)\s+([\s\S]+)/i);
   if (agentPrefixMatch) {
-    const nameHint = agentPrefixMatch[1]!;
+    const rawHint = agentPrefixMatch[1]!;
     const agentInput = agentPrefixMatch[2]!.trim();
+    // Short alias → searchable name fragment (resolveAgentByName uses fuzzy all-words matching)
+    const AT_ALIASES: Record<string, string> = {
+      ep1: 'platform one', p1: 'platform one',
+      xiq: 'extremecloud iq', iq: 'extremecloud iq',
+      xco: 'orchestrator',
+      bex: 'nexus',
+    };
+    const nameHint = AT_ALIASES[rawHint.toLowerCase()] ?? rawHint;
     const foundId = await resolveAgentByName(nameHint);
     if (foundId) {
       // Clear follow-up state when user explicitly addresses a new agent
