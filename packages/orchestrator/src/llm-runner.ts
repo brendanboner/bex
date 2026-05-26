@@ -540,81 +540,109 @@ export function buildTools(
           const token4 = String(creds4['api_token'] ?? creds4['p1_api_token'] ?? '');
           if (!token4) return { error: 'No api_token in credential' };
           const { fetch: f4 } = await import('undici');
-          const hdrs4 = { 'Authorization': `Bearer ${token4}`, 'Accept': 'application/json' };
+          const hdrs4 = { 'Authorization': `Bearer ${token4}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
 
-          let locationId = args['locationId'] as number | undefined;
-          const locationName = String(args['locationName'] ?? '');
+          let locationId4 = args['locationId'] as number | undefined;
+          const locationName4 = String(args['locationName'] ?? '');
 
-          // Auto-resolve location name to ID via site tree
-          if (!locationId && locationName) {
-            const treeRes = await f4('https://cloudapi.extremecloudiq.com/site/v1/tree', { headers: hdrs4 });
-            if (treeRes.ok) {
-              const treeData = await treeRes.json() as { data?: Array<Record<string, unknown>> };
-              // Also try XIQ location tree
-              const xiqTreeRes = await f4('https://cloudapi.extremecloudiq.com/xiq/v1/locations/tree', { headers: hdrs4 });
-              if (xiqTreeRes.ok) {
-                const xiqTree = await xiqTreeRes.json() as Record<string, unknown>;
-                // Recursively search for location by name
-                function findLocation(node: Record<string, unknown>): number | undefined {
-                  const name = String(node['name'] ?? '').toLowerCase();
-                  if (name.includes(locationName.toLowerCase())) return node['id'] as number;
-                  const children = (node['children'] ?? node['buildings'] ?? node['floors'] ?? []) as Array<Record<string, unknown>>;
-                  for (const child of children) {
-                    const found2 = findLocation(child);
-                    if (found2) return found2;
-                  }
-                  return undefined;
-                }
-                locationId = findLocation(xiqTree);
-              }
-            }
+          // Helper: flatten XIQ location tree into a list
+          function flattenTree(node: Record<string, unknown>, acc: Array<{id: number; name: string; type: string}> = []): typeof acc {
+            const id = node['id'] as number;
+            const name = String(node['name'] ?? '');
+            const type = String(node['type'] ?? '');
+            if (id && name) acc.push({ id, name, type });
+            const children = (node['children'] ?? []) as Array<Record<string, unknown>>;
+            for (const ch of children) flattenTree(ch, acc);
+            return acc;
           }
-          if (!locationId) return { error: `Could not resolve location: "${locationName}". Use p1_get_location_tree to list available locations.` };
 
-          // Fetch all health scores in parallel
-          const [wifiRes, devRes, clientRes] = await Promise.all([
-            f4(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId}/wifi-health`, { headers: hdrs4 }),
-            f4(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId}/device-health`, { headers: hdrs4 }),
-            f4(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId}/client-health`, { headers: hdrs4 }),
+          // Fetch location tree once (used for name resolution and fallback)
+          let allLocations: Array<{id: number; name: string; type: string}> = [];
+          try {
+            const treeRes4 = await f4('https://cloudapi.extremecloudiq.com/xiq/v1/locations/tree', { headers: hdrs4 });
+            if (treeRes4.ok) {
+              const treeData4 = await treeRes4.json() as Record<string, unknown> | Array<Record<string, unknown>>;
+              const roots = Array.isArray(treeData4) ? treeData4 : [treeData4];
+              for (const root of roots) allLocations.push(...flattenTree(root));
+            }
+          } catch { /* non-fatal */ }
+
+          // Resolve location by name if provided
+          if (!locationId4 && locationName4) {
+            const match = allLocations.find(l => l.name.toLowerCase().includes(locationName4.toLowerCase()));
+            if (match) locationId4 = match.id;
+          }
+          // If still no location, use the first real site/building from the tree
+          if (!locationId4 && allLocations.length > 0) {
+            const site = allLocations.find(l => l.type === 'SITE' || l.type === 'BUILDING') ?? allLocations[0];
+            if (site) locationId4 = site.id;
+          }
+
+          // Use PM analytics for client + device health (always works, no location endpoint needed)
+          const now4 = Date.now();
+          const body4 = JSON.stringify({ startTime: now4 - 24 * 3600 * 1000, endTime: now4, ...(locationId4 ? { locationIds: [locationId4] } : {}) });
+          const [clientHealthRes4, deviceHealthRes4, activeClientsRes4] = await Promise.all([
+            f4('https://cloudapi.extremecloudiq.com/pm/v1/analytics/client-health', { method: 'POST', headers: hdrs4, body: body4 }),
+            f4('https://cloudapi.extremecloudiq.com/pm/v1/analytics/device-health', { method: 'POST', headers: hdrs4, body: body4 }),
+            f4('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1&views=BASIC', { headers: hdrs4 }),
           ]);
 
+          const resolvedLocation = locationId4 ? allLocations.find(l => l.id === locationId4) : null;
           return {
-            locationId,
-            locationName,
-            wifi_health: wifiRes.ok ? await wifiRes.json() : null,
-            device_health: devRes.ok ? await devRes.json() : null,
-            client_health: clientRes.ok ? await clientRes.json() : null,
+            location: resolvedLocation ?? (locationName4 ? { name: locationName4 } : { name: 'All locations' }),
+            available_locations: allLocations.slice(0, 20).map(l => ({ id: l.id, name: l.name, type: l.type })),
+            client_health: clientHealthRes4.ok ? await clientHealthRes4.json() : null,
+            device_health: deviceHealthRes4.ok ? await deviceHealthRes4.json() : null,
+            active_clients_total: activeClientsRes4.ok ? ((await activeClientsRes4.json()) as { total_count?: number }).total_count ?? null : null,
+            note: 'Health data from PM analytics (24h window). Use available_locations to drill into a specific site.',
           };
         }
 
-        // ── p1_device_health: device health for a location ────────────────────
+        // ── p1_device_health: device health via PM analytics ──────────────────
         if (handlerType === 'p1_device_health') {
-          // Same as p1_network_health but focused on device health
           const cred5 = credentialId ?? '';
           if (!cred5) return { error: 'p1_device_health requires a credentialId' };
           const creds5 = await vault.resolve(cred5, agentPermissions);
           const token5 = String(creds5['api_token'] ?? creds5['p1_api_token'] ?? '');
           if (!token5) return { error: 'No api_token in credential' };
           const { fetch: f5 } = await import('undici');
-          const hdrs5 = { 'Authorization': `Bearer ${token5}`, 'Accept': 'application/json' };
+          const hdrs5 = { 'Authorization': `Bearer ${token5}`, 'Accept': 'application/json', 'Content-Type': 'application/json' };
           let locationId5 = args['locationId'] as number | undefined;
           const locationName5 = String(args['locationName'] ?? '');
-          if (!locationId5 && locationName5) {
-            const xiqRes = await f5('https://cloudapi.extremecloudiq.com/xiq/v1/locations/tree', { headers: hdrs5 });
-            if (xiqRes.ok) {
-              const tree5 = await xiqRes.json() as Record<string, unknown>;
-              function findLoc(node: Record<string, unknown>): number | undefined {
-                if (String(node['name'] ?? '').toLowerCase().includes(locationName5.toLowerCase())) return node['id'] as number;
-                const ch = (node['children'] ?? []) as Array<Record<string, unknown>>;
-                for (const c of ch) { const r = findLoc(c); if (r) return r; }
-                return undefined;
+
+          // Auto-discover location if name provided or nothing provided
+          let allLocs5: Array<{id: number; name: string; type: string}> = [];
+          try {
+            const tr5 = await f5('https://cloudapi.extremecloudiq.com/xiq/v1/locations/tree', { headers: hdrs5 });
+            if (tr5.ok) {
+              const td5 = await tr5.json() as Record<string, unknown> | Array<Record<string, unknown>>;
+              function flat5(n: Record<string, unknown>): void {
+                const id = n['id'] as number; const nm = String(n['name'] ?? ''); const tp = String(n['type'] ?? '');
+                if (id && nm) allLocs5.push({ id, name: nm, type: tp });
+                for (const c of (n['children'] ?? []) as Array<Record<string, unknown>>) flat5(c);
               }
-              locationId5 = findLoc(tree5);
+              for (const r of (Array.isArray(td5) ? td5 : [td5])) flat5(r);
             }
+          } catch { /* non-fatal */ }
+
+          if (!locationId5 && locationName5) {
+            const m5 = allLocs5.find(l => l.name.toLowerCase().includes(locationName5.toLowerCase()));
+            if (m5) locationId5 = m5.id;
           }
-          if (!locationId5) return { error: `Could not resolve location: "${locationName5}"` };
-          const dRes = await f5(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId5}/device-health`, { headers: hdrs5 });
-          return dRes.ok ? await dRes.json() as Record<string, unknown> : { error: `Device health API error: ${dRes.status}` };
+          if (!locationId5 && allLocs5.length > 0) {
+            const s5 = allLocs5.find(l => l.type === 'SITE' || l.type === 'BUILDING') ?? allLocs5[0];
+            if (s5) locationId5 = s5.id;
+          }
+
+          const now5 = Date.now();
+          const body5 = JSON.stringify({ startTime: now5 - 24 * 3600 * 1000, endTime: now5, ...(locationId5 ? { locationIds: [locationId5] } : {}) });
+          const dRes5 = await f5('https://cloudapi.extremecloudiq.com/pm/v1/analytics/device-health', { method: 'POST', headers: hdrs5, body: body5 });
+          const resolvedLoc5 = locationId5 ? allLocs5.find(l => l.id === locationId5) : null;
+          return {
+            location: resolvedLoc5 ?? (locationName5 ? { name: locationName5 } : { name: 'All locations' }),
+            available_locations: allLocs5.slice(0, 20).map(l => ({ id: l.id, name: l.name, type: l.type })),
+            device_health: dRes5.ok ? await dRes5.json() : { error: `PM device health error: ${dRes5.status}` },
+          };
         }
 
         // ── p1_topology_report: SSID→VLAN→Client mapping ─────────────────────
