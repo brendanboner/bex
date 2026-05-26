@@ -413,7 +413,7 @@ export function buildTools(
           const hdrs2 = { 'Authorization': `Bearer ${token2}`, 'Accept': 'application/json' };
 
           // Fetch up to 1000 active clients
-          const clientsRes = await f2('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=CLIENT_DETAILS', { headers: hdrs2 });
+          const clientsRes = await f2('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000', { headers: hdrs2 });
           if (!clientsRes.ok) return { error: `Failed to list clients: ${clientsRes.status}` };
           const clientsData = await clientsRes.json() as { data?: Array<Record<string, unknown>> };
           const allClients = clientsData.data ?? [];
@@ -506,7 +506,7 @@ export function buildTools(
           const macAddress = String(args['macAddress'] ?? '').toLowerCase();
 
           // Search active clients
-          const searchRes = await f3('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=CLIENT_DETAILS', { headers: hdrs3 });
+          const searchRes = await f3('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000', { headers: hdrs3 });
           if (!searchRes.ok) return { error: `Failed to search clients: ${searchRes.status}` };
           const searchData = await searchRes.json() as { data?: Array<Record<string, unknown>> };
           const allC = searchData.data ?? [];
@@ -735,7 +735,7 @@ export function buildTools(
           const hdrs8 = { 'Authorization': `Bearer ${token8}`, 'Accept': 'application/json' };
           const apFilter8 = String(args['apFilter'] ?? '').toLowerCase();
 
-          const cliRes8 = await f8('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=CLIENT_DETAILS', { headers: hdrs8 });
+          const cliRes8 = await f8('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000', { headers: hdrs8 });
           if (!cliRes8.ok) return { error: `Failed to list clients: ${cliRes8.status}` };
           let clients8 = (await cliRes8.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
           if (apFilter8) clients8 = clients8.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apFilter8));
@@ -800,7 +800,7 @@ export function buildTools(
           const healthFilter = String(args['healthFilter'] ?? '').toLowerCase();
           const apFilter = String(args['apFilter'] ?? '').toLowerCase();
 
-          const cliResA = await fA('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=500&views=HEALTH_STATUS', { headers: hdrsA });
+          const cliResA = await fA('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=500', { headers: hdrsA });
           if (!cliResA.ok) return { error: `Failed to list clients: ${cliResA.status}` };
           let clients = (await cliResA.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
           if (apFilter) clients = clients.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apFilter));
