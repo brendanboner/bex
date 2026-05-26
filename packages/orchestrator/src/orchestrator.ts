@@ -410,6 +410,7 @@ export class OrchestratorService {
       const DOMAIN_KEYWORD_MAP: Array<[string, string]> = [
         ['extremecloudiq', 'xiq'],
         ['networking.extreme-xco', 'xco'],
+        ['extremep1', 'extremep1'],
       ];
 
       const VALID_CRED_TYPES = new Set(['API_TOKEN', 'USERNAME_PASSWORD', 'SSH_KEY', 'BASIC_AUTH', 'OAUTH2_CLIENT', 'USER_PREFERENCE']);
@@ -421,7 +422,9 @@ export class OrchestratorService {
           const tools = (s.tools as Array<Record<string, unknown>>) ?? [];
           const hasXiqTool = tools.some((t) => ['xiq_http_call', 'xiq_topology_report', 'xiq_radio_quality_report', 'xiq_client_snapshot', 'xiq_client_health_report'].includes(t['handlerType'] as string));
           const hasXcoTool = tools.some((t) => t['handlerType'] === 'xco_http_call');
+          const hasP1Tool = tools.some((t) => String(t['handlerType'] ?? '').startsWith('p1_'));
           if (hasXiqTool || hasXcoTool) credType = 'USERNAME_PASSWORD';
+          if (hasP1Tool) credType = 'API_TOKEN';
         }
         // Guard: skip if credType is not a valid Prisma CredentialType enum value
         if (!credType || !VALID_CRED_TYPES.has(credType)) {

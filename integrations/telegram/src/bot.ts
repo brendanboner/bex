@@ -267,10 +267,12 @@ bot.command('start', async (ctx) => {
     '  `@xco` — XCO Monitor (fabric health, topology)\n' +
     '  `@xco-operator` — XCO Operator (alarm management)\n' +
     '  `@xiq` — ExtremeCloud IQ\n' +
+    '  `@ep1` — Extreme Platform One\n' +
     '  `@bex` — BEX system admin (Nexus)\n\n' +
     '*Examples:*\n' +
     '  `@xco give me a full fabric overview`\n' +
-    '  `@xco how is my network?`\n' +
+    '  `@ep1 list all devices`\n' +
+    '  `@ep1 show me all active clients`\n' +
     '  `@xiq show network health for Beverly`\n' +
     '  `@bex show me scheduled jobs`',
     { parse_mode: 'Markdown' },
@@ -294,6 +296,8 @@ bot.command('help', async (ctx) => {
     '  `@xco\\-monitor how is my network?`\n' +
     '  `@xco\\-operator acknowledge all major alarms`\n' +
     '  `@xiq show network health for Beverly`\n' +
+    '  `@ep1 list all devices` \\(or `ep1 list all devices`\\)\n' +
+    '  `@ep1 show active clients`\n' +
     '  `@bex system status`\n\n' +
     'Or just type any message to ask your default agent\\.',
     { parse_mode: 'MarkdownV2' },
@@ -562,7 +566,7 @@ bot.on('message:text', async (ctx) => {
   }
 
   // Soft keyword prefixes — "xiq <query>", "iq <query>", "xco <query>" (no @ required)
-  const softPrefixMatch = input.match(/^(xiq|xco|iq|daneel|weather)\s+([\s\S]+)/i);
+  const softPrefixMatch = input.match(/^(xiq|xco|iq|daneel|weather|ep1|p1)\s+([\s\S]+)/i);
   if (softPrefixMatch) {
     const softHint = softPrefixMatch[1]!.toLowerCase();
     const softInput = softPrefixMatch[2]!.trim();
@@ -571,6 +575,7 @@ bot.on('message:text', async (ctx) => {
       xiq: 'xiq', iq: 'xiq',
       xco: 'xco',
       daneel: 'daneel', weather: 'daneel',
+      ep1: 'platform one', p1: 'platform one',
     };
     const agentHint = nameMap[softHint] ?? softHint;
     const foundId = await resolveAgentByName(agentHint);
