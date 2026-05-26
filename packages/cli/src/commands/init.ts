@@ -285,6 +285,19 @@ export async function initCommand(): Promise<void> {
     }
   }
 
+  const setupP1 = await confirm({ message: 'Configure Extreme Platform One (cloudapi.extremecloudiq.com)?', default: hasKey('EXTREMEP1_API_TOKEN') });
+  if (setupP1) {
+    console.log(chalk.dim('  Platform One API token — get yours at https://developer.extremeplatformone.com\n'));
+    if (hasKey('EXTREMEP1_API_TOKEN')) {
+      const changeP1 = await confirm({ message: `Platform One API token${hintSecret('EXTREMEP1_API_TOKEN')} — change it?`, default: false });
+      domainEnv['EXTREMEP1_API_TOKEN'] = changeP1
+        ? await password({ message: 'Platform One API token (extr_sk_v1.xxx):' })
+        : prev['EXTREMEP1_API_TOKEN'] ?? '';
+    } else {
+      domainEnv['EXTREMEP1_API_TOKEN'] = await password({ message: 'Platform One API token (extr_sk_v1.xxx):' });
+    }
+  }
+
   // ── Step 4: Admin account ────────────────────────────────────────────────
   console.log('\n' + chalk.bold('Step 4 of 5 — Admin Account\n'));
 
@@ -365,6 +378,7 @@ export async function initCommand(): Promise<void> {
     // provision.ts can create default agents even before credentials are in vault
     ...(setupXiq && { BEX_XIQ_ENABLED: 'true' }),
     ...(setupXco && { BEX_XCO_ENABLED: 'true' }),
+    ...(setupP1 && { BEX_P1_ENABLED: 'true' }),
   };
 
   writeEnv(envVars);
@@ -566,6 +580,12 @@ export async function initCommand(): Promise<void> {
           xco_password: domainEnv['XCO_PASSWORD'] ?? '',
         }, ['xco:read', 'xco:write', '*']);
         console.info('[init] ✓ Stored XCO credentials');
+      }
+      if (domainEnv['EXTREMEP1_API_TOKEN']) {
+        await storeSystemCred('system.extremep1_api_token', 'API_TOKEN', {
+          api_token: domainEnv['EXTREMEP1_API_TOKEN'] ?? '',
+        }, ['p1:read', 'p1:write', 'xiq:read', 'xiq:write', '*']);
+        console.info('[init] ✓ Stored Extreme Platform One API token');
       }
       if (channelEnv['TWILIO_ACCOUNT_SID']) {
         await storeSystemCred('system.twilio_credentials', 'API_TOKEN', {
@@ -926,6 +946,26 @@ Be concise and technical in your responses.`,
           xcoSp.info('ExtremeCloud Orchestrator skills not available — run: npx tsx scripts/seed-xco-full.ts');
         }
       }
+    }
+  }
+
+  // ── Extreme Platform One skills ───────────────────────────────────────────
+  if (setupP1 && domainEnv['EXTREMEP1_API_TOKEN']) {
+    const p1Spinner = ora('Building Extreme Platform One skills (this takes ~30s)…').start();
+    const p1Result = spawnSync(
+      'npx', ['tsx', 'scripts/seed-extremep1-full.ts'],
+      {
+        cwd: root,
+        env: { ...migrateEnv, EXTREMEP1_API_TOKEN: domainEnv['EXTREMEP1_API_TOKEN'] ?? '' },
+        stdio: 'pipe',
+        encoding: 'utf-8',
+      },
+    );
+    if (p1Result.status === 0) {
+      p1Spinner.succeed('Extreme Platform One skills ready');
+    } else {
+      p1Spinner.warn('Platform One skill build had warnings — check `bex logs api`');
+      if (p1Result.stderr) console.warn(chalk.dim(p1Result.stderr.slice(0, 400)));
     }
   }
 

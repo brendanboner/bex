@@ -1,393 +1,505 @@
-# ExtremeCloud IQ (XIQ) — Operational Context
+# Extreme Networks — Platform One API Reference
 
 ## Platform Overview
 
-ExtremeCloud IQ (XIQ) is Extreme Networks' cloud-managed network management platform.
-It manages Extreme Networks access points, switches, and SD-WAN devices.
+Extreme Platform One is Extreme Networks' next-generation cloud management platform.
+It manages Extreme access points, switches, SD-WAN appliances, and IoT devices
+through a unified multi-service API hosted at `cloudapi.extremecloudiq.com`.
+
+This document is the authoritative reference for AI agents making Platform One API calls.
 
 ---
 
-## ⚠️ CRITICAL: Network Terminology — Device vs Client
+## Authentication
 
-In the Extreme Networks / XIQ ecosystem these terms have **precise meanings** and map to **different API endpoints**. Never confuse them.
+Platform One uses **Bearer token** authentication. Tokens have the format `extr_sk_v1.xxx`.
 
-### Device (a.k.a. "managed device")
-- A **network infrastructure device** managed by XIQ: access point (AP), switch, router, SD-WAN device, server
-- Listed at: `GET /devices`
-- Identified by a **numeric integer `id`** (never a MAC address where ID is needed)
-- Examples: "Beverly Home AP5010", "Core-Switch-2", "AP-Reception"
-- Has: `id`, `mac_address`, `hostname`, `model`, `location_id`, `status`
+- All requests: `Authorization: Bearer extr_sk_v1.xxx`
+- Credential vault key: **`system.extremep1_api_token`** — field `api_token`
+- Permissions required: `p1:read` (read), `p1:write` (write/mutations)
+- Tokens do **not** expire the way session tokens do — they are long-lived API keys
 
-### Client (a.k.a. "wireless client", "end-user device")
-- An **end-user device connected to the wireless network**: phone, laptop, tablet, IoT device
-- Listed at: `GET /clients/active` (currently connected) or `GET /clients` (all/historical)
-- Identified by **MAC address** in the URL (e.g. `/clients/byMac/AA:BB:CC:DD:EE:FF`)
-- Has a numeric `id` too (for detail endpoints), but primary key for lookup is MAC
-- Examples: "Brendan's iPhone", "MacBook-Pro", any phone/laptop/tablet
-- Has: `mac_address`, `hostname`, `ip_address`, `ssid`, `connected_ap`, `os_type`, `snr`, `rssi`
+Agents **never** handle the token directly. The `p1_http_call` handler and all composite handlers
+resolve `system.extremep1_api_token` from the credential vault automatically.
 
-### How to answer common questions
+---
 
-| Question | Correct endpoint | Notes |
+## Service Domains and Base URLs
+
+All services share the root domain `cloudapi.extremecloudiq.com`. Each service has its own path prefix:
+
+| Service | Base URL | Purpose |
 |---|---|---|
-| "Show all clients on AP X" | `GET /clients/active` filter by `connected_ap` | Only clients connect to APs |
-| "Show all devices on AP X" | `GET /clients/active` filter by `connected_ap` | **Same as above** — only clients connect to APs |
-| "Show devices at location Y" | `GET /devices?locationId=Y` | Network infra at a location |
-| "Who is connected to SSID X?" | `GET /clients/active` filter by `ssid` | |
-| "What APs are in building Z?" | `GET /devices` filter by location | Devices = APs/switches |
-| "Show me all devices" without context | Ask: device infra or client devices? | Ambiguous — clarify |
-| "Is BonePhone online?" | `GET /clients/active?searchString=BonePhone` | Client/end-user device |
-| "Check AP-5010 health" | `GET /monitor/devices/{id}` after listing devices | Infrastructure device |
-
-**Rule of thumb:**
-- If the thing has a user/owner (phone, laptop) → **client** → `/clients`
-- If it's plugged into a wall/ceiling (AP, switch) → **device** → `/devices`
-- "Devices on AP X" almost always means "clients connected to AP X" in conversation
+| XIQ (devices/clients/policies) | `https://cloudapi.extremecloudiq.com/xiq/v1` | Core device, client, and config management |
+| Site | `https://cloudapi.extremecloudiq.com/site/v1` | Location hierarchy (sites, buildings, floors) |
+| Alert | `https://cloudapi.extremecloudiq.com/alert/v1` | Alerts, events, alert policies |
+| Network Visibility & Orchestration | `https://cloudapi.extremecloudiq.com/nvo/v1` | Topology, LLDP, VLANs, L2/L3, VRFs |
+| Performance Management | `https://cloudapi.extremecloudiq.com/pm/v1` | Analytics, health scores, Copilot anomalies |
+| Client Service | `https://cloudapi.extremecloudiq.com/client/v1` | Wireless/wired client grid queries |
+| IAM | `https://cloudapi.extremecloudiq.com/iam/v1` | Users, roles, API keys, organizations |
+| Audit Log | `https://cloudapi.extremecloudiq.com/auditlog/v1` | User activity audit trail |
+| Asset / DLCS | `https://cloudapi.extremecloudiq.com/assets/v1` | Inventory, firmware, lifecycle, subscriptions |
+| Device Lifecycle | `https://cloudapi.extremecloudiq.com/device-lifecycle` | Device serial/MAC lookup (DLCS) |
+| Notifications | `https://cloudapi.extremecloudiq.com/notification/v1` | Email, webhooks, ServiceNow rules |
+| Tagging | `https://cloudapi.extremecloudiq.com/tagging/v1` | Tag definitions and entity associations |
+| Metastore | `https://cloudapi.extremecloudiq.com/metastore/v1` | Events, event types/severities |
+| SD-WAN | `https://cloudapi.extremecloudiq.com/sdwan` | SD-WAN sites, appliances, WAN monitoring |
 
 ---
 
-## API Authentication
+## Skill Domains
 
-- XIQ uses Bearer token authentication.
-- Login endpoint: `POST /login` with `{ userId, password }` — returns `{ access_token }`.
-- Pass the token as `Authorization: Bearer <access_token>` on all subsequent calls.
-- Credentials are stored in the Forge credential vault — never hardcode them.
-- Tokens expire after ~30 minutes. The credential vault handles re-authentication automatically.
+Skills are grouped by service domain. Each skill has a `domain` identifier and a set of tools
+built with the `p1_http_call` handler type (or a composite handler for multi-step operations).
 
-## API Base URL
-
-All paths below are relative to `https://api.extremecloudiq.com`. There is **no** `/xapi/v1/` prefix.
-
-## Key Endpoints
-
-| Endpoint | Purpose |
+| Domain | Skills |
 |---|---|
-| `GET /devices` | List all managed devices. Returns numeric `id`, `mac_address`, `hostname`, `location_id` |
-| `GET /devices/{id}` | Get details for one device by numeric ID |
-| `GET /devices/radio-information` | Radio stats (channel, power, noise) — requires `deviceIds[]` of integers |
-| `GET /clients/active` | Active wireless clients. Returns `ssid`, `ip_address`, `mac_address`, `os_type` |
-| `GET /network-policies` | List network policies |
-| `GET /network-policies/{id}/ssids` | SSIDs under a policy — returns `name`, `default_user_profile` |
-| `GET /user-profiles/{id}` | User profile including VLAN assignment |
-| `GET /network/vlan-profiles` | VLAN profiles with `id`, `name`, `default_vlan_id` |
-| `GET /locations` | Location tree (sites, buildings, floors) — returns numeric `id` |
-| `GET /monitor/devices/{id}` | Live device health stats |
+| `extremep1.devices` | Device lifecycle, radio info, firmware, location assignment |
+| `extremep1.clients` | Wireless/wired clients, usage, OUI lookup, disconnect |
+| `extremep1.sites` | Site/building/floor hierarchy, location tree |
+| `extremep1.alerts` | Alerts, events, alert policies, acknowledge/clear |
+| `extremep1.monitoring` | Analytics, health scores, Copilot anomaly detection |
+| `extremep1.topology` | Network topology, LLDP, VLANs, L2/L3 services |
+| `extremep1.configuration` | Network policies, SSIDs, VLANs, RADIUS, radio profiles |
+| `extremep1.iam` | Users, roles, groups, API keys, organizations |
+| `extremep1.audit` | User activity, audit log export |
+| `extremep1.assets` | Device inventory, firmware summary, hardware lifecycle |
+| `extremep1.notifications` | Email, webhooks, ServiceNow, routing rules |
+| `extremep1.tagging` | Tag CRUD, entity associations |
+| `extremep1.sdwan` | SD-WAN sites, appliances, WAN monitoring |
+| `extremep1.composite` | Multi-step intelligence tools (preferred entry point) |
 
-## CRITICAL: Parameter Types and ID Chaining
+---
 
-XIQ uses **numeric integer IDs** throughout — never pass MAC addresses where an ID is needed.
+## How Skill Tools Work
 
-### Pattern: Get device IDs before using device-specific tools
+### `p1_http_call` handler
+
+Raw API tools use `handlerType: 'p1_http_call'` with config:
+- `method`: HTTP verb (`GET`, `POST`, `PUT`, `DELETE`)
+- `urlTemplate`: Full URL with `{param}` substitutions, e.g. `https://cloudapi.extremecloudiq.com/xiq/v1/devices/{id}`
+- `isWrite`: `true` for mutations — requires human approval before execution
+- `credential`: resolved from `system.extremep1_api_token` automatically
+
+The handler injects `Authorization: Bearer <token>` on every request.
+Path parameters like `{id}` are substituted from the tool call arguments.
+Query parameters are appended as `?key=value` pairs.
+Request body (for POST/PUT) is sent as JSON.
+
+### Composite handlers
+
+Composite tools use specialized `handlerType` values and perform multi-step
+API sequences internally. They are the **preferred** entry point for agent queries
+because they handle all required API chaining automatically.
+
+---
+
+## Composite Tools — Platform One (`extremep1.composite`)
+
+Always prefer these over raw API calls when the query is covered.
+
+### `p1_clients_by_vendor`
+**Handler:** `p1_clients_by_vendor`
+
+Lists active wireless clients filtered by vendor/OS using three detection signals:
+1. `os_type` field (e.g. `Apple iOS`, `macOS`, `Android`, `Windows`)
+2. Hostname pattern matching (e.g. `iPhone`, `MacBook`, `iPad`)
+3. MAC OUI lookup against known vendor prefixes
+
+Parameters:
+- `vendor` — `"apple"`, `"android"`, `"windows"`, `"linux"` (default: `"apple"`)
+- `apName` — optional: filter to clients on APs whose hostname contains this string
+- `locationId` — optional: numeric location ID
+
+Returns: hostname, IP, VLAN, SSID, connected AP name, signal quality per client.
+
+**Use for:** "show Apple clients", "how many iPhones are connected", "Android devices on AP-East"
+
+### `p1_client_snapshot`
+**Handler:** `p1_client_snapshot`
+
+Full status snapshot for a single named client device.
+
+Parameters:
+- `clientName` — hostname or partial name (e.g. `"BonePhone"`, `"MacBook"`)
+- `macAddress` — MAC address (use when known, required for offline history)
+
+Returns: `is_currently_connected`, `current_connection` (AP, SSID, IP, SNR, RSSI, health_score), `last_seen_at`, `status_message` (plain English ready to report).
+
+The `status_message` field is always ready to report verbatim:
+- Connected: `"BonePhone is CONNECTED on AP-Office-1 (Corp-WiFi)"`
+- Offline with history: `"BonePhone is NOT currently connected. Last seen: 2026-04-22T09:10:00Z on AP-Reception"`
+- Offline no history: `"BonePhone not found. Provide macAddress to retrieve connection history."`
+
+**Use for:** "where is John's iPhone", "is BonePhone connected", "what signal does MacBook have"
+
+### `p1_network_health_summary`
+**Handler:** `p1_network_health`
+
+Overall network health scores for a location. Resolves location name to ID automatically.
+
+Parameters:
+- `locationName` — location name to search (e.g. `"Beverly"`, `"HQ"`, `"Building A"`)
+- `locationId` — numeric location ID (use if already known)
+
+Returns: WiFi health score, device health score, client health score, services health score.
+
+**Use for:** "how is the network at Beverly", "show health scores", "is HQ healthy"
+
+### `p1_device_health_summary`
+**Handler:** `p1_device_health`
+
+Device health breakdown for APs/switches at a location. Auto-resolves location name.
+
+Parameters:
+- `locationName` — location name to search
+- `locationId` — numeric location ID (use if already known)
+
+**Use for:** "show device health at main office", "which APs are unhealthy"
+
+### `p1_topology_overview`
+**Handler:** `p1_topology_report`
+
+Full network topology with SSID → VLAN → Client mapping.
+Chains: `GET /network-policies` → `GET /network-policies/{id}/ssids` → `GET /user-profiles/{id}` → `GET /clients/active`
+
+Parameters:
+- `ssidFilter` — only include SSIDs containing this string
+- `locationId` — optional numeric location filter
+
+**Use for:** "show topology", "SSID to VLAN map", "what network policy covers Corp-WiFi"
+
+### `p1_radio_quality_report`
+**Handler:** `p1_radio_quality`
+
+Radio quality metrics (channel, SNR, RSSI, noise floor, TX/RX rates) for all APs.
+Handles device enumeration automatically — no need to gather device IDs first.
+
+Parameters:
+- `apNameFilter` — only APs whose hostname contains this string
+- `radioType` — `"2.4GHz"`, `"5GHz"`, or `"6GHz"`
+
+Returns: per-AP, per-radio breakdown with health classification.
+
+**Use for:** "show radio quality", "which APs have bad SNR", "5GHz channel utilization"
+
+### `p1_ap_client_distribution`
+**Handler:** `p1_ap_client_sankey`
+
+Client distribution across APs as a Mermaid sankey diagram:
+`Access Points → SSIDs → Client Vendor → Device Type`
+
+Parameters:
+- `apFilter` — only clients on APs matching this name
+
+Returns: `sankey_diagram` field with valid `sankey-beta` Mermaid syntax — return this field as-is
+so the dashboard renders it as a Mermaid widget.
+
+**Use for:** "what devices are on the network", "AP client breakdown", "show device type distribution"
+
+### `p1_alert_summary`
+**Handler:** `p1_alert_summary`
+
+Comprehensive alert summary: counts by severity, top active alerts, recent events.
+Calls `GET /alerts/severity-counts` + `GET /alerts` (no sortField — see gotchas).
+
+Parameters:
+- `locationId` — optional: filter alerts to a specific site
+- `severities` — optional: comma-separated `CRITICAL,MAJOR,MINOR,WARNING,INFO`
+
+**Use for:** "any alerts?", "what are the current issues?", "show active problems"
+
+### `p1_client_health_report`
+**Handler:** `p1_client_health_report`
+
+Health report for all active wireless clients — signal quality, retry rate, health classification.
+Groups clients as poor / fair / good based on SNR and RSSI thresholds.
+
+Parameters:
+- `healthFilter` — `"poor"`, `"fair"`, or `"good"`
+- `apFilter` — only clients on APs matching this name
+
+**Use for:** "show clients with poor signal", "which clients have connectivity issues", "bad radio clients"
+
+---
+
+## Key Operational Patterns
+
+### Pattern: List devices
 
 ```
-Step 1: list_devices → returns [{id: 12345678, mac_address: "AA:BB:CC:...", hostname: "AP-Office"}]
-Step 2: Use id (integer) in subsequent calls
-  - list_devices_radio_information(deviceIds=[12345678, 87654321])
-  - GET /monitor/devices/12345678
-  - GET /devices/12345678
+GET /xiq/v1/devices
+  ?page=1&limit=100&connected=true&views=FULL
 ```
 
-**Common mistake**: passing `mac_address` values to tools that require `id`. The error "NOT_FOUND" almost always means an integer ID was expected but a string was passed.
+Returns `data[].id` (numeric), `mac_address`, `hostname`, `model`, `location_id`.
+Always use `id` (integer) — never `mac_address` — for subsequent calls.
 
 ### Pattern: Radio quality by location
 
 ```
-Step 1: list_devices(locationId=<loc_id>)  → get numeric IDs for APs at the location
-Step 2: list_devices_radio_information(deviceIds=[...numeric ids...])
-Step 3: Group results by location/floor
+Step 1: p1_list_devices(locationId=<loc_id>)  → get numeric device IDs
+Step 2: p1_get_devices_radio_info(deviceIds="12345,67890,11111")
+Step 3: Correlate results by location/AP
 ```
+
+Or use `p1_radio_quality_report` composite which does this automatically.
+
+Note: `deviceIds` must be a **comma-separated string of integers**, not a JSON array.
+Always call `p1_list_devices` first — the radio endpoint requires numeric IDs, not MACs.
 
 ### Pattern: SSID → VLAN → Client correlation
 
 ```
-Step 1: GET /network-policies           → policy list with IDs
-Step 2: GET /network-policies/{id}/ssids → SSID names + user_profile IDs
-Step 3: GET /user-profiles/{up_id}      → vlan_profile.id, default_vlan_id
-Step 4: GET /network/vlan-profiles      → vlan name + default_vlan_id
-Step 5: GET /clients/active             → clients with ssid + ip_address
+Step 1: GET /xiq/v1/network-policies            → policy list with IDs
+Step 2: GET /xiq/v1/network-policies/{id}/ssids → SSID names + user_profile IDs
+Step 3: GET /xiq/v1/user-profiles/{up_id}       → vlan_profile.id, default_vlan_id
+Step 4: GET /xiq/v1/network/vlan-profiles        → VLAN name + default_vlan_id
+Step 5: GET /xiq/v1/clients/active               → clients with ssid + ip_address
 Step 6: Correlate SSID → VLAN → clients
 ```
 
-## Pagination
+Or use `p1_topology_overview` composite which does this automatically.
 
-All list endpoints use page/limit parameters:
-- `page` (integer, min 1) — page number
-- `limit` (integer, min 1, max 100) — items per page
-- Always check if more pages are needed for complete data.
+### Pattern: Get location ID before health queries
 
-## Common Response Shapes
-
-```json
-// GET /devices response
-{
-  "data": [
-    { "id": 12345678, "mac_address": "...", "hostname": "AP-Office-1", "location_id": 99 }
-  ],
-  "hasMore": false
-}
-
-// GET /devices/radio-information response
-{
-  "data": [
-    {
-      "device_id": 12345678,
-      "radio_list": [
-        { "radio_type": "WIFI5", "channel": 36, "tx_power": 17, "noise_floor": -95 }
-      ]
-    }
-  ]
-}
-
-// GET /clients/active response
-{
-  "data": [
-    { "ssid": "Corp-WiFi", "ip_address": "10.0.1.5", "mac_address": "AA:BB:CC:DD:EE:FF", "os_type": "Mac OS X" }
-  ]
-}
+```
+Step 1: GET /site/v1/tree                       → full location hierarchy
+Step 2: Find site/building/floor matching name
+Step 3: Use numeric locationId in health/device/client endpoints
 ```
 
-## Alarm Severity Mapping
+Or use `p1_network_health_summary(locationName="Beverly")` — auto-resolves.
 
-| XIQ Severity | Forge Action |
+### Pattern: Device presence detection
+
+```
+1. p1_list_active_clients(searchString="BonePhone")
+2. If results.length > 0 → PRESENT at results[0].connected_ap on results[0].ssid
+3. If results.length = 0 → ABSENT
+4. Use p1_client_snapshot with macAddress for offline history
+```
+
+---
+
+## Critical Gotchas
+
+### 1. NEVER pass sortField or order to `/alert/v1/alerts`
+
+`GET /alert/v1/alerts` does **not** support `sortField` or `order` parameters.
+Passing them causes `400 BAD_REQUEST`. Use `p1_alert_summary` composite instead.
+
+Supported filters: `severities`, `categoryIds`, `startTime`, `endTime`, `keyword`, `siteId`, `buildingId`.
+
+### 2. NEVER guess locationId
+
+Location IDs are numeric and org-specific. Never assume a value.
+Always resolve via `p1_get_location_tree` (`GET /site/v1/tree`) first,
+or use a composite tool that resolves names automatically.
+
+### 3. Radio info requires device IDs first
+
+`GET /xiq/v1/devices/radio-information` requires `deviceIds` — a **comma-separated string of integers**.
+Always call `p1_list_devices` first to get numeric IDs.
+Passing MAC addresses returns `NOT_FOUND`. Passing JSON arrays returns a parse error.
+
+### 4. searchString does NOT search vendor/manufacturer
+
+`searchString` on client endpoints matches display name, hostname, alias, and MAC prefix only.
+It does **not** search `os_type`, manufacturer, or OUI.
+Use `p1_clients_by_vendor` composite tool for vendor/OS filtering.
+
+### 5. Do NOT pass `views` to raw client list
+
+Passing a `views` array parameter to `GET /xiq/v1/clients/active` (or the v1 XIQ list endpoint)
+can cause `400` errors depending on the endpoint version.
+Use the Platform One client service (`/client/v1/wireless-grid`) for rich view fields,
+or use `p1_client_snapshot` composite which handles field enrichment automatically.
+
+### 6. Write operations require approval
+
+Any tool with `isWrite: true` in its config must receive explicit human confirmation
+before execution. The bex orchestrator enforces this for the `SUPERVISED` agent posture.
+Write operations include: reboot, firmware upgrade, policy push, disconnect client,
+create/delete site, create/delete API key, and all CRUD mutations.
+
+### 7. Time parameters are epoch milliseconds
+
+All `startTime` / `endTime` parameters across all services use **epoch milliseconds** (not seconds).
+
+```
+const now = Date.now();
+const last24h = now - 86_400_000;
+const lastHour = now - 3_600_000;
+const lastWeek = now - 604_800_000;
+```
+
+---
+
+## Apple Device Detection (Multi-Strategy)
+
+When detecting Apple/iOS clients, three detection signals are combined because
+no single signal is reliable for all devices:
+
+1. **`os_type` field** — matches: `Apple iOS`, `macOS`, `Mac OS X`, `iPadOS`, `watchOS`, `tvOS`
+2. **Hostname pattern** — matches: `iPhone`, `iPad`, `MacBook`, `iMac`, `AirPods`, `Apple Watch`, `HomePod`
+3. **MAC OUI** — first 3 octets matched against known Apple IEEE-registered OUI prefixes
+
+**Why multi-strategy is required:**
+- iOS devices with MAC randomization have unknown OUIs → `os_type` may show `Undetermined`
+- A device named "BonePhone" is an iPhone but its `os_type` may be blank until XIQ fingerprints it
+- `searchString="Apple"` returns zero results — it matches display names, not `os_type`
+
+**Always use `p1_clients_by_vendor(vendor="apple")` for Apple client queries** — it applies
+all three signals in a single pass and returns correctly filtered results.
+
+---
+
+## Pagination
+
+All list endpoints use page/limit:
+- `page` — integer, min 1
+- `limit` — integer, min 1, max 100 (some endpoints max 1000)
+- Always check if more pages are needed for complete data sets
+
+The Platform One client service (`/client/v1`) uses `pageSize` instead of `limit`.
+
+---
+
+## Radio Quality Thresholds
+
+| Metric | Good | Fair | Poor |
+|---|---|---|---|
+| SNR | >= 25 dB | 15–24 dB | < 15 dB |
+| RSSI | >= -67 dBm | -68 to -80 dBm | < -80 dBm |
+| Health Score | >= 70 | 40–69 | < 40 |
+
+---
+
+## Key Endpoint Reference (XIQ service — `/xiq/v1`)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /devices` | List devices. Returns `id` (int), `mac_address`, `hostname`, `location_id` |
+| `GET /devices/{id}` | Single device by numeric ID |
+| `GET /devices/{id}/stats` | Real-time stats for a device |
+| `GET /devices/radio-information?deviceIds=1,2,3` | Radio stats — requires comma-separated int IDs |
+| `POST /devices/:reboot` | Reboot devices (WRITE — approval required) |
+| `GET /clients/active` | Active wireless clients |
+| `GET /clients/summary` | Aggregate client statistics |
+| `GET /network-policies` | List network policies |
+| `GET /network-policies/{id}/ssids` | SSIDs under a policy |
+| `GET /user-profiles/{id}` | User profile with VLAN assignment |
+| `GET /network/vlan-profiles` | VLAN profiles |
+
+## Key Endpoint Reference (Site service — `/site/v1`)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /tree` | Full location hierarchy (sites → buildings → floors) |
+| `GET /tree/devices` | Location tree with device associations |
+| `GET /sites` | List all sites |
+| `GET /buildings?siteId=X` | Buildings, optionally filtered by site |
+| `GET /floors?buildingId=X` | Floors in a building |
+| `GET /count` | Counts of sites, buildings, floors |
+
+## Key Endpoint Reference (Alert service — `/alert/v1`)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /alerts` | List alerts — NO sortField/order params |
+| `GET /alerts/severity-counts` | Alert counts by severity |
+| `GET /alerts/count-by-group` | Alert counts grouped by category |
+| `GET /metadata/categories` | Alert category types |
+| `POST /alerts/:acknowledge` | Acknowledge alerts (WRITE) |
+| `POST /alerts/:clear` | Clear/resolve alerts (WRITE) |
+
+## Key Endpoint Reference (Monitoring — `/pm/v1`)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /locations/{locationId}/wifi-health` | WiFi health score for a location |
+| `GET /locations/{locationId}/device-health` | Device health score |
+| `GET /locations/{locationId}/client-health` | Client health score |
+| `GET /locations/{locationId}/services-health` | Services health score |
+| `POST /analytics/client-health` | Client health analytics over time |
+| `POST /analytics/device-health` | Device health analytics over time |
+| `GET /copilot/anomalies` | AI-detected network anomalies |
+
+---
+
+## Direct Query Rule
+
+**Scheduled jobs are automation tools, NOT data sources.** When a user asks a question
+about network data, ALWAYS call the appropriate query tool directly.
+
+| User asks | Correct approach | Wrong approach |
+|---|---|---|
+| "Any clients with bad radio?" | `p1_radio_quality_report()` | ~~Check if a monitoring job exists~~ |
+| "What is the IP of my MacBook?" | `p1_client_snapshot(clientName="MacBook")` | ~~List scheduled jobs~~ |
+| "Show all Apple clients" | `p1_clients_by_vendor(vendor="apple")` | ~~Trigger a monitoring job~~ |
+| "How is the network doing?" | `p1_network_health_summary()` | ~~Enable a monitoring job~~ |
+| "Who is connected to AP X?" | `p1_list_active_clients(connectedAp="AP X")` | ~~Check job status~~ |
+
+**Never say "The data is still being queried."** You have direct synchronous access to
+Platform One via tool calls. If a tool fails, say what failed and why. Never imply
+there is a background process producing results later.
+
+Only use `list_scheduled_jobs` / `enable_scheduled_job` / `trigger_scheduled_job` when
+the user **explicitly** requests scheduled automation.
+
+---
+
+## Alarm Severity Actions
+
+| Severity | Agent Action |
 |---|---|
 | CRITICAL | Immediate escalation |
 | MAJOR | Auto-remediate if in scope, else escalate |
 | MINOR | Log and include in next report |
 | WARNING | Note in summary only |
-
-## SSH Access
-
-Advanced operations can use direct SSH:
-- Tool: `ssh_exec` with the device's management IP
-- Credentials resolved from vault by target name
-- Common: `show version`, `show interface`, `show alarm`, `show config`
-
-## Client Operations
-
-### ⚠️ Finding Apple/iOS/Android Clients by Vendor — NEVER use searchString="Apple"
-
-`searchString` searches display names and aliases — it does NOT search `os_type`. Searching `searchString=Apple` returns zero results because device names are like "BonePhone", "Brendan's MacBook", not "Apple".
-
-**Always use `xiq_clients_by_vendor` tool for vendor/OS queries:**
-```
-xiq_clients_by_vendor(vendor="apple")       → all Apple clients (iPhone/iPad/Mac/Watch)
-xiq_clients_by_vendor(vendor="android")     → all Android clients
-xiq_clients_by_vendor(vendor="apple", apName="Beverly")  → Apple clients on APs with "Beverly" in name
-```
-
-**Apple client detection uses 3 signals (multi-strategy):**
-1. `os_type` contains: 'Apple iOS', 'macOS', 'Mac OS X', 'iPadOS', 'watchOS'
-2. Hostname contains: 'iPhone', 'iPad', 'MacBook', 'iMac', 'AirPods', 'Apple Watch'
-3. MAC OUI (first 3 octets) matches known Apple IEEE-registered OUIs
-
-**Why os_type alone fails:** iOS devices with MAC randomisation have unknown OUIs so XIQ fingerprints them as 'Undetermined'. A device named "BonePhone" is an iPhone but its `os_type` may be blank.
-**Why searchString fails:** It only matches display name/alias, never `os_type` or vendor info.
-
-### Finding a Client by Name or Alias
-
-Use `xiq_client_snapshot` (composite handler — preferred) or `list_active_clients` with `searchString`:
-
-```
-xiq_client_snapshot(clientName="BonePhone")
-  → is_currently_connected, current_connection {ap, ssid, ip, snr, rssi, health_score}, last_seen_at
-```
-
-The `searchString` matches against: hostname, alias, username, MAC address prefix.
-**Important**: `searchString` may NOT match the iOS `hostname` field in all XIQ versions.
-**Do NOT use `views` parameter** — `list_active_clients` with `views` causes a 400 error. SNR/RSSI come from the `/client-details/overview/info/{id}` endpoint, not the client list.
-
-### Fallback Search Strategy (when searchString returns 0 results)
-
-If `searchString` returns no results but you believe the device might be connected, use the composite `xiq_client_snapshot` tool — it automatically tries all strategies:
-1. `searchString` against active clients
-2. Fetch all active clients (up to 500) and filter client-side where `hostname` contains the search term
-3. Search historical `/clients` by `searchString`  
-4. Historical clients filtered by `hostname`
-
-**This handles iOS devices** where the hostname (e.g. "BonePhone") is set by the device but may differ from the XIQ display name/alias.
-
-### Getting Full Client Details
-
-Once you have the numeric client ID (from `xiq_client_snapshot` or `list_active_clients`):
-
-```
-/client-details/overview/info/{clientId}?startTime={ms}&endTime={ms}
-  → snr, rssi, tx_rate, rx_rate, channel, band, connected_ap, ssid, ip_address, os_type, health_score
-  NOTE: Do NOT use get_client with views parameter — views causes 400 errors
-
-get_client_stats(clientId=11223344, startTime=<now-3600000>, endTime=<now>)
-  → current connection metrics: SNR, RSSI, data rate, retry rate
-
-get_client_events(clientId=11223344, startTime=<now-86400000>, endTime=<now>)
-  → timeline of connect/disconnect/roam/auth-fail events
-```
-
-### Checking When a Device Connected or Left
-
-```
-Step 1: list_active_clients(searchString="BonePhone") — if empty, device is NOT currently connected
-Step 2: get_client_by_mac(clientMac="AA:BB:CC:DD:EE:FF") — get numeric ID even if not active
-Step 3: get_client_events(clientId=<id>, startTime=<24h_ago_ms>, endTime=<now_ms>)
-  → look for event_type = "DISCONNECTED" / "CONNECTED" with timestamp
-Step 4: get_connection_trail(macAddress="AA:BB:CC:DD:EE:FF")
-  → full chronological roaming map across all APs
-```
-
-### Device Presence Detection (for scheduled monitoring)
-
-Pattern for tracking whether a named device is on the network:
-```
-1. list_active_clients(searchString="BonePhone")
-2. If results.length > 0 → PRESENT at results[0].connected_ap on results[0].ssid
-3. If results.length = 0 → ABSENT (last seen via get_client_events)
-4. Compare to previous state to detect ARRIVAL or DEPARTURE events
-```
-
-### Client `views` Parameter Reference
-
-Pass `views` as an array to `list_active_clients` and `get_client` to get richer fields:
-
-| View | Fields returned |
-|---|---|
-| `CLIENT_DETAILS` | snr, rssi, tx_rate, rx_rate, channel, band, connected_ap_id |
-| `HEALTH_STATUS` | health_score, health_category |
-| `DEVICE_INFO` | os_type, manufacturer, model |
-| `BASIC` | id, hostname, mac_address, ip_address, ssid, user_profile |
-
-### Time Parameters
-
-All client detail endpoints use epoch milliseconds:
-```js
-const now = Date.now();
-const last24h = now - 86_400_000;
-const lastHour = now - 3_600_000;
-```
-
-
-### Offline Client Lookups — MAC Address is Key
-
-When a client is not currently connected, XIQ can only look up history via MAC address (not by name).
-The `xiq_client_snapshot` handler handles this automatically, but needs the MAC:
-
-```
-Pattern: check memory first
-1. Check agent memory for "<DeviceName>_mac" key (e.g. "BonePhone_mac")
-2. If found: pass it as macAddress parameter to xiq_client_snapshot
-3. xiq_client_snapshot will then query connection trail and return last_seen_at
-
-Pattern: when device IS found connected
-1. Save mac_address to memory as "<DeviceName>_mac" for future offline lookups
-2. Save connection state for change detection
-```
-
-### Reading the xiq_client_snapshot response
-
-The response always includes `status_message` — a ready-to-report plain-English summary:
-- Connected: "BonePhone is CONNECTED on AP-Office-1 (Corp-WiFi)"
-- Offline with history: "BonePhone is NOT currently connected. Last seen: 2026-04-22T09:10:00Z on AP-Reception (Corp-WiFi)"
-- Offline no history: "BonePhone not found in active clients. Provide macAddress to retrieve connection history."
-
-Always report the `status_message` to the user. Also include `last_seen_at` when relevant.
+| INFO | No action required |
 
 ---
 
-## ⚠️ CRITICAL: Query Strategy — NEVER Use Scheduled Jobs as Data Source
+## Device vs Client Terminology
 
-**Scheduled jobs are automation tools, NOT data sources.** When a user asks a question about network data, ALWAYS call the appropriate XIQ query tool directly. Never use `list_scheduled_jobs`, `enable_scheduled_job`, `trigger_scheduled_job`, or any job management tool to answer a data question.
+In the Extreme / Platform One ecosystem these terms map to different endpoints:
 
-### Rule: Direct Query First
+**Device** — network infrastructure: AP, switch, router, SD-WAN appliance
+- Listed at: `GET /xiq/v1/devices`
+- Identified by numeric integer `id`
+- Has: `id`, `mac_address`, `hostname`, `model`, `location_id`
 
-| User asks | CORRECT approach | WRONG approach |
-|---|---|---|
-| "Are there clients with bad radio?" | `xiq_radio_quality_report()` or `xiq_client_health_report()` | ~~Check if a monitoring job exists~~ |
-| "What is the IP of my MacBook?" | `xiq_client_snapshot(clientName="MacBookPro")` | ~~List scheduled jobs~~ |
-| "Show me all Apple clients" | `xiq_clients_by_vendor(vendor="apple")` | ~~Trigger a monitoring job~~ |
-| "How is the network doing?" | `xiq_network_overview()` | ~~Enable a monitoring job~~ |
-| "Who is connected to AP X?" | `list_active_clients(connectedAp="AP X")` | ~~Check job status~~ |
+**Client** — end-user device: phone, laptop, tablet, IoT sensor
+- Listed at: `GET /xiq/v1/clients/active` (connected now) or `/client/v1/wireless-grid` (all)
+- Primary lookup: MAC address; also has numeric `id`
+- Has: `mac_address`, `hostname`, `ip_address`, `ssid`, `connected_ap`, `os_type`, `snr`, `rssi`
 
-### When TO Use Scheduled Jobs
-
-Only call `list_scheduled_jobs` / `enable_scheduled_job` / `trigger_scheduled_job` when the user **explicitly** says one of:
-- "set up a scheduled job"
-- "automate this check"
-- "run this on a schedule"
-- "enable the monitoring job"
-- "what scheduled jobs are there?"
-
-If the user says "don't enable a job, just show the data" — stop any job-related actions immediately and call the direct XIQ data tool.
-
-### Handling "Bad Radio Quality" Queries
-
-For any question about poor signal, bad RSSI/SNR, weak connection:
-1. Call `xiq_radio_quality_report()` → returns clients grouped by health (poor/fair/good)
-2. OR call `xiq_client_health_report()` → returns health breakdown with signal stats
-3. Filter for clients where `snr < 20` (bad) or `rssi < -72` (bad)
-4. Report the count and list the worst offenders
-
-Do NOT look for a job to run. Do NOT wait for scheduled data. Query directly.
-
-### Response Completion Rule
-
-**Never say "The data is still being queried" or "I will update you when I have the data."**
-You have direct access to XIQ via tool calls. If a tool call fails, say what failed and why.
-If the tool returns data, report it immediately. You are synchronous — there is no background process.
+Rule of thumb:
+- Has a user/owner (phone, laptop) → **client** → `/clients`
+- Plugged into wall/ceiling (AP, switch) → **device** → `/devices`
+- "Devices on AP X" in conversation usually means "clients connected to AP X"
 
 ---
 
-## Radio Quality Thresholds (for bad radio classification)
+## Legacy XIQ API (Backward Compatibility)
 
-| Metric | Good | Fair | Poor (Bad) |
-|---|---|---|---|
-| SNR | ≥ 25 dB | 15–24 dB | < 15 dB |
-| RSSI | ≥ -67 dBm | -68 to -80 dBm | < -80 dBm |
-| Health Score | ≥ 70 | 40–69 | < 40 |
+The legacy XIQ API remains operational for backward compatibility.
 
----
+- Base URL: `https://api.extremecloudiq.com` (no `/xiq/v1/` prefix on legacy)
+- Auth: `POST /login` with `{ userId, password }` → returns `{ access_token }`
+- Token format: short-lived session token (~30 min), vault handles re-auth
+- Credential type: username/password (not Bearer API token)
 
-## ⚠️ CRITICAL: Wireless Performance API — viewType Enum Is Broken
+Legacy endpoints mirror the Platform One XIQ service but at the flat path:
+- `GET /devices` — same schema as Platform One `/xiq/v1/devices`
+- `GET /clients/active` — same schema
+- `GET /locations` — location tree
 
-The following endpoints all require a `viewType` query parameter that maps to a Java enum (`XiqConnectivityExperienceViewType`) in the XIQ backend. **No string value is accepted** — the API returns `400 BAD_REQUEST` with a Spring `ConversionFailedException` for every value tried (`global`, `device`, `location`, `SSID`, `AP`, etc.).
+**Prefer Platform One (`cloudapi.extremecloudiq.com`) for all new agents.**
+Use legacy `api.extremecloudiq.com` only when connecting to older XIQ-only environments
+that have not yet migrated to Platform One.
 
-### Broken tools — NEVER call these directly
-
-| Tool | Broken endpoint |
-|---|---|
-| `get_wireless_performance` | `/copilot/connectivity/wireless/performance?viewType=…` |
-| `get_wireless_quality_index` | `/copilot/connectivity/wireless/quality-index?viewType=…` |
-| `get_wireless_connectivity_experience` | `/copilot/connectivity/wireless/experience?viewType=…` |
-| `get_wireless_views` | `/copilot/connectivity/wireless/views?viewType=…` |
-| `get_wireless_time_to_connect` | `/copilot/connectivity/wireless/time-to-connect?viewType=…` |
-| `get_wireless_events` | `/copilot/connectivity/wireless/events?viewType=…` |
-| `get_wireless_apps` | `/copilot/connectivity/wireless/apps?viewType=…` |
-
-### Correct approach — use the composite tool
-
-```
-xiq_wireless_performance(startTime?, endTime?, ssid?, osType?)
-  → Enumerates all buildings via GET /locations/buildings
-  → Calls /copilot/connectivity/wireless/locations/performance?buildingId={id} per building  ✅
-  → Calls /copilot/connectivity/wireless/locations/quality-index?buildingId={id} per building ✅
-  → Calls /copilot/connectivity/wireless/locations/time-to-connect?buildingId={id} per building ✅
-  → Returns array of { buildingId, buildingName, performance, qualityIndex, timeToConnect }
-```
-
-The `_by_location` endpoints use `buildingId` instead of `viewType` and work correctly.
-
-### Rule
-
-> For **any** question about wireless performance, quality index, connectivity experience, or time-to-connect — always call `xiq_wireless_performance`. Never attempt to call the broken global endpoints.
-
----
-
-## ⚠️ CRITICAL: list_alerts — sortField Enum Is Broken
-
-The `list_alerts` tool (`GET /alerts`) accepts a `sortField` parameter that maps to a Java enum (`XiqAlertSortField`). **No string value is accepted** — passing `sortField=severity` (or any other string) returns `400 BAD_REQUEST`.
-
-### Rule
-
-> **Never pass `sortField` or `order` to `list_alerts`.** Call it without those parameters. The API returns results by default ordering, which is sufficient. All other parameters work normally: `severityIds`, `categoryIds`, `startTime`, `endTime`, `keyword`, `buildingId`, `siteId`, `acknowledged`, `page`, `limit`.
-
-```
-✅  list_alerts(limit=20, startTime=..., endTime=..., severityIds=[1,2])
-❌  list_alerts(sortField="severity", order="desc")   → 400 BAD_REQUEST
-```
+Legacy skill tools use `handlerType: 'http_call'` with Basic/session-token auth via vault,
+whereas Platform One tools use `handlerType: 'p1_http_call'` with Bearer token auth.

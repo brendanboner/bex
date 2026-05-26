@@ -36,6 +36,23 @@ const XCO_SKILL_DOMAINS = [
   'networking.extreme-xco.composite',
 ] as const;
 
+const P1_SKILL_DOMAINS = [
+  'extremep1.devices',
+  'extremep1.clients',
+  'extremep1.sites',
+  'extremep1.alerts',
+  'extremep1.monitoring',
+  'extremep1.topology',
+  'extremep1.configuration',
+  'extremep1.iam',
+  'extremep1.audit',
+  'extremep1.assets',
+  'extremep1.notifications',
+  'extremep1.tagging',
+  'extremep1.sdwan',
+  'extremep1.composite',
+] as const;
+
 /**
  * Attempt to pull a skill from the remote registry and upsert it locally.
  * Returns the skill id on success, null on any error (non-blocking).
@@ -733,6 +750,16 @@ export async function provisionDefaults(prisma: PrismaClient, vault: CredentialV
       if (ok) anyProvisioned = true;
       // Auto-publish XCO skills so they appear in the skill exchange
       await publishSkillsByDomainPrefix(prisma, 'networking.extreme-xco.');
+    }
+
+    // ── Extreme Platform One skills ───────────────────────────────────────────
+    if (process.env['BEX_P1_ENABLED'] === 'true' || await credentialExists(prisma, 'system.extremep1_api_token')) {
+      await ensureSkillsInstalled(prisma, 'extremep1', P1_SKILL_DOMAINS, 'Extreme Platform One');
+      // Create Platform One agent if skills were installed
+      const p1SkillExists = await prisma.skill.findFirst({ where: { domain: { startsWith: 'extremep1' } }, select: { id: true } });
+      if (p1SkillExists && !(await agentExists(prisma, 'Extreme Platform One'))) {
+        console.info('[provision] Platform One skills found but no agent — run: npx tsx scripts/seed-extremep1-full.ts');
+      }
     }
 
     if (anyProvisioned || (xiqEnabled || xcoEnabled)) {

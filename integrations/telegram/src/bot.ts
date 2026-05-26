@@ -283,10 +283,10 @@ bot.command('help', async (ctx) => {
     '🤖 *BEX Bot Commands*\n\n' +
     '*/start* — welcome & command list\n' +
     '*/status* — check your last request status\n' +
-    '*/jobs* — list scheduled jobs (quick view, no AI)\n' +
+    '*/jobs* — list scheduled jobs \\(quick view, no AI\\)\n' +
     '*/agents* — list available agents\n' +
     '*/skills* — list loaded skills & domains\n' +
-    '*/tools* — list all tools by domain (e.g. `/tools xco` or `/tools xiq`)\n' +
+    '*/tools* — list all tools by domain \\(e\\.g\\. `/tools xco` or `/tools xiq`\\)\n' +
     '*/agent \\<id\\>* — switch to a different agent\n' +
     '*/cancel* — forget the current pending request\n\n' +
     '*Route to a specific agent with @name:*\n' +

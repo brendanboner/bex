@@ -326,6 +326,471 @@ export function buildTools(
           }
         }
 
+        // ── p1_http_call: Extreme Platform One API — direct Bearer token ───
+        // Platform One uses API keys directly as Bearer tokens — no login step.
+        // Supports all cloudapi.extremecloudiq.com services (XIQ, IAM, Site,
+        // Alert, NVO, PM, DLCS, PCS, etc.)
+        if (handlerType === 'p1_http_call') {
+          if (!credentialId) {
+            return { error: 'p1_http_call requires a credentialId — configure system.extremep1_api_token in the credential vault' };
+          }
+          const urlTemplate = (config['urlTemplate'] as string | undefined) ?? '';
+          const method = ((config['method'] as string | undefined) ?? 'GET').toUpperCase();
+          if (!urlTemplate) return { error: 'No urlTemplate configured for p1_http_call tool' };
+          if (urlTemplate.length > 4096) return { error: 'URL template exceeds maximum allowed length' };
+
+          const { fetch } = await import('undici');
+
+          // Resolve API token from vault
+          const creds = await vault.resolve(credentialId, agentPermissions);
+          const apiToken = String(creds['api_token'] ?? creds['p1_api_token'] ?? creds['extremep1_api_token'] ?? '');
+          if (!apiToken) return { error: 'No api_token found in credential — re-run bex init or update system.extremep1_api_token in the vault' };
+
+          // Build URL — same template expansion as xiq_http_call
+          const REPEATED_ARRAY_PARAMS_P1 = new Set([
+            'views', 'fields', 'deviceIds', 'locationIds', 'ssids', 'vlans',
+            'metrics', 'entityIds', 'alertIds', 'siteIds', 'buildingIds',
+          ]);
+          const expandValueP1 = (k: string, v: unknown): string => {
+            let items: string[] | null = null;
+            if (Array.isArray(v)) {
+              items = v.map(String);
+            } else if (typeof v === 'string' && v.includes(',') && REPEATED_ARRAY_PARAMS_P1.has(k)) {
+              items = v.split(',').map((s) => s.trim()).filter(Boolean);
+            }
+            if (items) return items.map((item) => `${k}=${encodeURIComponent(item)}`).join('&');
+            return `${k}=${encodeURIComponent(String(v))}`;
+          };
+
+          let rawUrl = urlTemplate
+            .replace(/([?&])(\w+)=\{(\w+)\}/g, (full, sep, k, argKey) => {
+              const v = args[argKey];
+              if (v == null || v === '') return '';
+              return `${sep}${expandValueP1(k, v)}`;
+            })
+            .replace(/\{(\w+)\}/g, (_, k) => encodeURIComponent(String(args[k] ?? '')));
+
+          if (!rawUrl.includes('?') && rawUrl.includes('&')) rawUrl = rawUrl.replace(/^([^&]*)&/, '$1?');
+          const url = rawUrl.replace(/[?&]+$/, '').replace(/\?&/g, '?').replace(/&&+/g, '&');
+
+          // Call API with Bearer token
+          const p1FetchOpts: Parameters<typeof fetch>[1] = {
+            method,
+            headers: {
+              'Authorization': `Bearer ${apiToken}`,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+          };
+          if (method !== 'GET' && method !== 'HEAD') {
+            p1FetchOpts.body = JSON.stringify(args);
+          }
+          const p1Resp = await fetch(url, p1FetchOpts);
+          const p1Text = await p1Resp.text();
+          console.info(`[p1_http_call] ${method} ${url} → ${p1Resp.status}`);
+          if (!p1Resp.ok) {
+            return { error: `Platform One API error ${p1Resp.status}`, url, detail: p1Text.slice(0, 500) };
+          }
+          try {
+            return JSON.parse(p1Text);
+          } catch {
+            return { result: p1Text.slice(0, 2000) };
+          }
+        }
+
+        // ── p1_clients_by_vendor: vendor-filtered client list via Platform One ─
+        if (handlerType === 'p1_clients_by_vendor') {
+          const cred2 = credentialId ?? '';
+          if (!cred2) return { error: 'p1_clients_by_vendor requires a credentialId' };
+          const vendor = String(args['vendor'] ?? 'apple').toLowerCase();
+          const apNameFilter = String(args['apName'] ?? '');
+
+          const { fetch: f2 } = await import('undici');
+          const creds2 = await vault.resolve(cred2, agentPermissions);
+          const token2 = String(creds2['api_token'] ?? creds2['p1_api_token'] ?? '');
+          if (!token2) return { error: 'No api_token in credential' };
+
+          const hdrs2 = { 'Authorization': `Bearer ${token2}`, 'Accept': 'application/json' };
+
+          // Fetch up to 1000 active clients
+          const clientsRes = await f2('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=CLIENT_DETAILS', { headers: hdrs2 });
+          if (!clientsRes.ok) return { error: `Failed to list clients: ${clientsRes.status}` };
+          const clientsData = await clientsRes.json() as { data?: Array<Record<string, unknown>> };
+          const allClients = clientsData.data ?? [];
+
+          // Apple OUI prefixes (first 3 octets, uppercase, no separators)
+          const APPLE_OUIS = new Set([
+            '000393','000A27','000A95','000D93','001124','001451','0016CB','001750',
+            '001E52','001E63','001EC2','002312','002500','0025BC','002608','003065',
+            '00306C','0050E4','005056','006171','006D52','008CC8','009033','00C610',
+            '040CCE','044BED','0452F3','047D7B','04D3CF','04F7E4','086698','087402',
+            '08F4AB','0C1539','0C4DE9','0C6347','0C7C02','10411A','10DDB1','10F381',
+            '148FC6','14999E','18AF61','18E7F4','1C36BB','200CED','204E7F','20A2E4',
+            '24A07E','285AEB','2C6120','30F7C5','34159E','34363B','346085','38CAda',
+            '3C0712','3C15C2','3C2EFF','40330A','403004','408D5C','44D884','44FB42',
+            '489D24','4888CA','489E24','4C57CA','4C74BF','4C8D79','502CB4','5010E0',
+            '50EAD6','543553','586694','58B035','5C5948','5CF938','600308','60334B',
+            '60D9B7','60F4E8','64E682','686092','686F92','6C40088','6C4008','6C709F',
+            '70480F','70CD60','70E72C','743212','744AC1','7831C1','78CA39','78D75F',
+            '7C6D62','80649F','807D3A','84385D','848506','84FCAC','880032','88653D',
+            '886B6E','88C663','8C0073','8C2937','9006F7','906C3B','90B0ED','90C1C6',
+            '906FD4','9810E8','98B8E3','98D6BB','98E0D9','9C207B','9C293F','9CB9A8',
+            'A01699','A09FE0','A41773','A45E60','A860B6','A88D3B','A8BBD0','A8FAD8',
+            'AC1F74','AC3C0B','AC4BC8','AC5F3E','ACE4B5','ACD9B5','ACFDEC','B065BD',
+            'B418D1','B477BF','B87516','B8782E','B8C75D','BC3BAF','BC674D','BC920A',
+            'C06384','C082CB','C0D015','C41297','C85B76','C86F1D','C8D083','CC08E0',
+            'D0034B','D023DB','D04F7E','D0817A','D43D7E','D46A6A','D4F46F','D8004D',
+            'D89695','D8BB2C','DC2B2A','DC37B8','DC86D8','DCA904','E0B52D','E0B9BA',
+            'E0CCF8','E49A79','E4C63D','E8040B','E80688','ECF40B','F023B9','F02475',
+            'F0794D','F0B479','F0CCA1','F40F24','F42033','F4F15A','F86077','F8038A',
+            'F87BF4','F8E76B','FC25D9','FCC23D',
+          ]);
+
+          const VENDOR_MATCHERS: Record<string, (c: Record<string, unknown>) => boolean> = {
+            apple: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              const hn = String(c['hostname'] ?? '').toLowerCase();
+              const mac = String(c['mac_address'] ?? '').toUpperCase().replace(/[:\-\.]/g, '').slice(0, 6);
+              return os.includes('apple') || os.includes('ios') || os.includes('macos') || os.includes('ipad') ||
+                hn.includes('iphone') || hn.includes('ipad') || hn.includes('macbook') || hn.includes('imac') || hn.includes('airpod') ||
+                APPLE_OUIS.has(mac);
+            },
+            android: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              return os.includes('android') || os.includes('samsung') || os.includes('pixel');
+            },
+            windows: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              const hn = String(c['hostname'] ?? '').toLowerCase();
+              return os.includes('windows') || hn.includes('desktop') || hn.includes('laptop') || hn.includes('win');
+            },
+            linux: (c) => {
+              const os = String(c['os_type'] ?? '').toLowerCase();
+              return os.includes('linux') || os.includes('ubuntu') || os.includes('debian');
+            },
+          };
+
+          const matcher = (VENDOR_MATCHERS[vendor] ?? VENDOR_MATCHERS['apple'])!;
+          let filtered = allClients.filter(matcher);
+          if (apNameFilter) filtered = filtered.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apNameFilter.toLowerCase()));
+
+          return {
+            vendor,
+            total_clients: allClients.length,
+            matched: filtered.length,
+            clients: filtered.slice(0, 100).map(c => ({
+              hostname: c['hostname'],
+              mac_address: c['mac_address'],
+              ip_address: c['ip_address'],
+              os_type: c['os_type'],
+              ssid: c['ssid'],
+              connected_ap: c['connected_ap'],
+              vlan: c['vlan'],
+              rssi: c['rssi'],
+              snr: c['snr'],
+            })),
+          };
+        }
+
+        // ── p1_client_snapshot: full status for a named client ────────────────
+        if (handlerType === 'p1_client_snapshot') {
+          const cred3 = credentialId ?? '';
+          if (!cred3) return { error: 'p1_client_snapshot requires a credentialId' };
+          const creds3 = await vault.resolve(cred3, agentPermissions);
+          const token3 = String(creds3['api_token'] ?? creds3['p1_api_token'] ?? '');
+          if (!token3) return { error: 'No api_token in credential' };
+          const { fetch: f3 } = await import('undici');
+          const hdrs3 = { 'Authorization': `Bearer ${token3}`, 'Accept': 'application/json' };
+
+          const clientName = String(args['clientName'] ?? '').toLowerCase();
+          const macAddress = String(args['macAddress'] ?? '').toLowerCase();
+
+          // Search active clients
+          const searchRes = await f3('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=CLIENT_DETAILS', { headers: hdrs3 });
+          if (!searchRes.ok) return { error: `Failed to search clients: ${searchRes.status}` };
+          const searchData = await searchRes.json() as { data?: Array<Record<string, unknown>> };
+          const allC = searchData.data ?? [];
+
+          const found = allC.find(c => {
+            if (macAddress) return String(c['mac_address'] ?? '').toLowerCase().includes(macAddress);
+            if (clientName) return String(c['hostname'] ?? '').toLowerCase().includes(clientName);
+            return false;
+          });
+
+          if (!found) return { error: `Client not found: ${clientName || macAddress}`, available_count: allC.length };
+
+          // Get detailed info if we have an ID
+          const clientId = found['id'];
+          let details: Record<string, unknown> = {};
+          if (clientId) {
+            try {
+              const detRes = await f3(`https://cloudapi.extremecloudiq.com/xiq/v1/clients/${clientId}/details`, { headers: hdrs3 });
+              if (detRes.ok) details = await detRes.json() as Record<string, unknown>;
+            } catch { /* non-fatal */ }
+          }
+
+          return { client: found, details };
+        }
+
+        // ── p1_network_health: health scores for a location ───────────────────
+        if (handlerType === 'p1_network_health') {
+          const cred4 = credentialId ?? '';
+          if (!cred4) return { error: 'p1_network_health requires a credentialId' };
+          const creds4 = await vault.resolve(cred4, agentPermissions);
+          const token4 = String(creds4['api_token'] ?? creds4['p1_api_token'] ?? '');
+          if (!token4) return { error: 'No api_token in credential' };
+          const { fetch: f4 } = await import('undici');
+          const hdrs4 = { 'Authorization': `Bearer ${token4}`, 'Accept': 'application/json' };
+
+          let locationId = args['locationId'] as number | undefined;
+          const locationName = String(args['locationName'] ?? '');
+
+          // Auto-resolve location name to ID via site tree
+          if (!locationId && locationName) {
+            const treeRes = await f4('https://cloudapi.extremecloudiq.com/site/v1/tree', { headers: hdrs4 });
+            if (treeRes.ok) {
+              const treeData = await treeRes.json() as { data?: Array<Record<string, unknown>> };
+              // Also try XIQ location tree
+              const xiqTreeRes = await f4('https://cloudapi.extremecloudiq.com/xiq/v1/locations/tree', { headers: hdrs4 });
+              if (xiqTreeRes.ok) {
+                const xiqTree = await xiqTreeRes.json() as Record<string, unknown>;
+                // Recursively search for location by name
+                function findLocation(node: Record<string, unknown>): number | undefined {
+                  const name = String(node['name'] ?? '').toLowerCase();
+                  if (name.includes(locationName.toLowerCase())) return node['id'] as number;
+                  const children = (node['children'] ?? node['buildings'] ?? node['floors'] ?? []) as Array<Record<string, unknown>>;
+                  for (const child of children) {
+                    const found2 = findLocation(child);
+                    if (found2) return found2;
+                  }
+                  return undefined;
+                }
+                locationId = findLocation(xiqTree);
+              }
+            }
+          }
+          if (!locationId) return { error: `Could not resolve location: "${locationName}". Use p1_get_location_tree to list available locations.` };
+
+          // Fetch all health scores in parallel
+          const [wifiRes, devRes, clientRes] = await Promise.all([
+            f4(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId}/wifi-health`, { headers: hdrs4 }),
+            f4(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId}/device-health`, { headers: hdrs4 }),
+            f4(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId}/client-health`, { headers: hdrs4 }),
+          ]);
+
+          return {
+            locationId,
+            locationName,
+            wifi_health: wifiRes.ok ? await wifiRes.json() : null,
+            device_health: devRes.ok ? await devRes.json() : null,
+            client_health: clientRes.ok ? await clientRes.json() : null,
+          };
+        }
+
+        // ── p1_device_health: device health for a location ────────────────────
+        if (handlerType === 'p1_device_health') {
+          // Same as p1_network_health but focused on device health
+          const cred5 = credentialId ?? '';
+          if (!cred5) return { error: 'p1_device_health requires a credentialId' };
+          const creds5 = await vault.resolve(cred5, agentPermissions);
+          const token5 = String(creds5['api_token'] ?? creds5['p1_api_token'] ?? '');
+          if (!token5) return { error: 'No api_token in credential' };
+          const { fetch: f5 } = await import('undici');
+          const hdrs5 = { 'Authorization': `Bearer ${token5}`, 'Accept': 'application/json' };
+          let locationId5 = args['locationId'] as number | undefined;
+          const locationName5 = String(args['locationName'] ?? '');
+          if (!locationId5 && locationName5) {
+            const xiqRes = await f5('https://cloudapi.extremecloudiq.com/xiq/v1/locations/tree', { headers: hdrs5 });
+            if (xiqRes.ok) {
+              const tree5 = await xiqRes.json() as Record<string, unknown>;
+              function findLoc(node: Record<string, unknown>): number | undefined {
+                if (String(node['name'] ?? '').toLowerCase().includes(locationName5.toLowerCase())) return node['id'] as number;
+                const ch = (node['children'] ?? []) as Array<Record<string, unknown>>;
+                for (const c of ch) { const r = findLoc(c); if (r) return r; }
+                return undefined;
+              }
+              locationId5 = findLoc(tree5);
+            }
+          }
+          if (!locationId5) return { error: `Could not resolve location: "${locationName5}"` };
+          const dRes = await f5(`https://cloudapi.extremecloudiq.com/xiq/v1/locations/${locationId5}/device-health`, { headers: hdrs5 });
+          return dRes.ok ? await dRes.json() as Record<string, unknown> : { error: `Device health API error: ${dRes.status}` };
+        }
+
+        // ── p1_topology_report: SSID→VLAN→Client mapping ─────────────────────
+        if (handlerType === 'p1_topology_report') {
+          const cred6 = credentialId ?? '';
+          if (!cred6) return { error: 'p1_topology_report requires a credentialId' };
+          const creds6 = await vault.resolve(cred6, agentPermissions);
+          const token6 = String(creds6['api_token'] ?? creds6['p1_api_token'] ?? '');
+          if (!token6) return { error: 'No api_token in credential' };
+          const { fetch: f6 } = await import('undici');
+          const hdrs6 = { 'Authorization': `Bearer ${token6}`, 'Accept': 'application/json' };
+          const ssidFilter6 = String(args['ssidFilter'] ?? '').toLowerCase();
+
+          const [policiesRes, clientsRes] = await Promise.all([
+            f6('https://cloudapi.extremecloudiq.com/xiq/v1/network-policies?page=1&limit=100', { headers: hdrs6 }),
+            f6('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=BASIC', { headers: hdrs6 }),
+          ]);
+          if (!policiesRes.ok) return { error: `Failed to list network policies: ${policiesRes.status}` };
+          const policies = (await policiesRes.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
+          const clients = ((await clientsRes.json()) as { data?: Array<Record<string, unknown>> }).data ?? [];
+
+          // Group clients by SSID
+          const clientsBySSID: Record<string, Array<Record<string, unknown>>> = {};
+          for (const c of clients) {
+            const ssid = String(c['ssid'] ?? 'Unknown');
+            if (!clientsBySSID[ssid]) clientsBySSID[ssid] = [];
+            clientsBySSID[ssid].push(c);
+          }
+
+          const topology = [];
+          for (const policy of policies) {
+            const policyId = policy['id'];
+            if (!policyId) continue;
+            const ssidsRes = await f6(`https://cloudapi.extremecloudiq.com/xiq/v1/network-policies/${policyId}/ssids`, { headers: hdrs6 });
+            if (!ssidsRes.ok) continue;
+            const ssids = (await ssidsRes.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
+            for (const ssid of ssids) {
+              const ssidName = String(ssid['name'] ?? '');
+              if (ssidFilter6 && !ssidName.toLowerCase().includes(ssidFilter6)) continue;
+              topology.push({
+                ssid: ssidName,
+                policy: policy['name'],
+                vlan: ssid['vlan'],
+                user_profile: ssid['user_profile_name'],
+                connected_clients: clientsBySSID[ssidName]?.length ?? 0,
+                clients: (clientsBySSID[ssidName] ?? []).slice(0, 20).map(c => ({ hostname: c['hostname'], ip: c['ip_address'], mac: c['mac_address'] })),
+              });
+            }
+          }
+          return { topology, total_policies: policies.length, total_ssids: topology.length };
+        }
+
+        // ── p1_radio_quality: radio metrics for APs via Platform One ─────────
+        if (handlerType === 'p1_radio_quality') {
+          const cred7 = credentialId ?? '';
+          if (!cred7) return { error: 'p1_radio_quality requires a credentialId' };
+          const creds7 = await vault.resolve(cred7, agentPermissions);
+          const token7 = String(creds7['api_token'] ?? creds7['p1_api_token'] ?? '');
+          if (!token7) return { error: 'No api_token in credential' };
+          const { fetch: f7 } = await import('undici');
+          const hdrs7 = { 'Authorization': `Bearer ${token7}`, 'Accept': 'application/json' };
+          const apFilter7 = String(args['apNameFilter'] ?? '').toLowerCase();
+          const radioType7 = String(args['radioType'] ?? '').toLowerCase();
+
+          // Get all devices first
+          const devRes7 = await f7('https://cloudapi.extremecloudiq.com/xiq/v1/devices?page=1&limit=500&views=BASIC', { headers: hdrs7 });
+          if (!devRes7.ok) return { error: `Failed to list devices: ${devRes7.status}` };
+          let devices7 = (await devRes7.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
+          if (apFilter7) devices7 = devices7.filter(d => String(d['hostname'] ?? '').toLowerCase().includes(apFilter7));
+          const deviceIds7 = devices7.slice(0, 100).map(d => d['id']).filter(Boolean);
+          if (deviceIds7.length === 0) return { error: 'No matching devices found', filter: apFilter7 };
+
+          // Get radio info
+          const idsParam7 = deviceIds7.join('&deviceIds=');
+          const radioRes7 = await f7(`https://cloudapi.extremecloudiq.com/xiq/v1/devices/radio-information?deviceIds=${idsParam7}`, { headers: hdrs7 });
+          if (!radioRes7.ok) return { error: `Radio info API error: ${radioRes7.status}` };
+          let radioData7 = (await radioRes7.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
+          if (radioType7) radioData7 = radioData7.filter(r => String(r['radio_type'] ?? '').toLowerCase().includes(radioType7));
+          return { devices_queried: deviceIds7.length, radios: radioData7.length, data: radioData7.slice(0, 200) };
+        }
+
+        // ── p1_ap_client_sankey: AP→SSID→Vendor→DeviceType flow diagram ──────
+        if (handlerType === 'p1_ap_client_sankey') {
+          const cred8 = credentialId ?? '';
+          if (!cred8) return { error: 'p1_ap_client_sankey requires a credentialId' };
+          const creds8 = await vault.resolve(cred8, agentPermissions);
+          const token8 = String(creds8['api_token'] ?? creds8['p1_api_token'] ?? '');
+          if (!token8) return { error: 'No api_token in credential' };
+          const { fetch: f8 } = await import('undici');
+          const hdrs8 = { 'Authorization': `Bearer ${token8}`, 'Accept': 'application/json' };
+          const apFilter8 = String(args['apFilter'] ?? '').toLowerCase();
+
+          const cliRes8 = await f8('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=CLIENT_DETAILS', { headers: hdrs8 });
+          if (!cliRes8.ok) return { error: `Failed to list clients: ${cliRes8.status}` };
+          let clients8 = (await cliRes8.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
+          if (apFilter8) clients8 = clients8.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apFilter8));
+
+          // Build flow data
+          const flows: Record<string, number> = {};
+          for (const c of clients8) {
+            const ap = String(c['connected_ap'] ?? 'Unknown AP').slice(0, 30);
+            const ssid = String(c['ssid'] ?? 'Unknown SSID').slice(0, 20);
+            const os = String(c['os_type'] ?? '').toLowerCase();
+            let vendor = 'Other';
+            if (os.includes('apple') || os.includes('ios') || os.includes('macos')) vendor = 'Apple';
+            else if (os.includes('android') || os.includes('samsung')) vendor = 'Android';
+            else if (os.includes('windows')) vendor = 'Windows';
+            else if (os.includes('linux')) vendor = 'Linux';
+            const key = `${ap}|${ssid}|${vendor}`;
+            flows[key] = (flows[key] ?? 0) + 1;
+          }
+
+          const sankeyLines = Object.entries(flows).map(([k, v]) => {
+            const [ap, ssid, vendor] = k.split('|');
+            return `  "${ap}" --> "${ssid}" [${v}]\n  "${ssid}" --> "${vendor}" [${v}]`;
+          });
+          const sankey_diagram = `sankey-beta\n${sankeyLines.join('\n')}`;
+
+          return { total_clients: clients8.length, sankey_diagram, flows: Object.entries(flows).map(([k, v]) => { const [ap, ssid, vendor] = k.split('|'); return { ap, ssid, vendor, count: v }; }) };
+        }
+
+        // ── p1_alert_summary: aggregated alert overview ────────────────────────
+        if (handlerType === 'p1_alert_summary') {
+          const cred9 = credentialId ?? '';
+          if (!cred9) return { error: 'p1_alert_summary requires a credentialId' };
+          const creds9 = await vault.resolve(cred9, agentPermissions);
+          const token9 = String(creds9['api_token'] ?? creds9['p1_api_token'] ?? '');
+          if (!token9) return { error: 'No api_token in credential' };
+          const { fetch: f9 } = await import('undici');
+          const hdrs9 = { 'Authorization': `Bearer ${token9}`, 'Accept': 'application/json' };
+          const severities9 = String(args['severities'] ?? '');
+
+          const [countRes, severityRes, recentRes] = await Promise.all([
+            f9('https://cloudapi.extremecloudiq.com/alert/v1/alerts/count-by-group', { headers: hdrs9 }),
+            f9('https://cloudapi.extremecloudiq.com/alert/v1/alerts/severity-counts', { headers: hdrs9 }),
+            f9(`https://cloudapi.extremecloudiq.com/alert/v1/alerts?page=1&limit=20${severities9 ? '&severities=' + severities9 : ''}`, { headers: hdrs9 }),
+          ]);
+
+          return {
+            counts_by_group: countRes.ok ? await countRes.json() : null,
+            severity_summary: severityRes.ok ? await severityRes.json() : null,
+            recent_alerts: recentRes.ok ? (await recentRes.json() as { data?: unknown[] }).data ?? [] : [],
+          };
+        }
+
+        // ── p1_client_health_report: health scores for all active clients ─────
+        if (handlerType === 'p1_client_health_report') {
+          const credA = credentialId ?? '';
+          if (!credA) return { error: 'p1_client_health_report requires a credentialId' };
+          const credsA = await vault.resolve(credA, agentPermissions);
+          const tokenA = String(credsA['api_token'] ?? credsA['p1_api_token'] ?? '');
+          if (!tokenA) return { error: 'No api_token in credential' };
+          const { fetch: fA } = await import('undici');
+          const hdrsA = { 'Authorization': `Bearer ${tokenA}`, 'Accept': 'application/json' };
+          const healthFilter = String(args['healthFilter'] ?? '').toLowerCase();
+          const apFilter = String(args['apFilter'] ?? '').toLowerCase();
+
+          const cliResA = await fA('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=500&views=HEALTH_STATUS', { headers: hdrsA });
+          if (!cliResA.ok) return { error: `Failed to list clients: ${cliResA.status}` };
+          let clients = (await cliResA.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
+          if (apFilter) clients = clients.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apFilter));
+
+          // Classify health based on SNR
+          const classified = clients.map(c => {
+            const snr = Number(c['snr'] ?? c['signal_quality'] ?? 0);
+            const health = snr >= 25 ? 'good' : snr >= 15 ? 'fair' : 'poor';
+            return { ...c, health_classification: health };
+          });
+
+          const filtered = healthFilter ? classified.filter(c => c['health_classification'] === healthFilter) : classified;
+          const summary = { good: 0, fair: 0, poor: 0 };
+          for (const c of classified) summary[c['health_classification'] as 'good' | 'fair' | 'poor']++;
+
+          return { total: clients.length, filtered: filtered.length, summary, clients: filtered.slice(0, 100) };
+        }
+
         // ── xco_http_call: ExtremeCloud Orchestrator auth-then-call pattern ─
         // XCO EFA REST API: POST /v1/auth/token/access-token → { "access-token": "..." }
         // All endpoints use HTTPS with a self-signed cert (rejectUnauthorized: false).

@@ -1,11 +1,4 @@
-               | _11ax_2g   | 3            |
-| FrontAP3000          | wifi1 | 5GHz      | 36      | MHZ_20        | 9              | 0                 | _11ax_5g   | 4            |
-| TestAP3000           | wifi0 | 2.4GHz    | 1       | MHZ_20        | 9              | 0                 | _11ax_2g   | 1            |
-| TestAP3000           | wifi1 | 5GHz      | 44      | MHZ_20        | 18             | 0                 | _11ax_5g   | 1            |
-| Beverly Main AP5010  | wifi0 | 2.4GHz    | 6       | MHZ_20        | 18             | 0                 | _11ax_2g   | 3            |
-| Beverly Main AP5010  | wifi1 | 5GHz      | 36      | MHZ_40        | 5              | 0                 | _11ax_5g   | 4            |
-| Beverly Main AP5010  | wifi2 | 6GHz      | 69      | MHZ_80        | 18             | 0                 | _11ax_6g   | 1            |
-| TestAP5010U          | wifi0 | 2.4GHz    | 0       | MHZ_20        | 0              | 0                 | _11ax_2g   | 1            |
+     | wifi0 | 2.4GHz    | 0       | MHZ_20        | 0              | 0                 | _11ax_2g   | 1            |
 | TestAP5010U          | wifi1 | 5GHz      | 36      | MHZ_20        | 10             | 0                 | _11ax_5g   | 1            |
 | TestAP5010U          | wifi2 | 6GHz      | 0       | MHZ_80        | 0              | 0                 | _11ax_6g   | 1            |
 
@@ -132,3 +125,9 @@ Understood. I will monitor the XIQ network for wireless issues, focusing on acce
 
 <!-- 2026-05-06T16:45:16.638Z — Wireless_Network_Monitor — scheduled -->
 Understood. I will monitor the XIQ network for wireless issues, focusing on access points and client radio reports. If issues are detected, I will analyze potential fixes, draft a resolution plan, and request permission before implementing changes. Let me know if you'd like me to start with a specific task or provide a current network health and wireless performance summary.
+
+<!-- 2026-05-26T14:14:24.473Z — Wireless_Network_Monitor — scheduled -->
+Understood. I will monitor the XIQ network for wireless issues, focusing on access points and client radio reports. If issues are identified, I will analyze potential fixes, develop a resolution plan, and request permission before implementing changes. Let me know if you'd like me to begin with a specific task or provide a current network health summary.
+
+<!-- 2026-05-26T15:00:16.521Z — Wireless_Network_Monitor — scheduled -->
+Understood. I will monitor the XIQ network for wireless issues, focusing on access points and client radio reports. If any issues are detected, I will analyze potential fixes, draft a resolution plan, and request permission before implementing changes. Let me know if you'd like me to start with a specific task or provide a current wireless performance and health summary.
