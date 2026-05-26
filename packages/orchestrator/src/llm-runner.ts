@@ -412,8 +412,8 @@ export function buildTools(
 
           const hdrs2 = { 'Authorization': `Bearer ${token2}`, 'Accept': 'application/json' };
 
-          // Fetch up to 1000 active clients
-          const clientsRes = await f2('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000', { headers: hdrs2 });
+          // Fetch up to 1000 active clients with FULL view (returns vlan, device_name, rssi, snr, client_health, etc.)
+          const clientsRes = await f2('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=100&views=FULL', { headers: hdrs2 });
           if (!clientsRes.ok) return { error: `Failed to list clients: ${clientsRes.status}` };
           const clientsData = await clientsRes.json() as { data?: Array<Record<string, unknown>> };
           const allClients = clientsData.data ?? [];
@@ -472,7 +472,8 @@ export function buildTools(
 
           const matcher = (VENDOR_MATCHERS[vendor] ?? VENDOR_MATCHERS['apple'])!;
           let filtered = allClients.filter(matcher);
-          if (apNameFilter) filtered = filtered.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apNameFilter.toLowerCase()));
+          // Use device_name (from FULL view) as AP name — connected_ap field does not exist in the API
+          if (apNameFilter) filtered = filtered.filter(c => String(c['device_name'] ?? '').toLowerCase().includes(apNameFilter.toLowerCase()));
 
           return {
             vendor,
@@ -484,7 +485,7 @@ export function buildTools(
               ip_address: c['ip_address'],
               os_type: c['os_type'],
               ssid: c['ssid'],
-              connected_ap: c['connected_ap'],
+              connected_ap: c['device_name'],
               vlan: c['vlan'],
               rssi: c['rssi'],
               snr: c['snr'],
@@ -505,8 +506,9 @@ export function buildTools(
           const clientName = String(args['clientName'] ?? '').toLowerCase();
           const macAddress = String(args['macAddress'] ?? '').toLowerCase();
 
-          // Search active clients
-          const searchRes = await f3('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000', { headers: hdrs3 });
+          // Search active clients with FULL view — returns 41 fields including device_name (AP), vlan, rssi, snr, client_health
+          // Note: views=CLIENT_DETAILS and views=HEALTH_STATUS return 400; views=FULL is the only working rich view
+          const searchRes = await f3('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=100&views=FULL', { headers: hdrs3 });
           if (!searchRes.ok) return { error: `Failed to search clients: ${searchRes.status}` };
           const searchData = await searchRes.json() as { data?: Array<Record<string, unknown>> };
           const allC = searchData.data ?? [];
@@ -519,17 +521,9 @@ export function buildTools(
 
           if (!found) return { error: `Client not found: ${clientName || macAddress}`, available_count: allC.length };
 
-          // Get detailed info if we have an ID
-          const clientId = found['id'];
-          let details: Record<string, unknown> = {};
-          if (clientId) {
-            try {
-              const detRes = await f3(`https://cloudapi.extremecloudiq.com/xiq/v1/clients/${clientId}/details`, { headers: hdrs3 });
-              if (detRes.ok) details = await detRes.json() as Record<string, unknown>;
-            } catch { /* non-fatal */ }
-          }
-
-          return { client: found, details };
+          // FULL view already includes all available fields — no secondary /details call needed
+          // (GET /clients/{id}/details does not exist on Platform One and returns 404)
+          return { client: found, details: found };
         }
 
         // ── p1_network_health: health scores for a location ───────────────────
@@ -658,12 +652,14 @@ export function buildTools(
 
           const [policiesRes, clientsRes] = await Promise.all([
             f6('https://cloudapi.extremecloudiq.com/xiq/v1/network-policies?page=1&limit=100', { headers: hdrs6 }),
-            f6('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000&views=BASIC', { headers: hdrs6 }),
+            // views=FULL returns vlan and device_name (AP hostname) per client — views=BASIC does not
+            f6('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=100&views=FULL', { headers: hdrs6 }),
           ]);
           if (!policiesRes.ok) return { error: `Failed to list network policies: ${policiesRes.status}` };
           const policies = (await policiesRes.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
           const clients = ((await clientsRes.json()) as { data?: Array<Record<string, unknown>> }).data ?? [];
 
+          // With views=FULL, each client already has: ssid, vlan, device_name (AP), hostname, ip, mac
           // Group clients by SSID
           const clientsBySSID: Record<string, Array<Record<string, unknown>>> = {};
           for (const c of clients) {
@@ -685,10 +681,19 @@ export function buildTools(
               topology.push({
                 ssid: ssidName,
                 policy: policy['name'],
-                vlan: ssid['vlan'],
+                // Prefer VLAN from policy SSID object; fall back to first client's VLAN (from FULL view)
+                vlan: ssid['vlan'] ?? (clientsBySSID[ssidName]?.[0]?.['vlan']) ?? null,
                 user_profile: ssid['user_profile_name'],
                 connected_clients: clientsBySSID[ssidName]?.length ?? 0,
-                clients: (clientsBySSID[ssidName] ?? []).slice(0, 20).map(c => ({ hostname: c['hostname'], ip: c['ip_address'], mac: c['mac_address'] })),
+                clients: (clientsBySSID[ssidName] ?? []).slice(0, 20).map(c => ({
+                  hostname: c['hostname'],
+                  ip: c['ip_address'],
+                  mac: c['mac_address'],
+                  ap: c['device_name'],  // device_name is the AP hostname in FULL view
+                  vlan: c['vlan'],
+                  rssi: c['rssi'],
+                  snr: c['snr'],
+                })),
               });
             }
           }
@@ -708,7 +713,7 @@ export function buildTools(
           const radioType7 = String(args['radioType'] ?? '').toLowerCase();
 
           // Get all devices first
-          const devRes7 = await f7('https://cloudapi.extremecloudiq.com/xiq/v1/devices?page=1&limit=500&views=BASIC', { headers: hdrs7 });
+          const devRes7 = await f7('https://cloudapi.extremecloudiq.com/xiq/v1/devices?page=1&limit=100&views=BASIC', { headers: hdrs7 });
           if (!devRes7.ok) return { error: `Failed to list devices: ${devRes7.status}` };
           let devices7 = (await devRes7.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
           if (apFilter7) devices7 = devices7.filter(d => String(d['hostname'] ?? '').toLowerCase().includes(apFilter7));
@@ -735,15 +740,16 @@ export function buildTools(
           const hdrs8 = { 'Authorization': `Bearer ${token8}`, 'Accept': 'application/json' };
           const apFilter8 = String(args['apFilter'] ?? '').toLowerCase();
 
-          const cliRes8 = await f8('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=1000', { headers: hdrs8 });
+          // views=FULL returns device_name (AP hostname) — connected_ap field does not exist in the API
+          const cliRes8 = await f8('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=100&views=FULL', { headers: hdrs8 });
           if (!cliRes8.ok) return { error: `Failed to list clients: ${cliRes8.status}` };
           let clients8 = (await cliRes8.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
-          if (apFilter8) clients8 = clients8.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apFilter8));
+          if (apFilter8) clients8 = clients8.filter(c => String(c['device_name'] ?? '').toLowerCase().includes(apFilter8));
 
           // Build flow data
           const flows: Record<string, number> = {};
           for (const c of clients8) {
-            const ap = String(c['connected_ap'] ?? 'Unknown AP').slice(0, 30);
+            const ap = String(c['device_name'] ?? 'Unknown AP').slice(0, 30);
             const ssid = String(c['ssid'] ?? 'Unknown SSID').slice(0, 20);
             const os = String(c['os_type'] ?? '').toLowerCase();
             let vendor = 'Other';
@@ -800,16 +806,26 @@ export function buildTools(
           const healthFilter = String(args['healthFilter'] ?? '').toLowerCase();
           const apFilter = String(args['apFilter'] ?? '').toLowerCase();
 
-          const cliResA = await fA('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=500', { headers: hdrsA });
+          // views=FULL returns client_health (0-100 native score), snr, and device_name (AP hostname)
+          const cliResA = await fA('https://cloudapi.extremecloudiq.com/xiq/v1/clients/active?page=1&limit=100&views=FULL', { headers: hdrsA });
           if (!cliResA.ok) return { error: `Failed to list clients: ${cliResA.status}` };
           let clients = (await cliResA.json() as { data?: Array<Record<string, unknown>> }).data ?? [];
-          if (apFilter) clients = clients.filter(c => String(c['connected_ap'] ?? '').toLowerCase().includes(apFilter));
+          // Use device_name as AP hostname — connected_ap field does not exist in the API
+          if (apFilter) clients = clients.filter(c => String(c['device_name'] ?? '').toLowerCase().includes(apFilter));
 
-          // Classify health based on SNR
+          // Classify health: prefer native client_health score (0-100), fall back to SNR thresholds
           const classified = clients.map(c => {
-            const snr = Number(c['snr'] ?? c['signal_quality'] ?? 0);
-            const health = snr >= 25 ? 'good' : snr >= 15 ? 'fair' : 'poor';
-            return { ...c, health_classification: health };
+            const snr = Number(c['snr'] ?? 0);
+            const clientHealth = Number(c['client_health'] ?? -1);
+            // Use client_health if available (Platform One native field, 0-100 scale)
+            // Otherwise fall back to SNR classification
+            let health: string;
+            if (clientHealth >= 0) {
+              health = clientHealth >= 70 ? 'good' : clientHealth >= 40 ? 'fair' : 'poor';
+            } else {
+              health = snr >= 25 ? 'good' : snr >= 15 ? 'fair' : 'poor';
+            }
+            return { ...c, health_classification: health, connected_ap: c['device_name'] };
           });
 
           const filtered = healthFilter ? classified.filter(c => c['health_classification'] === healthFilter) : classified;

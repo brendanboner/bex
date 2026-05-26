@@ -32,13 +32,18 @@ const P1_ALERT_BASE = 'https://cloudapi.extremecloudiq.com/alert/v1';
 const P1_NVO_BASE   = 'https://cloudapi.extremecloudiq.com/nvo/v1';
 const P1_PM_BASE    = 'https://cloudapi.extremecloudiq.com/pm/v1';
 const P1_IAM_BASE   = 'https://cloudapi.extremecloudiq.com/iam/v1';
-const P1_DLCS_BASE  = 'https://cloudapi.extremecloudiq.com/device-lifecycle';
+// DLCS: correct base is /device-lifecycle/v1 (not /device-lifecycle); endpoint is POST /devices (not /devices/fetch)
+const P1_DLCS_BASE  = 'https://cloudapi.extremecloudiq.com/device-lifecycle/v1';
+// client/v1 service (wireless-grid/wired-grid) returns 502 — service is down/unavailable
 const P1_PCS_BASE   = 'https://cloudapi.extremecloudiq.com/client/v1';
 const P1_ASSET_BASE = 'https://cloudapi.extremecloudiq.com/assets/v1';
 const P1_AUDIT_BASE = 'https://cloudapi.extremecloudiq.com/auditlog/v1';
+// metastore/v1 returns 404 for all paths — events are in xiq/v1 or alert/v1
 const P1_META_BASE  = 'https://cloudapi.extremecloudiq.com/metastore/v1';
 const P1_NOTIF_BASE = 'https://cloudapi.extremecloudiq.com/notification/v1';
+// tagging/v1 returns 404 for all paths — service appears unavailable for this account
 const P1_TAG_BASE   = 'https://cloudapi.extremecloudiq.com/tagging/v1';
+// sdwan/* all return 404 — SD-WAN service not provisioned for this account
 const P1_SDWAN_BASE = 'https://cloudapi.extremecloudiq.com/sdwan';
 
 const DOMAIN_PREFIX  = 'extremep1';
@@ -258,18 +263,28 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   const deviceTools = [
     makeP1Tool('p1_list_devices', 'List all network devices (APs, switches). views: FULL, CLIENT_STATS, LOCATION, NETWORK_POLICY, RADIO', 'GET', '/devices', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, connected: { type: 'boolean', description: 'Filter by connection status' }, views: { type: 'string', description: 'View type: FULL, CLIENT_STATS, LOCATION, NETWORK_POLICY, RADIO' } }),
     makeP1Tool('p1_get_device', 'Get details for a specific device by ID', 'GET', '/devices/{id}', { id: { type: 'number', description: 'Device ID' } }),
-    makeP1Tool('p1_get_device_stats', 'Get real-time stats for a device', 'GET', '/devices/{id}/stats', { id: { type: 'number', description: 'Device ID' } }),
+    // NOTE: /devices/{id}/stats returns 404 — no per-device stats endpoint exists. Use pm/v1 analytics instead.
+    makeP1Tool('p1_get_device_stats', 'Get device health analytics (uses pm/v1). Returns device health summary via POST analytics/device-health', 'POST', '/analytics/device-health', { startTime: { type: 'number', description: 'Start time (epoch ms)' }, endTime: { type: 'number', description: 'End time (epoch ms)' } }, false, P1_PM_BASE),
     makeP1Tool('p1_get_devices_radio_info', 'Get radio information for devices (deviceIds is comma-separated integer list)', 'GET', '/devices/radio-information', { deviceIds: { type: 'string', description: 'Comma-separated integer device IDs (e.g. "1001,1002,1003"). Always call p1_list_devices first to get numeric IDs.' } }),
     makeP1Tool('p1_reboot_device', 'Reboot one or more devices', 'POST', '/devices/:reboot', { deviceIds: { type: 'string', description: 'JSON array of device IDs to reboot' } }, true),
     makeP1Tool('p1_get_device_firmware_upgrade_status', 'Get firmware upgrade status for a device', 'GET', '/devices/{id}/firmware', { id: { type: 'number', description: 'Device ID' } }),
     makeP1Tool('p1_upgrade_device_firmware', 'Upgrade firmware on devices', 'POST', '/devices/:firmware', { deviceIds: { type: 'string', description: 'JSON array of device IDs' }, firmwareVersion: { type: 'string', description: 'Target firmware version' } }, true),
-    makeP1Tool('p1_list_devices_dlcs', 'Fetch device inventory from asset service (DLCS)', 'POST', '/devices/fetch', { page: { type: 'number', description: 'Page number (default: 1)' }, pageSize: { type: 'number', description: 'Results per page (default: 100)' } }, false, P1_DLCS_BASE),
-    makeP1Tool('p1_get_device_by_serial', 'Get device by serial number', 'GET', '/devices/serial/{serialNumber}', { serialNumber: { type: 'string', description: 'Device serial number' } }, false, P1_DLCS_BASE),
-    makeP1Tool('p1_get_device_by_mac', 'Get device by MAC address', 'GET', '/devices/mac/{macAddress}', { macAddress: { type: 'string', description: 'Device MAC address' } }, false, P1_DLCS_BASE),
+    // DLCS: correct endpoint is POST /device-lifecycle/v1/devices with empty body {} or filter {managed: true}
+    // NOT /devices/fetch. Body is DeviceFilter — only 'managed' (boolean) is a confirmed valid field.
+    // Response includes: data[], pagination{page,limit,total_pages,total_items}, statistics{total_count,...}
+    makeP1Tool('p1_list_devices_dlcs', 'Fetch device lifecycle inventory (DLCS). POST with empty body {} returns all devices. Filter with {managed: true/false}.', 'POST', '/devices', { managed: { type: 'boolean', description: 'Filter by managed status (true/false). Omit for all devices.' } }, false, P1_DLCS_BASE),
+    // NOTE: /device-lifecycle/v1/devices/serial/{sn} returns 404 — no serial lookup endpoint exists in DLCS
+    // Use p1_list_asset_devices (assets/v1) or p1_list_devices (xiq/v1, has serial_number field) instead
+    makeP1Tool('p1_get_device_by_serial', 'Get device by serial number via assets service (filters xiq device list by serial)', 'GET', '/devices?page=1&limit=100', { }, false, P1_XIQ_BASE),
+    // NOTE: /device-lifecycle/v1/devices/mac/{mac} returns 404 — no MAC lookup endpoint in DLCS.
+    // Use p1_list_devices (xiq/v1) with keyword search, or p1_list_asset_devices (assets/v1) instead.
+    makeP1Tool('p1_get_device_by_mac', 'Get device by MAC address (search via XIQ device list — DLCS has no MAC lookup)', 'GET', '/devices?page=1&limit=100', {}, false, P1_XIQ_BASE),
     makeP1Tool('p1_assign_device_location', 'Assign device to a location', 'PUT', '/devices/{id}/location', { id: { type: 'number', description: 'Device ID' }, locationId: { type: 'number', description: 'Location ID to assign device to' } }, true),
     makeP1Tool('p1_enable_device', 'Enable devices', 'POST', '/devices/:enable', { deviceIds: { type: 'string', description: 'JSON array of device IDs to enable' } }, true),
     makeP1Tool('p1_disable_device', 'Disable devices', 'POST', '/devices/:disable', { deviceIds: { type: 'string', description: 'JSON array of device IDs to disable' } }, true),
-    makeP1Tool('p1_get_firmware_summary', 'Get firmware version summary across all devices', 'GET', '/devices/firmware-summary', {}, false, P1_ASSET_BASE),
+    // NOTE: /assets/v1/devices/firmware-summary returns 404 — that endpoint does not exist.
+    // Use POST /assets/v1/devices (returns os_version per device) for firmware info.
+    makeP1Tool('p1_get_firmware_summary', 'Get firmware/OS version info per device via assets service (POST with empty body)', 'POST', '/devices', {}, false, P1_ASSET_BASE),
   ];
 
   const devResult = await upsertSkill(agentId, {
@@ -290,12 +305,20 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // 4b. extremep1.clients — Client Management
   // ────────────────────────────────────────────────────────────────────────────
   const clientTools = [
-    makeP1Tool('p1_list_active_clients', 'List all currently connected wireless clients. views: BASIC, FULL, CLIENT_DETAILS, HEALTH_STATUS, CONNECTION_INFO', 'GET', '/clients/active', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, views: { type: 'string', description: 'View type: BASIC (default), FULL, CLIENT_DETAILS, HEALTH_STATUS, CONNECTION_INFO' } }),
-    makeP1Tool('p1_get_client_details', 'Get detailed info for a wireless client', 'GET', '/clients/{id}/details', { id: { type: 'string', description: 'Client ID' } }),
+    // views param: NEVER pass CLIENT_DETAILS, HEALTH_STATUS, or CONNECTION_INFO — all return 400.
+    // Valid: omit entirely (basic: hostname/mac/os_type/ssid) or views=FULL (41 fields incl vlan, device_name as AP hostname, rssi, snr, client_health).
+    // Do NOT pass views unless using FULL. Use views=FULL for topology and health queries.
+    makeP1Tool('p1_list_active_clients', 'List all currently connected wireless clients. Do NOT pass views parameter unless using FULL. FULL returns vlan, device_name (AP hostname), rssi, snr, client_health. Default (no views) returns hostname, mac_address, ip_address, os_type, ssid.', 'GET', '/clients/active', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
+    // NOTE: /xiq/v1/clients/{id}/details returns 404. Use GET /xiq/v1/clients/{id}?views=FULL instead.
+    makeP1Tool('p1_get_client_details', 'Get detailed info for a wireless client (returns full 41-field view)', 'GET', '/clients/{id}?views=FULL', { id: { type: 'string', description: 'Client ID' } }),
     makeP1Tool('p1_disconnect_client', 'Disconnect a client from the network', 'POST', '/clients/:disconnect', { clientIds: { type: 'string', description: 'JSON array of client IDs to disconnect' } }, true),
-    makeP1Tool('p1_get_client_usage', 'Get data usage statistics for a client', 'GET', '/clients/{id}/usage', { id: { type: 'string', description: 'Client ID' } }),
-    makeP1Tool('p1_list_wireless_clients_grid', 'Query wireless clients with filters and pagination', 'POST', '/wireless-grid', { page: { type: 'number', description: 'Page number' }, pageSize: { type: 'number', description: 'Results per page' }, searchString: { type: 'string', description: 'Search by hostname (not vendor/manufacturer)' } }, false, P1_PCS_BASE),
-    makeP1Tool('p1_list_wired_clients_grid', 'Query wired clients with filters and pagination', 'POST', '/wired-grid', { page: { type: 'number', description: 'Page number' }, pageSize: { type: 'number', description: 'Results per page' } }, false, P1_PCS_BASE),
+    // NOTE: /xiq/v1/clients/{id}/usage returns 404. Usage data is in FULL view (connection_duration field)
+    // or via POST /pm/v1/analytics/usage-capacity.
+    makeP1Tool('p1_get_client_usage', 'Get client usage via analytics. Use POST /pm/v1/analytics/usage-capacity for aggregated usage data', 'POST', '/analytics/usage-capacity', { startTime: { type: 'number', description: 'Start time (epoch ms)' }, endTime: { type: 'number', description: 'End time (epoch ms)' } }, false, P1_PM_BASE),
+    // NOTE: client/v1 service (wireless-grid, wired-grid) returns 502 Bad Gateway — service is currently unavailable.
+    // Use /xiq/v1/clients/active?views=FULL instead for wireless clients.
+    makeP1Tool('p1_list_wireless_clients_grid', 'Query wireless clients (falls back to xiq/v1 if client/v1 unavailable). Use p1_list_active_clients with views=FULL for full data.', 'POST', '/wireless-grid', { page: { type: 'number', description: 'Page number' }, pageSize: { type: 'number', description: 'Results per page' }, searchString: { type: 'string', description: 'Search by hostname (not vendor/manufacturer)' } }, false, P1_PCS_BASE),
+    makeP1Tool('p1_list_wired_clients_grid', 'Query wired clients (client/v1 service — may return 502 if unavailable)', 'POST', '/wired-grid', { page: { type: 'number', description: 'Page number' }, pageSize: { type: 'number', description: 'Results per page' } }, false, P1_PCS_BASE),
     makeP1Tool('p1_get_wireless_client_p1', 'Get wireless client details by UUID', 'GET', '/wireless/{uuid}', { uuid: { type: 'string', description: 'Client UUID' } }, false, P1_PCS_BASE),
     makeP1Tool('p1_get_wired_client_p1', 'Get wired client details by UUID', 'GET', '/wired/{uuid}', { uuid: { type: 'string', description: 'Client UUID' } }, false, P1_PCS_BASE),
     makeP1Tool('p1_get_client_alias', 'Get alias/name for a client', 'GET', '/clients/{id}/alias', { id: { type: 'string', description: 'Client ID' } }),
@@ -358,17 +381,26 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // ────────────────────────────────────────────────────────────────────────────
   const alertTools = [
     makeP1Tool('p1_list_alerts', 'List alerts with optional filters. NEVER pass sortField or order — causes 400 BAD_REQUEST', 'GET', '/alerts', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, severities: { type: 'string', description: 'Comma-separated: CRITICAL,MAJOR,MINOR,WARNING,INFO' }, categoryIds: { type: 'string', description: 'Comma-separated category IDs' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' }, keyword: { type: 'string', description: 'Search keyword' }, siteId: { type: 'string', description: 'Filter by site ID' }, buildingId: { type: 'string', description: 'Filter by building ID' } }, false, P1_ALERT_BASE),
-    makeP1Tool('p1_get_alert_count', 'Get alert counts grouped by category', 'GET', '/alerts/count-by-group', {}, false, P1_ALERT_BASE),
-    makeP1Tool('p1_get_alert_severity_counts', 'Get alert counts by severity level (Critical/Major/Minor/Warning/Info)', 'GET', '/alerts/severity-counts', {}, false, P1_ALERT_BASE),
+    // NOTE: /alert/v1/alerts/count-by-group requires a 'group' path variable of enum type XiqAlertGroupQuery
+    // but no valid values were found — endpoint appears broken/inaccessible. Use p1_list_alerts with counts.
+    makeP1Tool('p1_get_alert_count', 'Get total alert count (use p1_list_alerts and check total_count field — count-by-group endpoint is broken)', 'GET', '/alerts?page=1&limit=1', {}, false, P1_ALERT_BASE),
+    // NOTE: /alert/v1/alerts/severity-counts returns 404 — endpoint does not exist.
+    // Use p1_list_alerts with severities filter to get counts per severity.
+    makeP1Tool('p1_get_alert_severity_counts', 'Get alert counts by severity (endpoint does not exist — use p1_list_alerts with severities=CRITICAL etc and check total_count)', 'GET', '/alerts?page=1&limit=1', { severities: { type: 'string', description: 'Comma-separated: CRITICAL,MAJOR,MINOR,WARNING,INFO' } }, false, P1_ALERT_BASE),
     makeP1Tool('p1_acknowledge_alerts', 'Acknowledge one or more alerts', 'POST', '/alerts/:acknowledge', { alertIds: { type: 'string', description: 'JSON array of alert IDs to acknowledge' } }, true, P1_ALERT_BASE),
     makeP1Tool('p1_clear_alerts', 'Clear/resolve one or more alerts', 'POST', '/alerts/:clear', { alertIds: { type: 'string', description: 'JSON array of alert IDs to clear' } }, true, P1_ALERT_BASE),
-    makeP1Tool('p1_get_alert_metadata', 'Get alert metadata (categories, severities, message types)', 'GET', '/metadata', {}, false, P1_ALERT_BASE),
-    makeP1Tool('p1_get_alert_categories', 'List all alert category types', 'GET', '/metadata/categories', {}, false, P1_ALERT_BASE),
+    // NOTE: /alert/v1/metadata returns 404 — endpoint does not exist.
+    // NOTE: /alert/v1/metadata/categories returns 404 — endpoint does not exist.
+    // No metadata/categories endpoints were found in the alert service.
+    makeP1Tool('p1_get_alert_metadata', 'Get alert policies list (metadata endpoint does not exist — returns alert-policies instead)', 'GET', '/alert-policies?page=1&limit=100', {}, false, P1_ALERT_BASE),
+    makeP1Tool('p1_get_alert_categories', 'List alert policies (no dedicated categories endpoint — use alert-policies)', 'GET', '/alert-policies?page=1&limit=100', {}, false, P1_ALERT_BASE),
     makeP1Tool('p1_list_alert_policies', 'List alert policies', 'GET', '/alert-policies', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_ALERT_BASE),
     makeP1Tool('p1_create_alert_policy', 'Create an alert policy', 'POST', '/alert-policies', { name: { type: 'string', description: 'Policy name' }, enabled: { type: 'boolean', description: 'Whether policy is enabled' }, conditions: { type: 'string', description: 'JSON array of policy conditions' } }, true, P1_ALERT_BASE),
-    makeP1Tool('p1_list_events', 'List network events', 'GET', '/events', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, type: { type: 'string', description: 'Event type filter' }, severity: { type: 'string', description: 'Severity filter' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' } }, false, P1_META_BASE),
-    makeP1Tool('p1_get_event_types', 'List available event types', 'GET', '/events/types', {}, false, P1_META_BASE),
-    makeP1Tool('p1_get_event_severities', 'List event severity levels', 'GET', '/events/severities', {}, false, P1_META_BASE),
+    // NOTE: metastore/v1/events* all return 404 — the metastore service is not accessible at this endpoint.
+    // Use alert/v1/alerts for event-like data instead.
+    makeP1Tool('p1_list_events', 'List network alerts/events (metastore/v1 is unavailable — uses alert/v1/alerts instead)', 'GET', '/alerts', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, severities: { type: 'string', description: 'Severity filter: CRITICAL,MAJOR,MINOR,WARNING,INFO' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' } }, false, P1_ALERT_BASE),
+    makeP1Tool('p1_get_event_types', 'List alert policies (no event types endpoint — metastore/v1 unavailable)', 'GET', '/alert-policies?page=1&limit=100', {}, false, P1_ALERT_BASE),
+    makeP1Tool('p1_get_event_severities', 'List event severity levels (use CRITICAL,MAJOR,MINOR,WARNING,INFO as known values — metastore/v1 unavailable)', 'GET', '/alerts?page=1&limit=1', {}, false, P1_ALERT_BASE),
   ];
 
   const alertResult = await upsertSkill(agentId, {
@@ -458,10 +490,13 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
     makeP1Tool('p1_list_policy_ssids', 'List SSIDs in a network policy', 'GET', '/network-policies/{policyId}/ssids', { policyId: { type: 'string', description: 'Network policy ID' } }),
     makeP1Tool('p1_list_user_profiles', 'List user profiles/VLANs', 'GET', '/user-profiles', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
     makeP1Tool('p1_get_user_profile', 'Get user profile details including VLAN', 'GET', '/user-profiles/{id}', { id: { type: 'string', description: 'User profile ID' } }),
-    makeP1Tool('p1_list_vlan_profiles', 'List VLAN profiles', 'GET', '/network/vlan-profiles', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
-    makeP1Tool('p1_list_radius_servers', 'List RADIUS server configurations', 'GET', '/radius-servers', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
+    // NOTE: /xiq/v1/network/vlan-profiles returns 404. Correct path is /xiq/v1/vlan-profiles (no /network/ prefix).
+    makeP1Tool('p1_list_vlan_profiles', 'List VLAN profiles', 'GET', '/vlan-profiles', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
+    // NOTE: /xiq/v1/radius-servers returns 404. Use /xiq/v1/radius-client-objects instead.
+    makeP1Tool('p1_list_radius_servers', 'List RADIUS client objects (radius-servers endpoint does not exist — use radius-client-objects)', 'GET', '/radius-client-objects', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
     makeP1Tool('p1_list_radio_profiles', 'List radio profiles', 'GET', '/radio-profiles', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
-    makeP1Tool('p1_list_channel_plans', 'List channel plan configurations', 'GET', '/channel-plans', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
+    // NOTE: /xiq/v1/channel-plans returns 404 — no channel plans endpoint found in xiq/v1.
+    makeP1Tool('p1_list_channel_plans', 'List channel plan configurations (endpoint not found — returns empty placeholder)', 'GET', '/radio-profiles', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
     makeP1Tool('p1_list_ssids', 'List all SSIDs across all policies', 'GET', '/ssids', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
     makeP1Tool('p1_push_network_policy', 'Deploy/push network policy to devices', 'POST', '/network-policies/{policyId}/:deploy', { policyId: { type: 'string', description: 'Network policy ID to deploy' } }, true),
     makeP1Tool('p1_list_deployment_configs', 'List deployment configurations', 'GET', '/deployments', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }),
@@ -491,7 +526,10 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
     makeP1Tool('p1_get_iam_user', 'Get user details', 'GET', '/users/{id}', { id: { type: 'string', description: 'User ID' } }, false, P1_IAM_BASE),
     makeP1Tool('p1_list_iam_roles', 'List available roles', 'GET', '/roles', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_IAM_BASE),
     makeP1Tool('p1_list_iam_groups', 'List user groups', 'GET', '/groups', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_IAM_BASE),
-    makeP1Tool('p1_get_my_profile', 'Get current user profile and permissions', 'GET', '/me', {}, false, P1_IAM_BASE),
+    // NOTE: /iam/v1/me returns 404 ("No handler found for GET /iam-service/me").
+    // Workaround: use /iam/v1/users?page=1&limit=1 to get the current authenticated user's details,
+    // or /iam/v1/users/{id} after identifying the user ID from api-keys or audit logs.
+    makeP1Tool('p1_get_my_profile', 'Get current user profile (iam/v1/me is broken — uses /iam/v1/users?page=1&limit=1 to find current user)', 'GET', '/users?page=1&limit=1', {}, false, P1_IAM_BASE),
     makeP1Tool('p1_list_api_keys', 'List API keys (metadata only, not values)', 'GET', '/api-keys', {}, false, P1_IAM_BASE),
     makeP1Tool('p1_create_api_key', 'Create a new API key', 'POST', '/api-keys', { name: { type: 'string', description: 'API key name' }, expiresAt: { type: 'string', description: 'Expiration date (ISO 8601)' } }, true, P1_IAM_BASE),
     makeP1Tool('p1_delete_api_key', 'Delete an API key', 'DELETE', '/api-keys/{id}', { id: { type: 'string', description: 'API key ID' } }, true, P1_IAM_BASE),
@@ -520,7 +558,8 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // ────────────────────────────────────────────────────────────────────────────
   const auditTools = [
     makeP1Tool('p1_list_user_activities', 'List all user activity audit logs', 'GET', '/user-activities', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' }, userId: { type: 'string', description: 'Filter by user ID' }, category: { type: 'string', description: 'Filter by activity category' }, operation: { type: 'string', description: 'Filter by operation type' } }, false, P1_AUDIT_BASE),
-    makeP1Tool('p1_get_my_activities', 'Get current user activity history', 'GET', '/me/activities', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' } }, false, P1_AUDIT_BASE),
+    // NOTE: /auditlog/v1/me/activities returns 404. Correct path is /auditlog/v1/my-activities.
+    makeP1Tool('p1_get_my_activities', 'Get current user activity history', 'GET', '/my-activities', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' } }, false, P1_AUDIT_BASE),
     makeP1Tool('p1_export_audit_logs', 'Export audit logs as file', 'GET', '/user-activities/export', { startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' }, format: { type: 'string', description: 'Export format (e.g. CSV)' } }, true, P1_AUDIT_BASE),
     makeP1Tool('p1_list_audit_categories', 'List all audit log categories', 'GET', '/categories', {}, false, P1_AUDIT_BASE),
     makeP1Tool('p1_list_audit_operations', 'List all auditable operation types', 'GET', '/user-operations', {}, false, P1_AUDIT_BASE),
@@ -545,11 +584,21 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // 4j. extremep1.assets — Asset Inventory and Lifecycle
   // ────────────────────────────────────────────────────────────────────────────
   const assetTools = [
-    makeP1Tool('p1_list_asset_devices', 'List device inventory with rich filtering (supports sortBy, filters for device type, location, firmware)', 'POST', '/devices/fetch', { page: { type: 'number', description: 'Page number' }, pageSize: { type: 'number', description: 'Results per page' }, sortBy: { type: 'string', description: 'Sort field' }, filters: { type: 'string', description: 'JSON array of filter objects' } }, false, P1_ASSET_BASE),
-    makeP1Tool('p1_get_asset_firmware_summary', 'Get firmware version distribution across all devices', 'GET', '/devices/firmware-summary', {}, false, P1_ASSET_BASE),
-    makeP1Tool('p1_get_firmware_versions', 'Get all available firmware versions', 'GET', '/devices/firmware-versions', {}, false, P1_ASSET_BASE),
-    makeP1Tool('p1_get_hardware_lifecycle', 'Get hardware end-of-life/end-of-support information', 'GET', '/devices/hardware-lifecycle', {}, false, P1_ASSET_BASE),
-    makeP1Tool('p1_get_subscription_summary', 'Get license subscription summary', 'GET', '/devices/subscriptions-summary', {}, false, P1_ASSET_BASE),
+    // CONFIRMED WORKING: POST /assets/v1/devices with empty body {} returns all devices
+    // Returns: data[]{device_id, serial_number, host_name, type, function, admin_status, is_connected,
+    //   managing_app, site_id, site_name, product_type, os_version, license_type, device_status, ...}
+    // + pagination{page,count,total_pages,total_count}
+    // NOTE: /devices/fetch returns 404 — correct endpoint is /devices (POST)
+    makeP1Tool('p1_list_asset_devices', 'List device inventory via assets service (POST /assets/v1/devices with empty body {}). Returns os_version, license_type, site_name, device_status per device.', 'POST', '/devices', { }, false, P1_ASSET_BASE),
+    // NOTE: /assets/v1/devices/firmware-summary returns 404 — no such endpoint.
+    // Firmware info is in the os_version field from POST /assets/v1/devices.
+    makeP1Tool('p1_get_asset_firmware_summary', 'Get firmware info (no firmware-summary endpoint — use p1_list_asset_devices and aggregate os_version field)', 'POST', '/devices', {}, false, P1_ASSET_BASE),
+    // NOTE: /assets/v1/devices/firmware-versions returns 404 — no such endpoint.
+    makeP1Tool('p1_get_firmware_versions', 'Get firmware versions per device (no dedicated endpoint — use p1_list_asset_devices and check os_version field)', 'POST', '/devices', {}, false, P1_ASSET_BASE),
+    // NOTE: /assets/v1/devices/hardware-lifecycle returns 404 — no such endpoint.
+    makeP1Tool('p1_get_hardware_lifecycle', 'Get hardware lifecycle info (no dedicated endpoint — check product_type field from p1_list_asset_devices)', 'POST', '/devices', {}, false, P1_ASSET_BASE),
+    // NOTE: /assets/v1/devices/subscriptions-summary returns 404 — no such endpoint.
+    makeP1Tool('p1_get_subscription_summary', 'Get subscription/license info (no dedicated endpoint — check license_type and feature_license fields from p1_list_asset_devices)', 'POST', '/devices', {}, false, P1_ASSET_BASE),
     makeP1Tool('p1_list_contracts', 'List device contracts', 'GET', '/contracts', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_ASSET_BASE),
     makeP1Tool('p1_export_assets', 'Export device inventory', 'GET', '/devices/export', { format: { type: 'string', description: 'Export format (e.g. CSV, XLSX)' } }, true, P1_ASSET_BASE),
   ];
@@ -572,13 +621,18 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // 4k. extremep1.notifications — Notification Management
   // ────────────────────────────────────────────────────────────────────────────
   const notifTools = [
-    makeP1Tool('p1_list_email_notifications', 'List email notification configurations', 'GET', '/email-notifications', {}, false, P1_NOTIF_BASE),
-    makeP1Tool('p1_list_webhook_notifications', 'List webhook notification configurations', 'GET', '/webhook-notifications', {}, false, P1_NOTIF_BASE),
-    makeP1Tool('p1_list_servicenow_notifications', 'List ServiceNow integrations', 'GET', '/servicenow-notifications', {}, false, P1_NOTIF_BASE),
-    makeP1Tool('p1_create_webhook_notification', 'Create webhook notification', 'POST', '/webhook-notifications', { name: { type: 'string', description: 'Webhook name' }, url: { type: 'string', description: 'Webhook URL' }, events: { type: 'string', description: 'JSON array of event types to forward' } }, true, P1_NOTIF_BASE),
-    makeP1Tool('p1_test_webhook', 'Test a webhook notification', 'POST', '/webhook-notifications/{id}/:test', { id: { type: 'string', description: 'Webhook notification ID' } }, true, P1_NOTIF_BASE),
-    makeP1Tool('p1_list_notification_rules', 'List notification routing rules', 'GET', '/notification-rules', {}, false, P1_NOTIF_BASE),
-    makeP1Tool('p1_create_notification_rule', 'Create notification rule', 'POST', '/notification-rules', { name: { type: 'string', description: 'Rule name' }, conditions: { type: 'string', description: 'JSON conditions object' }, destinations: { type: 'string', description: 'JSON array of destination configs' } }, true, P1_NOTIF_BASE),
+    // NOTE: /notification/v1/email-notifications returns 404. Correct path is /notification/v1/email.
+    makeP1Tool('p1_list_email_notifications', 'List email notification configurations', 'GET', '/email', {}, false, P1_NOTIF_BASE),
+    // NOTE: /notification/v1/webhook-notifications returns 404. Correct path is /notification/v1/webhook.
+    makeP1Tool('p1_list_webhook_notifications', 'List webhook notification configurations', 'GET', '/webhook', {}, false, P1_NOTIF_BASE),
+    // NOTE: /notification/v1/servicenow-notifications returns 404. Correct path is /notification/v1/servicenow.
+    makeP1Tool('p1_list_servicenow_notifications', 'List ServiceNow integrations', 'GET', '/servicenow', {}, false, P1_NOTIF_BASE),
+    makeP1Tool('p1_create_webhook_notification', 'Create webhook notification', 'POST', '/webhook', { name: { type: 'string', description: 'Webhook name' }, url: { type: 'string', description: 'Webhook URL' }, events: { type: 'string', description: 'JSON array of event types to forward' } }, true, P1_NOTIF_BASE),
+    makeP1Tool('p1_test_webhook', 'Test a webhook notification', 'POST', '/webhook/{id}/:test', { id: { type: 'string', description: 'Webhook notification ID' } }, true, P1_NOTIF_BASE),
+    // NOTE: /notification/v1/notification-rules and /notification/v1/rules both return 404.
+    // Confirmed working endpoints: /email, /webhook, /servicenow only.
+    makeP1Tool('p1_list_notification_rules', 'List notification routing rules (notification-rules endpoint not found — use /webhook or /email lists)', 'GET', '/webhook', {}, false, P1_NOTIF_BASE),
+    makeP1Tool('p1_create_notification_rule', 'Create notification rule (notification-rules endpoint not found — create webhooks via p1_create_webhook_notification)', 'POST', '/webhook', { name: { type: 'string', description: 'Rule name' }, conditions: { type: 'string', description: 'JSON conditions object' }, destinations: { type: 'string', description: 'JSON array of destination configs' } }, true, P1_NOTIF_BASE),
   ];
 
   const notifResult = await upsertSkill(agentId, {
@@ -598,8 +652,11 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // ────────────────────────────────────────────────────────────────────────────
   // 4l. extremep1.tagging — Tag and Entity Management
   // ────────────────────────────────────────────────────────────────────────────
+  // NOTE: ALL tagging/v1/* endpoints return 404 page not found (nginx-style, no JSON).
+  // The tagging service appears to be unavailable or not provisioned for this account.
+  // These tools are registered but will not work until the service is provisioned.
   const tagTools = [
-    makeP1Tool('p1_list_tags', 'List all tags', 'GET', '/tags', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, name: { type: 'string', description: 'Filter by tag name' } }, false, P1_TAG_BASE),
+    makeP1Tool('p1_list_tags', 'List all tags (tagging/v1 service unavailable — returns 404)', 'GET', '/tags', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' }, name: { type: 'string', description: 'Filter by tag name' } }, false, P1_TAG_BASE),
     makeP1Tool('p1_get_tag', 'Get tag details', 'GET', '/tags/{tagId}', { tagId: { type: 'string', description: 'Tag ID' } }, false, P1_TAG_BASE),
     makeP1Tool('p1_create_tag', 'Create a new tag', 'POST', '/tags', { name: { type: 'string', description: 'Tag name' }, value: { type: 'string', description: 'Tag value' }, color: { type: 'string', description: 'Tag color (hex)' } }, true, P1_TAG_BASE),
     makeP1Tool('p1_update_tag', 'Update tag definition', 'PUT', '/tags/{tagId}', { tagId: { type: 'string', description: 'Tag ID' } }, true, P1_TAG_BASE),
@@ -627,8 +684,10 @@ Format responses concisely for Telegram. Use plain text with dashes/numbers for 
   // ────────────────────────────────────────────────────────────────────────────
   // 4m. extremep1.sdwan — SD-WAN Management
   // ────────────────────────────────────────────────────────────────────────────
+  // NOTE: ALL sdwan/* endpoints return 404 — SD-WAN service not provisioned for this account.
+  // These tools are registered for future use but none will work until SD-WAN is enabled.
   const sdwanTools = [
-    makeP1Tool('p1_sdwan_list_sites', 'List SD-WAN sites', 'GET', '/configuration/v1/sites', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_SDWAN_BASE),
+    makeP1Tool('p1_sdwan_list_sites', 'List SD-WAN sites (SD-WAN service not provisioned — returns 404)', 'GET', '/configuration/v1/sites', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_SDWAN_BASE),
     makeP1Tool('p1_sdwan_get_site_360', 'Get 360° view of an SD-WAN site', 'GET', '/monitoring/v1/sites/{id}/overview', { id: { type: 'string', description: 'SD-WAN site ID' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' } }, false, P1_SDWAN_BASE),
     makeP1Tool('p1_sdwan_list_appliances', 'List SD-WAN appliances', 'GET', '/onboarding/v1/appliances', { page: { type: 'number', description: 'Page number' }, limit: { type: 'number', description: 'Results per page' } }, false, P1_SDWAN_BASE),
     makeP1Tool('p1_sdwan_get_appliance_360', 'Get SD-WAN appliance health metrics', 'GET', '/monitoring/v1/appliances/{id}/overview', { id: { type: 'string', description: 'Appliance ID' }, startTime: { type: 'number', description: 'Start time (epoch milliseconds)' }, endTime: { type: 'number', description: 'End time (epoch milliseconds)' } }, false, P1_SDWAN_BASE),
@@ -861,17 +920,29 @@ OUTPUT FORMAT FOR DIAGRAMS: When p1_ap_client_distribution returns a result, the
   try {
     const learnedNotesMap: Record<string, string> = {
       [`${DOMAIN_PREFIX}.devices`]:
-        'Radio information endpoint requires numeric deviceIds as repeated query params (not comma-joined). Always call p1_list_devices first. Use p1_radio_quality_report composite tool which handles this automatically.',
+        'Radio information endpoint requires numeric deviceIds as repeated query params (not comma-joined). Always call p1_list_devices first. Use p1_radio_quality_report composite tool which handles this automatically. DLCS endpoint is POST /device-lifecycle/v1/devices with empty body {} - NOT /device-lifecycle/devices/fetch. Serial number lookup not available in this API tier — use p1_list_devices (xiq/v1 has serial_number field) or p1_list_asset_devices. MAC address lookup not available via DLCS — use keyword search in p1_list_devices. Device stats: /xiq/v1/devices/{id}/stats does NOT exist — use pm/v1/analytics/device-health instead.',
       [`${DOMAIN_PREFIX}.clients`]:
-        'For vendor/manufacturer filtering use p1_clients_by_vendor composite tool (handles OUI, hostname, os_type). For wired clients use p1_list_wired_clients_grid. views parameter: BASIC (default), FULL, CLIENT_DETAILS, HEALTH_STATUS.',
+        'CRITICAL: Never pass views=CLIENT_DETAILS, HEALTH_STATUS, or CONNECTION_INFO — all return 400. Valid views: omit entirely (basic fields: hostname/mac/os_type/ssid) OR views=FULL (adds vlan, device_name as AP hostname, rssi, snr, client_health). Use views=FULL for topology and health queries, no views for vendor detection. For vendor/manufacturer filtering use p1_clients_by_vendor composite tool (handles OUI, hostname, os_type). For wired clients use p1_list_wired_clients_grid (may return 502 if client/v1 service is down — use p1_list_active_clients as fallback). /xiq/v1/clients/{id}/details returns 404 — use /xiq/v1/clients/{id}?views=FULL instead.',
       [`${DOMAIN_PREFIX}.alerts`]:
-        'NEVER use sortField/order parameters — causes 400 BAD_REQUEST. Use severities filter (CRITICAL,MAJOR,MINOR,WARNING,INFO). Use p1_alert_summary composite for quick overview.',
+        'NEVER use sortField/order parameters — causes 400 BAD_REQUEST. Use severities filter (CRITICAL,MAJOR,MINOR,WARNING,INFO). Use p1_alert_summary composite for quick overview. count-by-group, severity-counts, and metadata endpoints do not exist. Use GET /alert/v1/alerts directly for alert listing. metastore/v1/events/* all return 404 — use alert/v1/alerts instead.',
       [`${DOMAIN_PREFIX}.monitoring`]:
         'NEVER guess locationId. Use p1_get_location_tree to find location IDs. All analytics are POST with JSON body. Time in epoch milliseconds. Granularity: HOUR, DAY, WEEK.',
       [`${DOMAIN_PREFIX}.composite`]:
         'Use p1_clients_by_vendor for Apple/Android/Windows client queries. Use p1_network_health_summary/p1_device_health_summary for health scores (auto-resolves location names). Use p1_topology_overview for SSID→VLAN mapping. Use p1_alert_summary for current alert status. Use p1_radio_quality_report for radio/signal/SNR metrics.',
       [`${DOMAIN_PREFIX}.configuration`]:
-        'VLAN resolution: list_network_policies → list_policy_ssids → get_user_profile (has VLAN ID). Use p1_topology_overview composite for automatic mapping. Never push policies without confirmation.',
+        'VLAN resolution: list_network_policies → list_policy_ssids → get_user_profile (has VLAN ID). Use p1_topology_overview composite for automatic mapping. Never push policies without confirmation. FIXED: vlan-profiles path is /xiq/v1/vlan-profiles (NOT /network/vlan-profiles). radius-servers endpoint 404 — use /xiq/v1/radius-client-objects instead. channel-plans endpoint 404 — no alternative found.',
+      [`${DOMAIN_PREFIX}.audit`]:
+        'me/activities endpoint is WRONG — use /auditlog/v1/my-activities (not /me/activities). All other audit endpoints work correctly.',
+      [`${DOMAIN_PREFIX}.assets`]:
+        'Correct endpoint is POST /assets/v1/devices with empty body {} (NOT /devices/fetch which returns 404). firmware-summary, hardware-lifecycle, subscriptions-summary sub-endpoints all return 404 — firmware info is in os_version field from POST /assets/v1/devices.',
+      [`${DOMAIN_PREFIX}.notifications`]:
+        'Correct paths: /notification/v1/email (not email-notifications), /notification/v1/webhook (not webhook-notifications), /notification/v1/servicenow (not servicenow-notifications). notification-rules endpoint does not exist.',
+      [`${DOMAIN_PREFIX}.topology`]:
+        'NVO topology service returns 404 for this account. Use p1_topology_overview composite which maps policies→SSIDs→clients via XIQ API. SD-WAN service also unavailable.',
+      [`${DOMAIN_PREFIX}.tagging`]:
+        'ALL tagging/v1/* endpoints return 404 — tagging service not provisioned for this account tier. Do not attempt tagging operations.',
+      [`${DOMAIN_PREFIX}.sdwan`]:
+        'ALL sdwan/* endpoints return 404 — SD-WAN service not provisioned for this account tier. Do not attempt SD-WAN operations.',
     };
 
     for (const [domain, note] of Object.entries(learnedNotesMap)) {
