@@ -1242,7 +1242,7 @@ export function buildTools(
             }
 
             // Step 5: Active clients — group by SSID, also collect IPs for subnet detection
-            const clients = await xiqGet(token, '/clients/active', { page: 1, limit: 100 });
+            const clients = await xiqGet(token, '/clients/active', { page: 1, limit: 100, views: 'FULL' });
             const clientsBySSID = new Map<string, number>();
             const ipsBySSID = new Map<string, string[]>();
             for (const c of clients as Array<Record<string, unknown>>) {
@@ -1536,9 +1536,9 @@ export function buildTools(
             const token = await getTokenH();
             if (!token) return { error: 'XIQ login failed' };
 
-            // Fetch active clients — no views parameter, basic fields work reliably
+            // views=FULL adds device_name (AP), rssi, snr, vlan, client_health
             const clients = await xiqGetH(token, '/clients/active', {
-              limit: 100,
+              limit: 100, views: 'FULL',
             }) as Array<Record<string, unknown>>;
 
             // Normalise and flatten the client records for dashboard table rendering
@@ -1547,10 +1547,11 @@ export function buildTools(
               mac_address: String(c['mac_address'] ?? ''),
               ip_address: String(c['ip_address'] ?? ''),
               ssid: String(c['ssid'] ?? ''),
-              connected_ap: String(c['connected_ap'] ?? c['ap_name'] ?? ''),
+              vlan: c['vlan'] ?? null,
+              connected_ap: String(c['device_name'] ?? c['connected_to'] ?? c['connected_ap'] ?? c['ap_name'] ?? ''),
               snr: Number(c['snr'] ?? 0),
               rssi: Number(c['rssi'] ?? 0),
-              health_score: Number(c['health_score'] ?? 0),
+              health_score: Number(c['client_health'] ?? c['health_score'] ?? 0),
               os_type: String(c['os_type'] ?? ''),
               channel: Number(c['channel'] ?? 0),
               health_category: String(c['health_category'] ?? (Number(c['health_score'] ?? 50) >= 70 ? 'GOOD' : Number(c['health_score'] ?? 50) >= 40 ? 'FAIR' : 'POOR')),
@@ -1562,7 +1563,7 @@ export function buildTools(
             let poorSignalCount = 0;
             for (const c of clientList) {
               if (c.ssid) bySsid[c.ssid] = (bySsid[c.ssid] ?? 0) + 1;
-              if (c.connected_ap) byAp[c.connected_ap] = (byAp[c.connected_ap] ?? 0) + 1;
+              const _apKey = c.connected_ap || ''; if (_apKey) byAp[_apKey] = (byAp[c.connected_ap] ?? 0) + 1;
               if (c.snr > 0 && c.snr < 20) poorSignalCount++;
             }
 
@@ -1705,7 +1706,7 @@ export function buildTools(
             let page = 1;
             const pageSize = 100;
             while (allClients.length < 1000) {
-              const resp = await xiqGetV(token, '/clients/active', { page, limit: pageSize }) as { data?: ClientRecord[]; total_count?: number } | null;
+              const resp = await xiqGetV(token, '/clients/active', { page, limit: pageSize, views: 'FULL' }) as { data?: ClientRecord[]; total_count?: number } | null;
               if (!resp) break;
               const batch = resp?.data ?? (Array.isArray(resp) ? (resp as ClientRecord[]) : []);
               if (batch.length === 0) break;
@@ -1720,7 +1721,7 @@ export function buildTools(
             let matched = allClients.filter(matchFn);
             if (apFilter) {
               matched = matched.filter((c) =>
-                String(c['connected_ap'] ?? c['ap_name'] ?? '').toLowerCase().includes(apFilter)
+                String(c['device_name'] ?? c['connected_to'] ?? c['connected_ap'] ?? c['ap_name'] ?? '').toLowerCase().includes(apFilter)
               );
             }
 
@@ -1739,7 +1740,7 @@ export function buildTools(
                 const clientId = c['id'] as number | undefined;
                 let snr = Number(c['snr'] ?? 0);
                 let rssi = Number(c['rssi'] ?? 0);
-                let healthScore = Number(c['health_score'] ?? 0);
+                let healthScore = Number(c['client_health'] ?? c['health_score'] ?? 0);
                 let channel = Number(c['channel'] ?? 0);
 
                 if (clientId && (snr === 0 || rssi === 0)) {
@@ -1785,7 +1786,7 @@ export function buildTools(
                   mac_address: String(c['mac_address'] ?? ''),
                   ip_address: String(c['ip_address'] ?? ''),
                   os_type: String(c['os_type'] ?? ''),
-                  connected_ap: String(c['connected_ap'] ?? c['ap_name'] ?? ''),
+                  connected_ap: String(c['device_name'] ?? c['connected_to'] ?? c['connected_ap'] ?? c['ap_name'] ?? ''),
                   ssid: String(c['ssid'] ?? ''),
                   snr,
                   rssi,
@@ -1812,7 +1813,7 @@ export function buildTools(
                 .sort((a, b) => b[1] - a[1])
                 .map(([os, count]) => ({ os_type: os, count })),
               ap_breakdown: enrichedClients.reduce((acc: Record<string, number>, c) => {
-                const ap = String(c['connected_ap'] ?? '');
+                const ap = String(c['device_name'] ?? c['connected_to'] ?? c['connected_ap'] ?? '');
                 if (ap) acc[ap] = (acc[ap] ?? 0) + 1;
                 return acc;
               }, {}),
@@ -2036,7 +2037,7 @@ export function buildTools(
               is_currently_connected: isCurrentlyConnected,
               status_message: statusMessage,
               current_connection: isCurrentlyConnected ? {
-                connected_ap: clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? details?.['connected_ap'] ?? null,
+                connected_ap: clientRecord!['device_name'] ?? clientRecord!['connected_to'] ?? clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? details?.['connected_ap'] ?? null,
                 ssid: clientRecord!['ssid'] ?? details?.['ssid'] ?? null,
                 ip_address: clientRecord!['ip_address'] ?? details?.['ip_address'] ?? null,
                 snr: extractMetric('snr', 'signal_to_noise_ratio'),
@@ -2046,7 +2047,7 @@ export function buildTools(
                 os_type: String(clientRecord!['os_type'] ?? details?.['os_type'] ?? ''),
               } : null,
               last_seen_at: isCurrentlyConnected ? new Date().toISOString() : (lastSeenAt ?? null),
-              last_seen_ap: isCurrentlyConnected ? String(clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? '') : (lastSeenAp ?? null),
+              last_seen_ap: isCurrentlyConnected ? String(clientRecord!['device_name'] ?? clientRecord!['connected_to'] ?? clientRecord!['connected_ap'] ?? clientRecord!['ap_name'] ?? '') : (lastSeenAp ?? null),
               last_seen_ssid: isCurrentlyConnected ? String(clientRecord!['ssid'] ?? '') : (lastSeenSsid ?? null),
               recent_events: events.slice(0, 50),
               details: detailsInfo,
@@ -2712,7 +2713,7 @@ export function buildTools(
             }
 
             // Fetch all active clients (paginated)
-            const allClients = await skGetAll(token, '/clients/active', 5);
+            const allClients = await skGetAll(token, '/clients/active', 5, { views: 'FULL' });
 
             // Build 5-level edges: Policy → AP → SSID → Maker → /24 Subnet
             const policyToAp  = new Map<string, Map<string, number>>();
@@ -2737,7 +2738,7 @@ export function buildTools(
               // Resolve AP name via device_id (exact field returned by XIQ /clients/active)
               const devId = (client['device_id'] ?? client['connected_ap_id']) as number | undefined;
               const ap = (devId ? (deviceMap.get(devId) ?? '') : '').trim() ||
-                         String(client['connected_ap'] ?? '').trim() || 'Unknown AP';
+                         String(client['device_name'] ?? client['connected_to'] ?? client['connected_ap'] ?? '').trim() || 'Unknown AP';
 
               const policyName = ssidToPolicy.get(ssid) ?? 'Unknown Policy';
               const maker = detectMakerPol(client);
@@ -2925,7 +2926,7 @@ export function buildTools(
             let allClients: AcsClient[] = [];
             let page = 1;
             while (allClients.length < 2000) {
-              const resp = await acsGet(token, '/clients/active', { page, limit: 100 }) as { data?: AcsClient[] } | AcsClient[] | null;
+              const resp = await acsGet(token, '/clients/active', { page, limit: 100, views: 'FULL' }) as { data?: AcsClient[] } | AcsClient[] | null;
               if (!resp) break;
               const batch: AcsClient[] = Array.isArray(resp) ? resp : ((resp as { data?: AcsClient[] }).data ?? []);
               if (batch.length === 0) break;
@@ -3282,7 +3283,7 @@ export function buildTools(
             type CrqClient = Record<string, unknown>;
             let foundClient: CrqClient | null = null;
             while (page <= 5 && !foundClient) {
-              const resp = await crqGet(token, '/clients/active', { page, limit: 100 }) as { data?: CrqClient[] } | CrqClient[] | null;
+              const resp = await crqGet(token, '/clients/active', { page, limit: 100, views: 'FULL' }) as { data?: CrqClient[] } | CrqClient[] | null;
               const batch: CrqClient[] = Array.isArray(resp) ? resp : ((resp as { data?: CrqClient[] })?.data ?? []);
               if (batch.length === 0) break;
               foundClient = batch.find((c) =>
@@ -3295,7 +3296,7 @@ export function buildTools(
             if (!foundClient) return { error: `No active client found matching "${hostname}"` };
 
             const clientMac = String(foundClient['mac_address'] ?? '');
-            const connectedAp = String(foundClient['connected_ap'] ?? foundClient['ap_name'] ?? '').trim();
+            const connectedAp = String(foundClient['device_name'] ?? foundClient['connected_to'] ?? foundClient['connected_ap'] ?? foundClient['ap_name'] ?? '').trim();
             const clientSignal = {
               hostname: foundClient['hostname'],
               mac: clientMac,
@@ -3404,7 +3405,7 @@ export function buildTools(
               type CchClient = Record<string, unknown>;
               let foundClient: CchClient | null = null;
               while (page <= 5 && !foundClient) {
-                const resp = await cchGet(token, '/clients/active', { page, limit: 100 }) as { data?: CchClient[] } | CchClient[] | null;
+                const resp = await cchGet(token, '/clients/active', { page, limit: 100, views: 'FULL' }) as { data?: CchClient[] } | CchClient[] | null;
                 const batch: CchClient[] = Array.isArray(resp) ? resp : ((resp as { data?: CchClient[] })?.data ?? []);
                 if (batch.length === 0) break;
                 foundClient = batch.find((c) =>
