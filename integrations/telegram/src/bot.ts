@@ -596,10 +596,30 @@ bot.on('message:text', async (ctx) => {
   }
 
   // Default: route through coordinator for intelligent intent routing.
-  // If there's a pending follow-up from a direct @agent response, inject context
-  // so the coordinator knows what the agent was asking about.
+  // If there's a pending follow-up from a direct @agent response, route the reply
+  // directly back to the same agent with full context so it can execute the
+  // approved action — going through the coordinator loses the intent.
+  if (ctx.session.pendingAgentQuestion && ctx.session.lastAgentId) {
+    const question = ctx.session.pendingAgentQuestion;
+    const agentName = ctx.session.lastAgentName ?? 'the agent';
+    const returnAgentId = ctx.session.lastAgentId;
+    ctx.session.pendingAgentQuestion = undefined;
+    ctx.session.lastAgentName = undefined;
+    // Build a context-rich input so the agent understands what was approved
+    const enrichedInput =
+      `[APPROVAL CONTEXT: You previously asked the user: "${question}". ` +
+      `The user has now replied: "${input}". ` +
+      `If this is a confirmation (yes/ok/sure/proceed/go ahead/do it), execute the action you described. ` +
+      `If this is a rejection (no/cancel/stop/don't), confirm the cancellation politely.]\n\n` +
+      `User reply: ${input}`;
+    await routeToAgent(ctx, enrichedInput, returnAgentId);
+    return;
+  }
+
+  // No pending question — standard coordinator routing
   let coordinatorInput = input;
   if (ctx.session.pendingAgentQuestion && ctx.session.lastAgentName) {
+    // Fallback: coordinator with context (no lastAgentId available)
     const question = ctx.session.pendingAgentQuestion;
     const agentName = ctx.session.lastAgentName;
     coordinatorInput = `[Context: @${agentName} just completed a task and asked: "${question}"]\nUser reply: ${input}`;
@@ -761,9 +781,11 @@ async function backgroundPoll(chatId: number, requestId: string, sessionRef?: Se
           sessionRef.pendingInputRequestId = undefined;
         }
 
-        // Check if the output ends with a question — if so, track it for context injection
+        // Check if the output ends with a question — if so, track it for context injection.
+        // Store the FULL output (up to 800 chars) not just the last question sentence,
+        // so the agent gets full context of what it was doing when the user replies.
         if (sessionRef && looksLikeQuestion(text)) {
-          sessionRef.pendingAgentQuestion = extractQuestion(text);
+          sessionRef.pendingAgentQuestion = text.slice(-800).trim();
           // Try to find agent name from cache for context injection
           const agentId = sessionRef.lastAgentId ?? statusData.data?.agentId;
           let agentName: string | undefined;
