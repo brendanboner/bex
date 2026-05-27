@@ -221,25 +221,33 @@ export function buildTools(
           // Step 1: Get access_token — use cache to avoid re-logging in on every call
           let accessToken = getCachedToken(credentialId);
           if (!accessToken) {
-            // Resolve username/password from vault and login
             const creds = await vault.resolve(credentialId, agentPermissions);
-            // Support both bex-init key names (xiq_username/xiq_password) and canonical (username/password)
-            const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
-            const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
-
-            const loginResp = await fetch(loginUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({ username, password }),
-            });
-            if (!loginResp.ok) {
-              return { error: `ExtremeCloud IQ login failed: ${loginResp.status}` };
+            // EP1 API tokens work directly as Bearer on api.extremecloudiq.com — no login step needed.
+            // If the credential has an api_token field (EP1 credential assigned to a XIQ skill),
+            // use it directly and skip the login round-trip.
+            const directToken = String(creds['api_token'] ?? creds['p1_api_token'] ?? creds['extremep1_api_token'] ?? '');
+            if (directToken) {
+              accessToken = directToken;
+              setCachedToken(credentialId, directToken, 82800);
+              console.info(`[xiq_http_call] Using EP1 API token directly (no login) for credential ${credentialId}`);
+            } else {
+              // Legacy path: username/password login
+              const username = String(creds['username'] ?? creds['xiq_username'] ?? '');
+              const password = String(creds['password'] ?? creds['xiq_password'] ?? '');
+              const loginResp = await fetch(loginUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!loginResp.ok) {
+                return { error: `ExtremeCloud IQ login failed: ${loginResp.status}` };
+              }
+              const loginData = await loginResp.json() as { access_token?: string; expires_in?: number };
+              accessToken = loginData.access_token ?? null;
+              if (!accessToken) return { error: 'No access_token in ExtremeCloud IQ login response' };
+              setCachedToken(credentialId, accessToken, loginData.expires_in ?? 82800);
+              console.info(`[xiq_http_call] Logged in, token cached for credential ${credentialId}`);
             }
-            const loginData = await loginResp.json() as { access_token?: string; expires_in?: number };
-            accessToken = loginData.access_token ?? null;
-            if (!accessToken) return { error: 'No access_token in ExtremeCloud IQ login response' };
-            setCachedToken(credentialId, accessToken, loginData.expires_in ?? 82800);
-            console.info(`[xiq_http_call] Logged in, token cached for credential ${credentialId}`);
           }
 
           // Step 2: Build URL — replace {param} placeholders, drop empty optional params

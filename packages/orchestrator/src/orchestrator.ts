@@ -418,13 +418,15 @@ export class OrchestratorService {
       for (const s of linkedSkills) {
         // Detect requiredCredentialType from skill field OR from tool handlerTypes in the skill
         let credType = s.requiredCredentialType as string | null | undefined;
+        let isXiqSkill = false;
         if (!credType) {
           const tools = (s.tools as Array<Record<string, unknown>>) ?? [];
-          const hasXiqTool = tools.some((t) => ['xiq_http_call', 'xiq_topology_report', 'xiq_radio_quality_report', 'xiq_client_snapshot', 'xiq_client_health_report'].includes(t['handlerType'] as string));
+          const hasXiqTool = tools.some((t) => ['xiq_http_call', 'xiq_topology_report', 'xiq_radio_quality_report', 'xiq_client_snapshot', 'xiq_client_health_report', 'xiq_client_connection_history', 'xiq_wireless_performance_all_locations', 'xiq_network_health', 'xiq_device_health', 'xiq_policy_sankey', 'xiq_ap_client_sankey', 'xiq_client_health_report', 'xiq_clients_by_vendor', 'xiq_radio_quality_report', 'xciq_http_call'].includes(t['handlerType'] as string));
           const hasXcoTool = tools.some((t) => t['handlerType'] === 'xco_http_call');
           const hasP1Tool = tools.some((t) => String(t['handlerType'] ?? '').startsWith('p1_'));
           if (hasXiqTool || hasXcoTool) credType = 'USERNAME_PASSWORD';
           if (hasP1Tool) credType = 'API_TOKEN';
+          isXiqSkill = hasXiqTool;
         }
         // Guard: skip if credType is not a valid Prisma CredentialType enum value
         if (!credType || !VALID_CRED_TYPES.has(credType)) {
@@ -465,6 +467,18 @@ export class OrchestratorService {
         if (cred) {
           domainCredMap[s.domain] = cred.id;
           console.info(`[orchestrator] Resolved credential for domain ${s.domain} → ${cred.id}`);
+        } else if (isXiqSkill) {
+          // XIQ skills (xiq_http_call handlers) also work with the EP1 API token —
+          // the EP1 token is a valid Bearer token on api.extremecloudiq.com with no login needed.
+          // Fall back to it when no XIQ username/password credential exists.
+          const ep1Fallback = await this.prisma.credential.findFirst({
+            where: { scope: 'SYSTEM', credentialType: 'API_TOKEN', name: { contains: 'extremep1', mode: 'insensitive' as const } },
+            select: { id: true },
+          });
+          if (ep1Fallback) {
+            domainCredMap[s.domain] = ep1Fallback.id;
+            console.info(`[orchestrator] Using EP1 API token as fallback for XIQ domain ${s.domain} → ${ep1Fallback.id}`);
+          }
         }
       }
 
