@@ -819,11 +819,21 @@ async function backgroundPoll(chatId: number, requestId: string, sessionRef?: Se
       if (status === 'AWAITING_INPUT') {
         const question = inputPrompt ?? output ?? 'The agent is waiting for your input.';
         await safeSendDirect(chatId, question);
-        // Store the request ID so the next message is routed as a reply
+        // Store the request ID in session AND in the file so it survives bot restarts.
+        // The scheduler only writes the file for scheduled jobs; we write it here for
+        // direct API requests so the reply is routed correctly even after a restart.
         if (sessionRef) {
           sessionRef.pendingInputRequestId = requestId;
           sessionRef.pendingAgentQuestion = undefined;
         }
+        try {
+          const existing = existsSync(PENDING_INPUT_FILE)
+            ? (JSON.parse(readFileSync(PENDING_INPUT_FILE, 'utf8')) as Array<{ chatId: number; requestId: string }>)
+            : [];
+          const updated = existing.filter((e) => e.chatId !== chatId);
+          updated.push({ chatId, requestId });
+          writeFileSync(PENDING_INPUT_FILE, JSON.stringify(updated, null, 2));
+        } catch { /* non-fatal — session fallback still works */ }
         return;
       }
 

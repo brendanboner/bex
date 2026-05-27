@@ -391,7 +391,16 @@ export function buildTools(
             },
           };
           if (method !== 'GET' && method !== 'HEAD') {
-            p1FetchOpts.body = JSON.stringify(args);
+            // Parse any string fields that look like JSON arrays/objects (LLM may stringify them)
+            const bodyArgs: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(args)) {
+              if (typeof v === 'string' && (v.startsWith('[') || v.startsWith('{'))) {
+                try { bodyArgs[k] = JSON.parse(v); } catch { bodyArgs[k] = v; }
+              } else {
+                bodyArgs[k] = v;
+              }
+            }
+            p1FetchOpts.body = JSON.stringify(bodyArgs);
           }
           const p1Resp = await fetch(url, p1FetchOpts);
           const p1Text = await p1Resp.text();
