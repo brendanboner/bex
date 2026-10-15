@@ -9,7 +9,7 @@
 **Requires:** Node.js 20+ and Docker
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/extremenetworks-emu/bex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/brendanboner/bex/main/install.sh | bash
 ```
 
 The script checks your prerequisites, clones the repo, builds everything, and launches the setup wizard. Dashboard is live at **http://localhost:3000** when done.
