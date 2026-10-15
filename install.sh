@@ -2,24 +2,32 @@
 # Forge (BEX) — one-line installer
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/extremenetworks-emu/bex/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/brendanboner/bex/main/install.sh | bash
 #
 # Options (env vars):
 #   BEX_DIR   — install directory (default: ~/bex)
-#   BEX_REPO  — git repo to clone (default: https://github.com/extremenetworks-emu/bex.git)
+#   BEX_REPO  — git repo to clone (default: https://github.com/brendanboner/bex.git)
 
 set -euo pipefail
 
 # ── Colours ──────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; RESET='\033[0m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+RESET='\033[0m'
 
-info()    { echo -e "${CYAN}  →${RESET} $*"; }
+info() { echo -e "${CYAN}  →${RESET} $*"; }
 success() { echo -e "${GREEN}  ✓${RESET} $*"; }
-warn()    { echo -e "${YELLOW}  ⚠${RESET} $*"; }
-error()   { echo -e "${RED}  ✗ ERROR:${RESET} $*" >&2; }
-die()     { error "$*"; exit 1; }
-hr()      { echo -e "${DIM}  ─────────────────────────────────────────────${RESET}"; }
+warn() { echo -e "${YELLOW}  ⚠${RESET} $*"; }
+error() { echo -e "${RED}  ✗ ERROR:${RESET} $*" >&2; }
+die() {
+  error "$*"
+  exit 1
+}
+hr() { echo -e "${DIM}  ─────────────────────────────────────────────${RESET}"; }
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 echo ""
@@ -32,19 +40,19 @@ echo -e "${RESET}"
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 INSTALL_DIR="${BEX_DIR:-$HOME/bex}"
-REPO="${BEX_REPO:-https://github.com/extremenetworks-emu/bex.git}"
+REPO="${BEX_REPO:-https://github.com/brendanboner/bex.git}"
 
 for arg in "$@"; do
   case $arg in
-    --dir=*) INSTALL_DIR="${arg#*=}" ;;
-    --repo=*) REPO="${arg#*=}" ;;
-    --help|-h)
-      echo "Usage: bash install.sh [--dir=PATH] [--repo=URL]"
-      echo ""
-      echo "  --dir=PATH   Install directory (default: ~/bex)"
-      echo "  --repo=URL   Git repo URL (default: GitHub)"
-      exit 0
-      ;;
+  --dir=*) INSTALL_DIR="${arg#*=}" ;;
+  --repo=*) REPO="${arg#*=}" ;;
+  --help | -h)
+    echo "Usage: bash install.sh [--dir=PATH] [--repo=URL]"
+    echo ""
+    echo "  --dir=PATH   Install directory (default: ~/bex)"
+    echo "  --repo=URL   Git repo URL (default: GitHub)"
+    exit 0
+    ;;
   esac
 done
 
@@ -124,7 +132,7 @@ npm run build --silent 2>&1 | grep -E "Tasks:|error" | head -5 || true
 
 info "Linking bex CLI globally…"
 chmod +x packages/cli/dist/bin/bex.js
-(cd packages/cli && npm link --force --loglevel=error --no-audit > /dev/null 2>&1)
+(cd packages/cli && npm link --force --loglevel=error --no-audit >/dev/null 2>&1)
 
 success "Build complete"
 echo ""
@@ -145,16 +153,18 @@ if ! command -v bex &>/dev/null; then
   # Auto-append if interactive shell (not piped)
   if [ -t 0 ]; then
     SHELL_RC=""
-    if [ -f "$HOME/.zshrc" ]; then SHELL_RC="$HOME/.zshrc"
-    elif [ -f "$HOME/.bashrc" ]; then SHELL_RC="$HOME/.bashrc"
+    if [ -f "$HOME/.zshrc" ]; then
+      SHELL_RC="$HOME/.zshrc"
+    elif [ -f "$HOME/.bashrc" ]; then
+      SHELL_RC="$HOME/.bashrc"
     fi
     if [ -n "$SHELL_RC" ]; then
       read -r -p "  Add PATH entry to $SHELL_RC automatically? [Y/n] " ADD_PATH
       ADD_PATH="${ADD_PATH:-Y}"
       if [[ "$ADD_PATH" =~ ^[Yy]$ ]]; then
-        echo "" >> "$SHELL_RC"
-        echo "# Forge (bex) CLI" >> "$SHELL_RC"
-        echo "export PATH=\"$NPM_BIN:\$PATH\"" >> "$SHELL_RC"
+        echo "" >>"$SHELL_RC"
+        echo "# Forge (bex) CLI" >>"$SHELL_RC"
+        echo "export PATH=\"$NPM_BIN:\$PATH\"" >>"$SHELL_RC"
         success "PATH updated in $SHELL_RC"
         export PATH="$NPM_BIN:$PATH"
       fi
